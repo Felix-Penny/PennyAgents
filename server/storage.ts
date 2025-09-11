@@ -189,20 +189,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getIncidents(storeId?: string, limit = 50): Promise<IncidentWithRelations[]> {
-    const query = db
+    let query = db
       .select()
       .from(incidents)
       .innerJoin(stores, eq(incidents.storeId, stores.id))
       .leftJoin(cameras, eq(incidents.cameraId, cameras.id))
-      .leftJoin(offenders, eq(incidents.offenderId, offenders.id))
-      .orderBy(desc(incidents.createdAt))
-      .limit(limit);
+      .leftJoin(offenders, eq(incidents.offenderId, offenders.id));
 
     if (storeId) {
-      query.where(eq(incidents.storeId, storeId));
+      query = query.where(eq(incidents.storeId, storeId));
     }
 
-    const result = await query;
+    const result = await query
+      .orderBy(desc(incidents.createdAt))
+      .limit(limit);
     
     // Get alerts for each incident
     const incidentIds = result.map(row => row.incidents.id);
@@ -318,19 +318,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getActiveAlerts(storeId?: string): Promise<AlertWithRelations[]> {
+    const conditions = [
+      eq(alerts.isActive, true),
+      eq(alerts.isRead, false)
+    ];
+    
+    if (storeId) {
+      conditions.push(eq(alerts.storeId, storeId));
+    }
+    
     const query = db
       .select()
       .from(alerts)
       .innerJoin(stores, eq(alerts.storeId, stores.id))
       .leftJoin(incidents, eq(alerts.incidentId, incidents.id))
       .leftJoin(cameras, eq(alerts.cameraId, cameras.id))
-      .where(
-        and(
-          eq(alerts.isActive, true),
-          eq(alerts.isRead, false),
-          storeId ? eq(alerts.storeId, storeId) : undefined
-        )
-      )
+      .where(and(...conditions))
       .orderBy(desc(alerts.createdAt));
 
     const result = await query;
@@ -343,20 +346,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAlerts(storeId?: string, limit = 50): Promise<AlertWithRelations[]> {
-    const query = db
+    let query = db
       .select()
       .from(alerts)
       .innerJoin(stores, eq(alerts.storeId, stores.id))
       .leftJoin(incidents, eq(alerts.incidentId, incidents.id))
-      .leftJoin(cameras, eq(alerts.cameraId, cameras.id))
-      .orderBy(desc(alerts.createdAt))
-      .limit(limit);
+      .leftJoin(cameras, eq(alerts.cameraId, cameras.id));
 
     if (storeId) {
-      query.where(eq(alerts.storeId, storeId));
+      query = query.where(eq(alerts.storeId, storeId));
     }
 
-    const result = await query;
+    const result = await query
+      .orderBy(desc(alerts.createdAt))
+      .limit(limit);
     return result.map(row => ({
       ...row.alerts,
       store: row.stores,
