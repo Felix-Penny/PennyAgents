@@ -127,7 +127,7 @@ export class DatabaseStorage implements IStorage {
   async createCamera(camera: InsertCamera): Promise<Camera> {
     const [newCamera] = await db
       .insert(cameras)
-      .values(camera)
+      .values([camera])
       .returning();
     return newCamera;
   }
@@ -156,17 +156,13 @@ export class DatabaseStorage implements IStorage {
   async createOffender(offender: InsertOffender): Promise<Offender> {
     const [newOffender] = await db
       .insert(offenders)
-      .values(offender)
+      .values([offender])
       .returning();
     return newOffender;
   }
 
   async updateOffender(id: string, updates: Partial<InsertOffender>): Promise<Offender | undefined> {
     const updateData = { ...updates, updatedAt: new Date() };
-    // Ensure aliases is properly typed as string[] if provided
-    if (updateData.aliases && Array.isArray(updateData.aliases)) {
-      updateData.aliases = updateData.aliases as string[];
-    }
     const [updatedOffender] = await db
       .update(offenders)
       .set(updateData)
@@ -255,20 +251,13 @@ export class DatabaseStorage implements IStorage {
   async createIncident(incident: InsertIncident): Promise<Incident> {
     const [newIncident] = await db
       .insert(incidents)
-      .values(incident)
+      .values([incident])
       .returning();
     return newIncident;
   }
 
   async updateIncident(id: string, updates: Partial<InsertIncident>): Promise<Incident | undefined> {
     const updateData = { ...updates, updatedAt: new Date() };
-    // Ensure array fields are properly typed if provided
-    if (updateData.evidenceUrls && Array.isArray(updateData.evidenceUrls)) {
-      updateData.evidenceUrls = updateData.evidenceUrls as string[];
-    }
-    if (updateData.detectionMethods && Array.isArray(updateData.detectionMethods)) {
-      updateData.detectionMethods = updateData.detectionMethods as string[];
-    }
     const [updatedIncident] = await db
       .update(incidents)
       .set(updateData)
@@ -379,7 +368,7 @@ export class DatabaseStorage implements IStorage {
   async createAlert(alert: InsertAlert): Promise<Alert> {
     const [newAlert] = await db
       .insert(alerts)
-      .values(alert)
+      .values([alert])
       .returning();
     return newAlert;
   }
