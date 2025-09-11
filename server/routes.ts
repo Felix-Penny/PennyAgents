@@ -259,8 +259,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         title: `${validatedData.type.toUpperCase()} DETECTED`,
         message: validatedData.description || 'Security incident detected',
         metadata: {
-          confidence: validatedData.confidence,
-          detectionMethods: validatedData.detectionMethods
+          confidence: validatedData.confidence?.toString(),
+          detectionMethods: validatedData.detectionMethods || []
         }
       });
 
@@ -413,7 +413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type,
         description: `Simulated ${type} detection`,
         severity,
-        confidence: Math.floor(Math.random() * 20) + 80, // 80-99%
+        confidence: (Math.floor(Math.random() * 20) + 80).toString(), // 80-99%
         detectionMethods: ['object_detection', 'behavior_analysis']
       });
 

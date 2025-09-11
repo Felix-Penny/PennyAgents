@@ -162,9 +162,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateOffender(id: string, updates: Partial<InsertOffender>): Promise<Offender | undefined> {
+    const updateData = { ...updates, updatedAt: new Date() };
+    // Ensure aliases is properly typed as string[] if provided
+    if (updateData.aliases && Array.isArray(updateData.aliases)) {
+      updateData.aliases = updateData.aliases as string[];
+    }
     const [updatedOffender] = await db
       .update(offenders)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(offenders.id, id))
       .returning();
     return updatedOffender || undefined;
@@ -256,9 +261,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateIncident(id: string, updates: Partial<InsertIncident>): Promise<Incident | undefined> {
+    const updateData = { ...updates, updatedAt: new Date() };
+    // Ensure array fields are properly typed if provided
+    if (updateData.evidenceUrls && Array.isArray(updateData.evidenceUrls)) {
+      updateData.evidenceUrls = updateData.evidenceUrls as string[];
+    }
+    if (updateData.detectionMethods && Array.isArray(updateData.detectionMethods)) {
+      updateData.detectionMethods = updateData.detectionMethods as string[];
+    }
     const [updatedIncident] = await db
       .update(incidents)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(incidents.id, id))
       .returning();
     return updatedIncident || undefined;

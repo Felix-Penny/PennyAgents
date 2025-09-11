@@ -62,8 +62,10 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     }
   };
 
+  const contextValue = { socket, isConnected, sendMessage };
+
   return (
-    <WebSocketContext.Provider value={{ socket, isConnected, sendMessage }}>
+    <WebSocketContext.Provider value={contextValue}>
       {children}
     </WebSocketContext.Provider>
   );
