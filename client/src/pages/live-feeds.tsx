@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Search, Settings, Grid, List, Filter } from "lucide-react";
 import { useState } from "react";
+import type { CameraWithStore } from "@shared/schema";
 
 export default function LiveFeeds() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -25,7 +26,7 @@ export default function LiveFeeds() {
     queryFn: () => fetch('/api/alerts?active=true&storeId=store-1').then(res => res.json())
   });
 
-  const filteredCameras = cameras.filter(camera => {
+  const filteredCameras = cameras.filter((camera: CameraWithStore) => {
     const matchesSearch = camera.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          camera.location.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = filterStatus === 'all' || camera.status === filterStatus;
@@ -59,7 +60,7 @@ export default function LiveFeeds() {
                 <div>
                   <CardTitle className="text-xl">Camera Management</CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    {cameras.filter(c => c.status === 'online').length} of {cameras.length} cameras online
+                    {cameras.filter((c: CameraWithStore) => c.status === 'online').length} of {cameras.length} cameras online
                   </p>
                 </div>
                 
@@ -121,7 +122,7 @@ export default function LiveFeeds() {
             <CardContent>
               {viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {filteredCameras.map((camera, index) => (
+                  {filteredCameras.map((camera: CameraWithStore, index: number) => (
                     <div key={camera.id} className="relative">
                       <CameraFeed
                         camera={camera}
@@ -137,7 +138,7 @@ export default function LiveFeeds() {
                         </div>
                         <Badge 
                           variant="outline" 
-                          className={`text-white ${getStatusColor(camera.status)}`}
+                          className={`text-white ${getStatusColor(camera.status || 'offline')}`}
                         >
                           {camera.status}
                         </Badge>
@@ -147,7 +148,7 @@ export default function LiveFeeds() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {filteredCameras.map((camera, index) => (
+                  {filteredCameras.map((camera: CameraWithStore, index: number) => (
                     <div key={camera.id} className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
                       <div className="flex items-center gap-4">
                         <div className="w-16 h-12 relative">
@@ -175,7 +176,7 @@ export default function LiveFeeds() {
                         </div>
                         <Badge 
                           variant="outline" 
-                          className={`text-white ${getStatusColor(camera.status)}`}
+                          className={`text-white ${getStatusColor(camera.status || 'offline')}`}
                         >
                           {camera.status}
                         </Badge>

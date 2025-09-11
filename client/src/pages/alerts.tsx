@@ -58,7 +58,7 @@ export default function Alerts() {
     }
   });
 
-  const filteredAlerts = allAlerts.filter(alert => {
+  const filteredAlerts = allAlerts.filter((alert: AlertWithRelations) => {
     const matchesSearch = alert.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          alert.message.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = filterType === 'all' || alert.type === filterType;
@@ -129,7 +129,7 @@ export default function Alerts() {
                   <div>
                     <p className="text-sm text-muted-foreground">Critical Alerts</p>
                     <p className="text-2xl font-bold text-orange-500">
-                      {activeAlerts.filter(a => a.severity === 'critical').length}
+                      {activeAlerts.filter((a: AlertWithRelations) => a.severity === 'critical').length}
                     </p>
                   </div>
                   <XCircle className="h-8 w-8 text-orange-500" />
@@ -143,9 +143,9 @@ export default function Alerts() {
                   <div>
                     <p className="text-sm text-muted-foreground">Resolved Today</p>
                     <p className="text-2xl font-bold text-green-500">
-                      {allAlerts.filter(a => 
+                      {allAlerts.filter((a: AlertWithRelations) => 
                         !a.isActive && 
-                        new Date(a.createdAt).toDateString() === new Date().toDateString()
+                        a.createdAt && new Date(a.createdAt).toDateString() === new Date().toDateString()
                       ).length}
                     </p>
                   </div>
@@ -231,7 +231,7 @@ export default function Alerts() {
                     </TabsList>
                     
                     <TabsContent value="all" className="space-y-3">
-                      {filteredAlerts.map((alert) => (
+                      {filteredAlerts.map((alert: AlertWithRelations) => (
                         <div 
                           key={alert.id} 
                           className={`flex items-start space-x-3 p-4 rounded-lg border cursor-pointer transition-colors hover:bg-muted/50 ${
@@ -241,7 +241,7 @@ export default function Alerts() {
                           data-testid={`alert-item-${alert.id}`}
                         >
                           <div className="flex-shrink-0 mt-1">
-                            {getAlertIcon(alert.type, alert.severity)}
+                            {getAlertIcon(alert.type, alert.severity || 'medium')}
                           </div>
                           
                           <div className="flex-1 min-w-0">
@@ -252,7 +252,7 @@ export default function Alerts() {
                                 <div className="flex items-center gap-2 mt-2">
                                   <Badge 
                                     variant="outline" 
-                                    className={`text-white ${getSeverityColor(alert.severity)}`}
+                                    className={`text-white ${getSeverityColor(alert.severity || 'medium')}`}
                                   >
                                     {alert.severity}
                                   </Badge>
@@ -269,7 +269,7 @@ export default function Alerts() {
                               
                               <div className="flex flex-col items-end gap-2">
                                 <span className="text-xs text-muted-foreground">
-                                  {new Date(alert.createdAt).toLocaleString()}
+                                  {alert.createdAt ? new Date(alert.createdAt).toLocaleString() : 'Unknown'}
                                 </span>
                                 {!alert.isRead && (
                                   <Button 
@@ -292,7 +292,7 @@ export default function Alerts() {
                     </TabsContent>
                     
                     <TabsContent value="unread" className="space-y-3">
-                      {filteredAlerts.filter(a => !a.isRead).map((alert) => (
+                      {filteredAlerts.filter((a: AlertWithRelations) => !a.isRead).map((alert: AlertWithRelations) => (
                         <div 
                           key={alert.id} 
                           className="flex items-start space-x-3 p-4 bg-muted/30 border border-primary/30 rounded-lg cursor-pointer"
@@ -301,7 +301,7 @@ export default function Alerts() {
                         >
                           {/* Same content as above */}
                           <div className="flex-shrink-0 mt-1">
-                            {getAlertIcon(alert.type, alert.severity)}
+                            {getAlertIcon(alert.type, alert.severity || 'medium')}
                           </div>
                           <div className="flex-1">
                             <h3 className="font-medium text-foreground">{alert.title}</h3>
@@ -312,7 +312,7 @@ export default function Alerts() {
                     </TabsContent>
                     
                     <TabsContent value="archived" className="space-y-3">
-                      {filteredAlerts.filter(a => !a.isActive).map((alert) => (
+                      {filteredAlerts.filter((a: AlertWithRelations) => !a.isActive).map((alert: AlertWithRelations) => (
                         <div 
                           key={alert.id} 
                           className="flex items-start space-x-3 p-4 bg-muted/10 rounded-lg opacity-75"
@@ -323,7 +323,7 @@ export default function Alerts() {
                             <h3 className="font-medium text-foreground">{alert.title}</h3>
                             <p className="text-sm text-muted-foreground">{alert.message}</p>
                             <span className="text-xs text-muted-foreground">
-                              Archived • {new Date(alert.createdAt).toLocaleString()}
+                              Archived • {alert.createdAt ? new Date(alert.createdAt).toLocaleString() : 'Unknown'}
                             </span>
                           </div>
                         </div>

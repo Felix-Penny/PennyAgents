@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { Bell, TriangleAlert, Users, ShieldCheck } from "lucide-react";
+import type { CameraWithStore, IncidentWithRelations } from "@shared/schema";
 
 export default function Dashboard() {
   const { data: cameras = [] } = useQuery({
@@ -68,7 +69,7 @@ export default function Dashboard() {
         <div className="flex-1 overflow-auto p-6 space-y-6">
           {/* Real-time Stats */}
           <StatsOverview 
-            activeCameras={cameras.filter(c => c.status === 'online').length}
+            activeCameras={cameras.filter((c: CameraWithStore) => c.status === 'online').length}
             todayIncidents={stats?.today || 0}
             preventionRate={preventionRate?.rate || 0}
             networkStores={127}
@@ -91,7 +92,7 @@ export default function Dashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                    {cameras.slice(0, 6).map((camera, index) => (
+                    {cameras.slice(0, 6).map((camera: CameraWithStore, index: number) => (
                       <CameraFeed
                         key={camera.id}
                         camera={camera}
@@ -243,7 +244,7 @@ export default function Dashboard() {
                 </Button>
               </CardHeader>
               <CardContent className="space-y-3">
-                {incidents.slice(0, 3).map((incident) => (
+                {incidents.slice(0, 3).map((incident: IncidentWithRelations) => (
                   <div key={incident.id} className="flex items-start space-x-3 p-3 bg-muted/50 rounded-lg">
                     <div className="w-8 h-8 bg-destructive/10 rounded-full flex items-center justify-center">
                       <TriangleAlert className="h-4 w-4 text-destructive" />
@@ -252,7 +253,7 @@ export default function Dashboard() {
                       <p className="text-sm font-medium text-foreground">{incident.type}</p>
                       <p className="text-xs text-muted-foreground truncate">{incident.description}</p>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(incident.createdAt).toLocaleString()}
+                        {incident.createdAt ? new Date(incident.createdAt).toLocaleString() : 'Unknown'}
                       </p>
                     </div>
                     <Badge 

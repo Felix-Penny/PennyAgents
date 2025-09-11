@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MapPin, Users, Share2, AlertTriangle, DollarSign, Clock, Search, Filter, Building2 } from "lucide-react";
 import { useState } from "react";
+import type { Offender } from "@shared/schema";
 
 export default function Network() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -304,7 +305,7 @@ export default function Network() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {offenders.slice(0, 8).map((offender) => (
+                    {offenders.slice(0, 8).map((offender: Offender) => (
                       <div 
                         key={offender.id} 
                         className="flex items-center justify-between p-4 bg-muted/30 rounded-lg"
@@ -406,9 +407,9 @@ export default function Network() {
                 <CardContent>
                   <div className="space-y-3">
                     {offenders
-                      .filter(o => parseFloat(o.totalDebt || '0') > 0)
+                      .filter((o: Offender) => parseFloat(o.totalDebt || '0') > 0)
                       .slice(0, 6)
-                      .map((offender) => (
+                      .map((offender: Offender) => (
                         <div 
                           key={offender.id} 
                           className="flex items-center justify-between p-3 bg-red-500/10 border border-red-500/20 rounded-lg"

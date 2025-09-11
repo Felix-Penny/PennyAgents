@@ -117,7 +117,7 @@ export default function Offenders() {
                   <div>
                     <p className="text-sm text-muted-foreground">High Risk</p>
                     <p className="text-2xl font-bold text-orange-500">
-                      {offenders.filter(o => o.riskLevel === 'high' || o.riskLevel === 'extreme').length}
+                      {offenders.filter((o: Offender) => o.riskLevel === 'high' || o.riskLevel === 'extreme').length}
                     </p>
                   </div>
                   <AlertTriangle className="h-8 w-8 text-orange-500" />
@@ -131,7 +131,7 @@ export default function Offenders() {
                   <div>
                     <p className="text-sm text-muted-foreground">Total Debt</p>
                     <p className="text-2xl font-bold text-red-500">
-                      ${offenders.reduce((sum, o) => sum + parseFloat(o.totalDebt || '0'), 0).toLocaleString()}
+                      ${offenders.reduce((sum: number, o: Offender) => sum + parseFloat(o.totalDebt || '0'), 0).toLocaleString()}
                     </p>
                   </div>
                   <DollarSign className="h-8 w-8 text-red-500" />
@@ -145,7 +145,7 @@ export default function Offenders() {
                   <div>
                     <p className="text-sm text-muted-foreground">Recent Activity</p>
                     <p className="text-2xl font-bold text-blue-500">
-                      {offenders.filter(o => 
+                      {offenders.filter((o: Offender) => 
                         o.lastSeenAt && 
                         new Date(o.lastSeenAt) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
                       ).length}
@@ -196,7 +196,7 @@ export default function Offenders() {
                                 <FormItem>
                                   <FormLabel>First Name</FormLabel>
                                   <FormControl>
-                                    <Input {...field} data-testid="input-first-name" />
+                                    <Input {...field} value={field.value || ''} data-testid="input-first-name" />
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>
@@ -210,7 +210,7 @@ export default function Offenders() {
                                 <FormItem>
                                   <FormLabel>Last Name</FormLabel>
                                   <FormControl>
-                                    <Input {...field} data-testid="input-last-name" />
+                                    <Input {...field} value={field.value || ''} data-testid="input-last-name" />
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>
@@ -225,7 +225,7 @@ export default function Offenders() {
                               <FormItem>
                                 <FormLabel>Physical Description</FormLabel>
                                 <FormControl>
-                                  <Textarea {...field} data-testid="textarea-description" />
+                                  <Textarea {...field} value={field.value || ''} data-testid="textarea-description" />
                                 </FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -263,7 +263,7 @@ export default function Offenders() {
                               <FormItem>
                                 <FormLabel>Notes</FormLabel>
                                 <FormControl>
-                                  <Textarea {...field} data-testid="textarea-notes" />
+                                  <Textarea {...field} value={field.value || ''} data-testid="textarea-notes" />
                                 </FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -292,7 +292,7 @@ export default function Offenders() {
             
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {displayedOffenders.map((offender) => (
+                {displayedOffenders.map((offender: Offender) => (
                   <Card 
                     key={offender.id} 
                     className="cursor-pointer hover:shadow-lg transition-shadow"
@@ -431,7 +431,7 @@ export default function Offenders() {
                     )}
                     <div>
                       <span className="text-muted-foreground">Added:</span>
-                      <span className="ml-2">{new Date(selectedOffender.createdAt).toLocaleDateString()}</span>
+                      <span className="ml-2">{selectedOffender.createdAt ? new Date(selectedOffender.createdAt).toLocaleDateString() : 'Unknown'}</span>
                     </div>
                   </div>
                 </div>
