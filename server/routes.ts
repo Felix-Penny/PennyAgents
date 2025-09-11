@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
+import { setupAuth } from "./auth";
 import { 
   insertStoreSchema, 
   insertCameraSchema, 
@@ -21,6 +22,9 @@ interface WebSocketClient {
 const connectedClients = new Set<WebSocketClient>();
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Set up authentication first
+  setupAuth(app);
+  
   const httpServer = createServer(app);
 
   // WebSocket server for real-time updates
@@ -59,33 +63,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   }
 
-  // Authentication routes
-  app.post('/api/auth/login', async (req, res) => {
-    try {
-      const { username, password } = req.body;
-      const user = await storage.getUserByUsername(username);
-      
-      if (!user || user.password !== password) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-
-      // Update last login
-      const updatedUser = { ...user, lastLogin: new Date() };
-      
-      res.json({ 
-        user: { 
-          id: user.id, 
-          username: user.username, 
-          role: user.role, 
-          storeId: user.storeId,
-          firstName: user.firstName,
-          lastName: user.lastName
-        } 
-      });
-    } catch (error) {
-      res.status(500).json({ message: 'Login failed' });
-    }
-  });
+  // Authentication routes are now handled by setupAuth in auth.ts
 
   // Stores routes
   app.get('/api/stores', async (req, res) => {

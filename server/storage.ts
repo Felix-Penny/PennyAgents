@@ -8,10 +8,14 @@ import {
   type NetworkShare,
   type User, type InsertUser
 } from "@shared/schema";
+import session from "express-session";
+import connectPg from "connect-pg-simple";
 import { db } from "./db";
 import { eq, desc, and, or, gte, lte, count, isNull } from "drizzle-orm";
 
 export interface IStorage {
+  // Session store
+  sessionStore: session.Store;
   // Users
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -65,7 +69,18 @@ export interface IStorage {
   getDetectionAccuracy(storeId?: string): Promise<number>;
 }
 
+const PostgresSessionStore = connectPg(session);
+
 export class DatabaseStorage implements IStorage {
+  sessionStore: session.Store;
+
+  constructor() {
+    const { pool } = require('./db');
+    this.sessionStore = new PostgresSessionStore({ 
+      pool, 
+      createTableIfMissing: true 
+    });
+  }
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user || undefined;
@@ -79,7 +94,7 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db
       .insert(users)
-      .values(insertUser)
+      .values([insertUser])
       .returning();
     return user;
   }
