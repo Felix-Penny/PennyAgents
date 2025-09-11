@@ -7,7 +7,7 @@ import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
-import { User as SelectUser } from "@shared/schema";
+import { User as SelectUser, insertUserSchema } from "@shared/schema";
 
 declare global {
   namespace Express {
@@ -31,14 +31,19 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
+  if (!process.env.SESSION_SECRET) {
+    throw new Error("SESSION_SECRET environment variable is required for secure authentication");
+  }
+  
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.SESSION_SECRET!,
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     store: storage.sessionStore,
     cookie: {
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
+      sameSite: "lax",
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
   };
@@ -75,19 +80,36 @@ export function setupAuth(app: Express) {
 
   app.post("/api/register", async (req, res, next) => {
     try {
-      const existingUser = await storage.getUserByUsername(req.body.username);
+      // Validate and sanitize input - only omit auto-generated fields
+      const validatedData = insertUserSchema.omit({ 
+        id: true,
+        createdAt: true,
+        updatedAt: true,
+        lastLogin: true
+      }).parse(req.body);
+      
+      const existingUser = await storage.getUserByUsername(validatedData.username);
       if (existingUser) {
         return res.status(400).json({ error: "Username already exists" });
       }
 
       const user = await storage.createUser({
-        ...req.body,
-        password: await hashPassword(req.body.password),
+        ...validatedData,
+        password: await hashPassword(validatedData.password),
+        role: validatedData.role || "operator", // Default to operator if not specified
+        isActive: validatedData.isActive ?? true  // Default to active if not specified
       });
 
+      // Sanitize response - never return password
+      const { password, ...safeUser } = user;
+      
       req.login(user, (err) => {
         if (err) return next(err);
-        res.status(201).json(user);
+        // Explicitly save session to ensure persistence
+        req.session.save((saveErr) => {
+          if (saveErr) return next(saveErr);
+          res.status(201).json(safeUser);
+        });
       });
     } catch (error) {
       next(error);
@@ -95,7 +117,9 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/login", passport.authenticate("local"), (req, res) => {
-    res.status(200).json(req.user);
+    // Sanitize response - never return password
+    const { password, ...safeUser } = req.user as SelectUser;
+    res.status(200).json(safeUser);
   });
 
   app.post("/api/logout", (req, res, next) => {
@@ -107,7 +131,9 @@ export function setupAuth(app: Express) {
 
   app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
+    // Sanitize response - never return password
+    const { password, ...safeUser } = req.user as SelectUser;
+    res.json(safeUser);
   });
 }
 

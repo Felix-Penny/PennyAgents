@@ -11,6 +11,7 @@ import {
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { db } from "./db";
+import memorystore from "memorystore";
 import { eq, desc, and, or, gte, lte, count, isNull } from "drizzle-orm";
 
 export interface IStorage {
@@ -69,17 +70,24 @@ export interface IStorage {
   getDetectionAccuracy(storeId?: string): Promise<number>;
 }
 
-const PostgresSessionStore = connectPg(session);
+const PgStore = connectPg(session);
+const MemoryStore = memorystore(session);
 
 export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
 
   constructor() {
-    const { pool } = require('./db');
-    this.sessionStore = new PostgresSessionStore({ 
-      pool, 
-      createTableIfMissing: true 
-    });
+    if (process.env.DATABASE_URL) {
+      this.sessionStore = new PgStore({ 
+        conString: process.env.DATABASE_URL, 
+        createTableIfMissing: true, 
+        tableName: 'session' 
+      });
+    } else {
+      this.sessionStore = new MemoryStore({ 
+        checkPeriod: 86400000 
+      });
+    }
   }
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));

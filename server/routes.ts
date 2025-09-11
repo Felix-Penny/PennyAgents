@@ -238,7 +238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: validatedData.description || 'Security incident detected',
         metadata: {
           confidence: validatedData.confidence?.toString(),
-          detectionMethods: validatedData.detectionMethods || []
+          detectionMethods: validatedData.detectionMethods ?? []
         }
       });
 
