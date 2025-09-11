@@ -80,9 +80,11 @@ export function setupAuth(app: Express) {
 
   app.post("/api/register", async (req, res, next) => {
     try {
-      // Validate and sanitize input - only omit auto-generated fields
+      // Validate and sanitize input - omit role/isActive to prevent privilege escalation
       const validatedData = insertUserSchema.omit({ 
         id: true,
+        role: true,        // SECURITY: Never accept role from client
+        isActive: true,    // SECURITY: Never accept isActive from client
         createdAt: true,
         updatedAt: true,
         lastLogin: true
@@ -96,8 +98,8 @@ export function setupAuth(app: Express) {
       const user = await storage.createUser({
         ...validatedData,
         password: await hashPassword(validatedData.password),
-        role: validatedData.role || "operator", // Default to operator if not specified
-        isActive: validatedData.isActive ?? true  // Default to active if not specified
+        role: "operator",    // SECURITY: Always default to operator role
+        isActive: true       // SECURITY: Always set active server-side
       });
 
       // Sanitize response - never return password
