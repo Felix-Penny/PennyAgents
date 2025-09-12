@@ -16,9 +16,8 @@ import Network from "./pages/network";
 import Settings from "./pages/settings";
 import LoginPage from "./pages/login";
 import PortalSelectPage from "./pages/portal-select";
-import StoreLoginPage from "./pages/store-login";
-import PennyLoginPage from "./pages/penny-login";
-import RepaymentLoginPage from "./pages/repayment-login";
+import PennyDashboard from "./pages/penny-dashboard";
+import RepaymentDashboard from "./pages/repayment-dashboard";
 import VideoTest from "./pages/video-test";
 
 function Router() {
@@ -26,10 +25,9 @@ function Router() {
     <Switch>
       <Route path="/" component={PortalSelectPage} />
       <Route path="/login" component={LoginPage} />
-      <Route path="/store/login" component={StoreLoginPage} />
-      <Route path="/penny/login" component={PennyLoginPage} />
-      <Route path="/repayment/login" component={RepaymentLoginPage} />
       <ProtectedRoute path="/dashboard" component={Dashboard} />
+      <ProtectedRoute path="/penny/dashboard" component={PennyDashboard} allowedRoles={["penny_admin"]} />
+      <ProtectedRoute path="/repayment/dashboard" component={RepaymentDashboard} allowedRoles={["offender"]} />
       <ProtectedRoute path="/live-feeds" component={LiveFeeds} />
       <ProtectedRoute path="/alerts" component={Alerts} />
       <ProtectedRoute path="/offenders" component={Offenders} />
