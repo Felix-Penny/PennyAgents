@@ -208,21 +208,21 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(alerts)
       .where(eq(alerts.storeId, storeId))
-      .orderBy(desc(alerts.detectedAt))
+      .orderBy(desc(alerts.createdAt))
       .limit(limit);
   }
 
   async getActiveAlerts(storeId?: string): Promise<Alert[]> {
-    const baseConditions = [eq(alerts.status, "NEW"), eq(alerts.status, "PENDING_REVIEW")];
+    const baseCondition = eq(alerts.isActive, true);
     const whereCondition = storeId 
-      ? and(eq(alerts.storeId, storeId), or(...baseConditions))
-      : or(...baseConditions);
+      ? and(eq(alerts.storeId, storeId), baseCondition)
+      : baseCondition;
 
     return await db
       .select()
       .from(alerts)
       .where(whereCondition)
-      .orderBy(desc(alerts.detectedAt));
+      .orderBy(desc(alerts.createdAt));
   }
 
   async updateAlert(id: string, updates: Partial<InsertAlert>): Promise<Alert> {
@@ -238,8 +238,8 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(alerts)
-      .where(eq(alerts.status, "PENDING_REVIEW"))
-      .orderBy(desc(alerts.detectedAt));
+      .where(and(eq(alerts.isActive, true), eq(alerts.isRead, false)))
+      .orderBy(desc(alerts.createdAt));
   }
 
   // =====================================

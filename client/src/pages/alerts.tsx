@@ -4,16 +4,33 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertTriangle, CheckCircle, XCircle, Clock, Eye } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 
-type AlertStatus = "NEW" | "PENDING_REVIEW" | "CONFIRMED" | "DISMISSED";
-type AlertSeverity = "HIGH" | "MEDIUM" | "LOW";
+type AlertSeverity = "low" | "medium" | "high" | "critical";
+type AlertType = "theft_in_progress" | "known_offender_entry" | "aggressive_behavior" | "suspicious_activity" | "system_alert";
+
+type DatabaseAlert = {
+  id: string;
+  storeId: string;
+  cameraId: string;
+  type: AlertType;
+  severity: AlertSeverity;
+  title: string;
+  message: string;
+  isRead: boolean;
+  isActive: boolean;
+  acknowledgedAt?: string;
+  acknowledgedBy?: string;
+  createdAt: string;
+};
 
 type SecurityAlert = {
   id: string;
   title: string;
   description: string;
-  status: AlertStatus;
-  severity: AlertSeverity;
+  status: "NEW" | "PENDING_REVIEW" | "CONFIRMED" | "DISMISSED";
+  severity: "HIGH" | "MEDIUM" | "LOW";
   detectedAt: string;
   location: string;
   cameraId: string;
@@ -22,54 +39,83 @@ type SecurityAlert = {
 };
 
 export default function Alerts() {
-  const [alerts] = useState<SecurityAlert[]>([
-    {
-      id: "alert-001",
-      title: "Potential Shoplifting Activity",
-      description: "Suspicious behavior detected at electronics section",
-      status: "NEW",
-      severity: "HIGH",
-      detectedAt: "2 minutes ago",
-      location: "Electronics Section - Aisle 5",
-      cameraId: "cam-003",
-      confidence: 87
+  const { user } = useAuth();
+  
+  // Fetch real alerts from API - get ALL alerts for the store
+  const { data: dbAlerts, isLoading } = useQuery<DatabaseAlert[]>({
+    queryKey: ['/api/alerts', user?.storeId],
+    queryFn: async (): Promise<DatabaseAlert[]> => {
+      if (!user?.storeId) throw new Error('No store ID available');
+      // Use the getAlertsByStore endpoint to get ALL alerts, not just active ones
+      const response = await fetch(`/api/alerts/${user.storeId}`);
+      if (!response.ok) throw new Error('Failed to fetch alerts');
+      return response.json();
     },
-    {
-      id: "alert-002",
-      title: "Known Offender Detected",
-      description: "Person matching offender database entry",
-      status: "PENDING_REVIEW",
-      severity: "HIGH",
-      detectedAt: "5 minutes ago",
-      location: "Main Entrance",
-      cameraId: "cam-001",
-      confidence: 92
-    },
-    {
-      id: "alert-003",
-      title: "Unusual Loitering",
-      description: "Person standing in one location for extended period",
-      status: "CONFIRMED",
-      severity: "MEDIUM",
-      detectedAt: "15 minutes ago",
-      location: "Pharmacy Section",
-      cameraId: "cam-004",
-      confidence: 76
-    },
-    {
-      id: "alert-004",
-      title: "After-Hours Movement",
-      description: "Motion detected during closed hours",
-      status: "DISMISSED",
-      severity: "LOW",
-      detectedAt: "2 hours ago",
-      location: "Stockroom",
-      cameraId: "cam-005",
-      confidence: 64
+    enabled: !!user?.storeId,
+  });
+  
+  // Transform database alerts to frontend format
+  const alerts: SecurityAlert[] = (dbAlerts || []).map(alert => ({
+    id: alert.id,
+    title: alert.title,
+    description: alert.message,
+    status: alert.isRead ? (alert.isActive ? "CONFIRMED" : "DISMISSED") : (alert.isActive ? "NEW" : "DISMISSED"),
+    severity: (alert.severity === 'high' ? 'HIGH' : alert.severity === 'medium' ? 'MEDIUM' : alert.severity === 'critical' ? 'HIGH' : 'LOW') as "HIGH" | "MEDIUM" | "LOW",
+    detectedAt: formatTimeAgo(alert.createdAt || ''),
+    location: getCameraLocation(alert.cameraId || ''),
+    cameraId: alert.cameraId || 'unknown',
+    confidence: 85 // Default confidence since not in current schema
+  }));
+  
+  function formatTimeAgo(dateString: string): string {
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return 'Unknown time';
+      }
+      
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+      
+      if (diffMinutes < 1) return 'Just now';
+      if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+      
+      const diffHours = Math.floor(diffMinutes / 60);
+      if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+      
+      const diffDays = Math.floor(diffHours / 24);
+      return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+    } catch (error) {
+      console.error('Error formatting date:', dateString, error);
+      return 'Unknown time';
     }
-  ]);
+  }
+  
+  function getCameraLocation(cameraId: string): string {
+    const locations: Record<string, string> = {
+      'cam-001': 'Main Entrance',
+      'cam-003': 'Electronics Section - Aisle 5',
+      'cam-004': 'Pharmacy Section',
+      'cam-005': 'Stockroom'
+    };
+    return locations[cameraId] || `Camera ${cameraId}`;
+  }
+  
+  if (isLoading) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <Clock className="h-8 w-8 animate-spin mx-auto mb-2" />
+            <p>Loading alerts...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  const getStatusBadge = (status: AlertStatus) => {
+  const getStatusBadge = (status: "NEW" | "PENDING_REVIEW" | "CONFIRMED" | "DISMISSED") => {
     switch (status) {
       case "NEW":
         return <Badge className="bg-red-100 text-red-800">New</Badge>;
@@ -82,7 +128,7 @@ export default function Alerts() {
     }
   };
 
-  const getSeverityBadge = (severity: AlertSeverity) => {
+  const getSeverityBadge = (severity: "HIGH" | "MEDIUM" | "LOW") => {
     switch (severity) {
       case "HIGH":
         return <Badge variant="destructive">High Priority</Badge>;
@@ -93,7 +139,7 @@ export default function Alerts() {
     }
   };
 
-  const getSeverityIcon = (severity: AlertSeverity) => {
+  const getSeverityIcon = (severity: "HIGH" | "MEDIUM" | "LOW") => {
     switch (severity) {
       case "HIGH":
         return <AlertTriangle className="h-4 w-4 text-red-600" />;

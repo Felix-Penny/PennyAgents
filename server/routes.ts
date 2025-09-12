@@ -32,6 +32,17 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Get ALL alerts for a store (not just active ones)
+  app.get("/api/alerts/:storeId", requireAuth, requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const alerts = await storage.getAlertsByStore(storeId);
+      res.json(alerts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post("/api/store/:storeId/alerts/:alertId/confirm", requireAuth, requireStoreStaff, async (req, res) => {
     try {
       const { alertId } = req.params;

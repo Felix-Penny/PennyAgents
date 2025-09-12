@@ -55,28 +55,18 @@ export const stores = pgTable("stores", {
 export const alerts = pgTable("alerts", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  incidentId: varchar("incident_id", { length: 255 }),
   cameraId: varchar("camera_id", { length: 255 }),
-  // Evidence storage (S3 keys)
-  clipS3Key: varchar("clip_s3_key", { length: 500 }),
-  thumbnails: jsonb("thumbnails").$type<string[]>().default([]),
-  // AI Detection scores
-  detectorScores: jsonb("detector_scores").$type<{
-    personTracking?: number;
-    faceMatch?: number;
-    behaviorAnalysis?: number;
-    objectDetection?: number;
-  }>(),
-  compositeScore: decimal("composite_score", { precision: 5, scale: 3 }),
-  // Alert workflow status
-  status: varchar("status", { length: 50 }).notNull().default("NEW"), // NEW, PENDING_REVIEW, CONFIRMED, DISMISSED
-  offenderCandidateId: varchar("offender_candidate_id", { length: 255 }),
-  // Metadata
-  detectedAt: timestamp("detected_at").defaultNow(),
-  reviewedAt: timestamp("reviewed_at"),
-  reviewedBy: varchar("reviewed_by", { length: 255 }).references(() => users.id),
-  notes: text("notes"),
+  type: varchar("type", { length: 50 }), // alert_type enum: theft_in_progress, known_offender_entry, etc.
+  severity: varchar("severity", { length: 20 }), // alert_severity enum: low, medium, high, critical
+  title: text("title"),
+  message: text("message"),
+  isRead: boolean("is_read").default(false),
+  isActive: boolean("is_active").default(true),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  acknowledgedBy: text("acknowledged_by"),
+  metadata: jsonb("metadata").default({}),
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const offenders = pgTable("offenders", {
