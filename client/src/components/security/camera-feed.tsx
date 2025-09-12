@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Camera } from "@shared/schema";
 import { Video, AlertTriangle, User, Wifi, WifiOff } from "lucide-react";
+import { VideoPlayer } from "@/components/media/video-player";
 
 interface CameraFeedProps {
   camera: Camera;
@@ -9,6 +10,8 @@ interface CameraFeedProps {
   showDetails?: boolean;
   compact?: boolean;
   className?: string;
+  videoSrc?: string;  // Allow custom video source
+  useRealVideo?: boolean; // Toggle between placeholder and real video
 }
 
 export function CameraFeed({ 
@@ -17,24 +20,49 @@ export function CameraFeed({
   hasOffender = false, 
   showDetails = false,
   compact = false,
-  className = "" 
+  className = "",
+  videoSrc,
+  useRealVideo = false
 }: CameraFeedProps) {
   const isOnline = camera.status === 'online';
   
   return (
     <div className={`relative camera-feed rounded-lg ${compact ? 'h-12' : 'h-32'} group ${className}`}>
-      {/* Camera feed placeholder with gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-700 to-slate-900 rounded-lg flex items-center justify-center">
-        <div className="text-center">
-          <Video className={`text-white/50 mb-2 mx-auto ${compact ? 'h-4 w-4' : 'h-6 w-6'}`} />
-          {!compact && (
-            <>
-              <p className="text-white/70 text-xs">{camera.name}</p>
-              <p className="text-white/50 text-xs">{camera.location}</p>
-            </>
-          )}
+      {/* Video content or placeholder */}
+      {useRealVideo && videoSrc ? (
+        <VideoPlayer
+          src={videoSrc}
+          className="absolute inset-0 rounded-lg"
+          autoPlay={true}
+          muted={true}
+          loop={true}
+          fallbackContent={
+            <div className="absolute inset-0 bg-gradient-to-br from-slate-700 to-slate-900 rounded-lg flex items-center justify-center">
+              <div className="text-center">
+                <Video className={`text-white/50 mb-2 mx-auto ${compact ? 'h-4 w-4' : 'h-6 w-6'}`} />
+                {!compact && (
+                  <>
+                    <p className="text-white/70 text-xs">{camera.name}</p>
+                    <p className="text-white/50 text-xs">Stream Unavailable</p>
+                  </>
+                )}
+              </div>
+            </div>
+          }
+        />
+      ) : (
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-700 to-slate-900 rounded-lg flex items-center justify-center">
+          <div className="text-center">
+            <Video className={`text-white/50 mb-2 mx-auto ${compact ? 'h-4 w-4' : 'h-6 w-6'}`} />
+            {!compact && (
+              <>
+                <p className="text-white/70 text-xs">{camera.name}</p>
+                <p className="text-white/50 text-xs">{camera.location}</p>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
       
       {/* Detection overlays */}
       {hasAlert && !compact && (

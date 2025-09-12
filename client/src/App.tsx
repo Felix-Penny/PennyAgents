@@ -15,6 +15,7 @@ import Analytics from "@/pages/analytics";
 import Network from "@/pages/network";
 import Settings from "@/pages/settings";
 import LoginPage from "@/pages/login";
+import VideoTest from "@/pages/video-test";
 
 function Router() {
   return (
@@ -53,6 +54,11 @@ function Router() {
       <Route path="/settings">
         <ProtectedRoute>
           <Settings />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/video-test">
+        <ProtectedRoute>
+          <VideoTest />
         </ProtectedRoute>
       </Route>
       <Route component={NotFound} />
