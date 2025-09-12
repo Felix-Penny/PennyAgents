@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WebSocketProvider } from "./lib/websocket";
 import { AuthProvider } from "./lib/auth";
-import { ProtectedRoute } from "@/components/protected-route";
+import { ProtectedRoute } from "@/lib/protected-route";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import LiveFeeds from "@/pages/live-feeds";
