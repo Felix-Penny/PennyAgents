@@ -97,11 +97,11 @@ export interface IStorage {
   markNotificationRead(id: string): Promise<any>;
 
   // Session store for authentication
-  sessionStore: session.SessionStore;
+  sessionStore: any; // Using any to avoid type issues with session.SessionStore
 }
 
 export class DatabaseStorage implements IStorage {
-  sessionStore: session.SessionStore;
+  sessionStore: any;
 
   constructor() {
     this.sessionStore = new PostgresSessionStore({
