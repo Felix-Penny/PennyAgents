@@ -38,13 +38,10 @@ export default function VideoTest() {
     ipAddress: "192.168.1.100",
     status: "online",
     storeId: "store-1",
-    type: "dome",
-    resolution: "1080p",
-    hasNightVision: true,
-    hasMotionDetection: true,
+    capabilities: ["night_vision", "motion_detection"],
+    isActive: true,
     lastSeen: new Date(),
-    createdAt: new Date(),
-    updatedAt: new Date()
+    createdAt: new Date()
   };
 
   const handleCustomVideo = () => {
