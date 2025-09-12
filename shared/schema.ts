@@ -1,306 +1,297 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, decimal, pgEnum } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
-import { createInsertSchema } from "drizzle-zod";
+// Penny MVP Schema - Based on detailed specifications
+// Referenced from javascript_auth_all_persistance integration
+import { pgTable, varchar, text, integer, timestamp, boolean, decimal, jsonb, serial } from "drizzle-orm/pg-core";
+import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Enums
-export const alertTypeEnum = pgEnum("alert_type", [
-  "theft_in_progress",
-  "known_offender_entry", 
-  "aggressive_behavior",
-  "suspicious_activity",
-  "system_alert"
-]);
+// =====================================
+// Core User Management
+// =====================================
 
-export const alertSeverityEnum = pgEnum("alert_severity", [
-  "low",
-  "medium", 
-  "high",
-  "critical"
-]);
-
-export const incidentStatusEnum = pgEnum("incident_status", [
-  "active",
-  "resolved",
-  "investigating",
-  "prevented",
-  "false_positive"
-]);
-
-export const cameraStatusEnum = pgEnum("camera_status", [
-  "online",
-  "offline",
-  "maintenance",
-  "error"
-]);
-
-// Core tables
-export const stores = pgTable("stores", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull(),
-  address: text("address").notNull(),
-  city: text("city").notNull(),
-  state: text("state").notNull(),
-  zipCode: text("zip_code").notNull(),
-  phone: text("phone"),
-  managerId: varchar("manager_id"),
-  networkEnabled: boolean("network_enabled").default(true),
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  username: varchar("username", { length: 100 }).notNull().unique(),
+  password: varchar("password", { length: 255 }).notNull(),
+  role: varchar("role", { length: 50 }).notNull().default("store_staff"), // store_staff, store_admin, penny_admin, offender
+  storeId: varchar("store_id", { length: 255 }), // links to store for staff
+  offenderId: varchar("offender_id", { length: 255 }), // links to offender for offender accounts
+  firstName: varchar("first_name", { length: 100 }),
+  lastName: varchar("last_name", { length: 100 }),
+  isActive: boolean("is_active").default(true),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow()
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const cameras = pgTable("cameras", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  storeId: varchar("store_id").notNull().references(() => stores.id),
-  name: text("name").notNull(),
-  location: text("location").notNull(),
-  ipAddress: text("ip_address"),
-  status: cameraStatusEnum("status").default("offline"),
-  capabilities: jsonb("capabilities").$type<string[]>().default([]),
+export const stores = pgTable("stores", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  address: text("address").notNull(),
+  city: varchar("city", { length: 100 }),
+  state: varchar("state", { length: 50 }),
+  zipCode: varchar("zip_code", { length: 20 }),
+  phone: varchar("phone", { length: 50 }),
+  email: varchar("email", { length: 255 }),
   isActive: boolean("is_active").default(true),
-  lastSeen: timestamp("last_seen"),
-  createdAt: timestamp("created_at").defaultNow()
+  // Alert contacts stored as JSON array
+  alertContacts: jsonb("alert_contacts").$type<{
+    phone: string[];
+    email: string[];
+  }>().default({ phone: [], email: [] }),
+  // Billing and commission settings
+  billingInfo: jsonb("billing_info").$type<{
+    stripeCustomerId?: string;
+    commissionAccountDetails?: string;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
+// Detection & Alert System
+// =====================================
+
+export const alerts = pgTable("alerts", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  cameraId: varchar("camera_id", { length: 255 }),
+  // Evidence storage (S3 keys)
+  clipS3Key: varchar("clip_s3_key", { length: 500 }),
+  thumbnails: jsonb("thumbnails").$type<string[]>().default([]),
+  // AI Detection scores
+  detectorScores: jsonb("detector_scores").$type<{
+    personTracking?: number;
+    faceMatch?: number;
+    behaviorAnalysis?: number;
+    objectDetection?: number;
+  }>(),
+  compositeScore: decimal("composite_score", { precision: 5, scale: 3 }),
+  // Alert workflow status
+  status: varchar("status", { length: 50 }).notNull().default("NEW"), // NEW, PENDING_REVIEW, CONFIRMED, DISMISSED
+  offenderCandidateId: varchar("offender_candidate_id", { length: 255 }),
+  // Metadata
+  detectedAt: timestamp("detected_at").defaultNow(),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const offenders = pgTable("offenders", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  firstName: text("first_name"),
-  lastName: text("last_name"),
+  id: varchar("id", { length: 255 }).primaryKey(),
+  // Network opaque ID for cross-store sharing
+  networkOffenderId: varchar("network_offender_id", { length: 255 }).unique(),
+  // Identity information
+  name: varchar("name", { length: 255 }),
   aliases: jsonb("aliases").$type<string[]>().default([]),
-  physicalDescription: text("physical_description"),
-  photoUrl: text("photo_url"),
-  riskLevel: text("risk_level").default("medium"), // low, medium, high, extreme
+  // Linked user account (for Offender Portal access)
+  linkedUserId: integer("linked_user_id").references(() => users.id),
+  // Evidence and detection data
+  thumbnails: jsonb("thumbnails").$type<string[]>().default([]),
+  confirmedIncidentIds: jsonb("confirmed_incident_ids").$type<string[]>().default([]),
+  // Financial tracking
   totalDebt: decimal("total_debt", { precision: 10, scale: 2 }).default("0.00"),
-  isActive: boolean("is_active").default(true),
+  totalPaid: decimal("total_paid", { precision: 10, scale: 2 }).default("0.00"),
+  // Network status
+  isNetworkApproved: boolean("is_network_approved").default(false),
+  networkApprovedAt: timestamp("network_approved_at"),
+  networkApprovedBy: integer("network_approved_by").references(() => users.id),
+  // Metadata
+  firstDetectedAt: timestamp("first_detected_at").defaultNow(),
   lastSeenAt: timestamp("last_seen_at"),
-  lastSeenStoreId: varchar("last_seen_store_id").references(() => stores.id),
-  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow()
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const incidents = pgTable("incidents", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  storeId: varchar("store_id").notNull().references(() => stores.id),
-  cameraId: varchar("camera_id").references(() => cameras.id),
-  offenderId: varchar("offender_id").references(() => offenders.id),
-  type: text("type").notNull(),
+// =====================================
+// Theft & Evidence Management
+// =====================================
+
+export const evidenceBundles = pgTable("evidence_bundles", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  s3Keys: jsonb("s3_keys").$type<string[]>().notNull(),
+  kmsKey: varchar("kms_key", { length: 255 }),
+  retentionUntil: timestamp("retention_until"),
+  accessPolicy: jsonb("access_policy").$type<{
+    allowedRoles: string[];
+    allowedUserIds: number[];
+  }>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const thefts = pgTable("thefts", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  offenderId: varchar("offender_id", { length: 255 }).notNull().references(() => offenders.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  alertId: varchar("alert_id", { length: 255 }).references(() => alerts.id),
+  evidenceBundleId: varchar("evidence_bundle_id", { length: 255 }).references(() => evidenceBundles.id),
+  // Financial details
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  // Confirmation workflow
+  confirmedBy: integer("confirmed_by").references(() => users.id),
+  confirmedAt: timestamp("confirmed_at"),
+  // Network sharing status
+  networkStatus: varchar("network_status", { length: 50 }).default("PENDING"), // PENDING, APPROVED, REJECTED
+  networkSharedAt: timestamp("network_shared_at"),
+  // Incident details
+  incidentTimestamp: timestamp("incident_timestamp").notNull(),
+  location: varchar("location", { length: 255 }), // within store
   description: text("description"),
-  status: incidentStatusEnum("status").default("active"),
-  severity: text("severity").default("medium"),
-  damageAmount: decimal("damage_amount", { precision: 10, scale: 2 }),
-  evidenceUrls: jsonb("evidence_urls").$type<string[]>().default([]),
-  detectionMethods: jsonb("detection_methods").$type<string[]>().default([]),
-  confidence: decimal("confidence", { precision: 5, scale: 2 }),
-  resolvedAt: timestamp("resolved_at"),
-  resolvedBy: text("resolved_by"),
-  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow()
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const alerts = pgTable("alerts", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  storeId: varchar("store_id").notNull().references(() => stores.id),
-  incidentId: varchar("incident_id").references(() => incidents.id),
-  cameraId: varchar("camera_id").references(() => cameras.id),
-  type: alertTypeEnum("type").notNull(),
-  severity: alertSeverityEnum("severity").default("medium"),
-  title: text("title").notNull(),
+// =====================================
+// Payment & Commission System
+// =====================================
+
+export const debtPayments = pgTable("debt_payments", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  theftId: varchar("theft_id", { length: 255 }).references(() => thefts.id),
+  offenderId: varchar("offender_id", { length: 255 }).notNull().references(() => offenders.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  // Payment details
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  stripeSessionId: varchar("stripe_session_id", { length: 255 }),
+  stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }),
+  // Commission calculation (stores get 90%, Penny gets 10%)
+  commissionAmount: decimal("commission_amount", { precision: 10, scale: 2 }).notNull(),
+  storeShare: decimal("store_share", { precision: 10, scale: 2 }).notNull(),
+  pennyShare: decimal("penny_share", { precision: 10, scale: 2 }).notNull(),
+  // Payment status
+  status: varchar("status", { length: 50 }).default("PENDING"), // PENDING, COMPLETED, FAILED, REFUNDED
+  paidAt: timestamp("paid_at"),
+  // Dispute tracking
+  disputeStatus: varchar("dispute_status", { length: 50 }), // NONE, FILED, UNDER_REVIEW, RESOLVED
+  disputeNotes: text("dispute_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
+// QR Code & Token System
+// =====================================
+
+export const qrTokens = pgTable("qr_tokens", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  offenderId: varchar("offender_id", { length: 255 }).notNull().references(() => offenders.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  generatedBy: integer("generated_by").notNull().references(() => users.id),
+  isUsed: boolean("is_used").default(false),
+  usedAt: timestamp("used_at"),
+  usedBy: integer("used_by").references(() => users.id),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// =====================================
+// Notifications & Communication
+// =====================================
+
+export const notifications = pgTable("notifications", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
+  type: varchar("type", { length: 100 }).notNull(), // ALERT, PAYMENT, NETWORK, SYSTEM
+  title: varchar("title", { length: 255 }).notNull(),
   message: text("message").notNull(),
+  // Delivery tracking
+  emailSent: boolean("email_sent").default(false),
+  smsSent: boolean("sms_sent").default(false),
+  pushSent: boolean("push_sent").default(false),
+  // Related entities
+  alertId: varchar("alert_id", { length: 255 }).references(() => alerts.id),
+  theftId: varchar("theft_id", { length: 255 }).references(() => thefts.id),
+  paymentId: varchar("payment_id", { length: 255 }).references(() => debtPayments.id),
+  // Status
   isRead: boolean("is_read").default(false),
-  isActive: boolean("is_active").default(true),
-  acknowledgedAt: timestamp("acknowledged_at"),
-  acknowledgedBy: text("acknowledged_by"),
-  metadata: jsonb("metadata").$type<Record<string, any>>().default({}),
-  createdAt: timestamp("created_at").defaultNow()
-});
-
-export const networkShares = pgTable("network_shares", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  sourceStoreId: varchar("source_store_id").notNull().references(() => stores.id),
-  offenderId: varchar("offender_id").notNull().references(() => offenders.id),
-  sharedWithStoreId: varchar("shared_with_store_id").references(() => stores.id),
-  shareType: text("share_type").default("auto"), // auto, manual, requested
-  incidentId: varchar("incident_id").references(() => incidents.id),
-  isActive: boolean("is_active").default(true),
-  expiresAt: timestamp("expires_at"),
-  createdAt: timestamp("created_at").defaultNow()
-});
-
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-  email: text("email"),
-  firstName: text("first_name"),
-  lastName: text("last_name"),
-  role: text("role").default("operator"), // admin, manager, operator, viewer
-  storeId: varchar("store_id").references(() => stores.id),
-  isActive: boolean("is_active").default(true),
-  lastLogin: timestamp("last_login"),
+  readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow()
 });
 
-// Relations
-export const storesRelations = relations(stores, ({ many, one }) => ({
-  cameras: many(cameras),
-  incidents: many(incidents),
-  alerts: many(alerts),
-  users: many(users),
-  networkSharesSource: many(networkShares, { relationName: "sourceStore" }),
-  networkSharesTarget: many(networkShares, { relationName: "targetStore" })
-}));
+// =====================================
+// Zod Schemas for Validation
+// =====================================
 
-export const camerasRelations = relations(cameras, ({ one, many }) => ({
-  store: one(stores, {
-    fields: [cameras.storeId],
-    references: [stores.id]
-  }),
-  incidents: many(incidents),
-  alerts: many(alerts)
-}));
-
-export const offendersRelations = relations(offenders, ({ many, one }) => ({
-  incidents: many(incidents),
-  networkShares: many(networkShares),
-  lastSeenStore: one(stores, {
-    fields: [offenders.lastSeenStoreId],
-    references: [stores.id]
-  })
-}));
-
-export const incidentsRelations = relations(incidents, ({ one, many }) => ({
-  store: one(stores, {
-    fields: [incidents.storeId],
-    references: [stores.id]
-  }),
-  camera: one(cameras, {
-    fields: [incidents.cameraId],
-    references: [cameras.id]
-  }),
-  offender: one(offenders, {
-    fields: [incidents.offenderId],
-    references: [offenders.id]
-  }),
-  alerts: many(alerts)
-}));
-
-export const alertsRelations = relations(alerts, ({ one }) => ({
-  store: one(stores, {
-    fields: [alerts.storeId],
-    references: [stores.id]
-  }),
-  incident: one(incidents, {
-    fields: [alerts.incidentId],
-    references: [incidents.id]
-  }),
-  camera: one(cameras, {
-    fields: [alerts.cameraId],
-    references: [cameras.id]
-  })
-}));
-
-export const networkSharesRelations = relations(networkShares, ({ one }) => ({
-  sourceStore: one(stores, {
-    fields: [networkShares.sourceStoreId],
-    references: [stores.id],
-    relationName: "sourceStore"
-  }),
-  targetStore: one(stores, {
-    fields: [networkShares.sharedWithStoreId],
-    references: [stores.id],
-    relationName: "targetStore"
-  }),
-  offender: one(offenders, {
-    fields: [networkShares.offenderId],
-    references: [offenders.id]
-  }),
-  incident: one(incidents, {
-    fields: [networkShares.incidentId],
-    references: [incidents.id]
-  })
-}));
-
-export const usersRelations = relations(users, ({ one }) => ({
-  store: one(stores, {
-    fields: [users.storeId],
-    references: [stores.id]
-  })
-}));
-
-// Insert schemas
-export const insertStoreSchema = createInsertSchema(stores).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true
-});
-
-export const insertCameraSchema = createInsertSchema(cameras).omit({
-  id: true,
-  createdAt: true
-});
-
-export const insertOffenderSchema = createInsertSchema(offenders).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true
-});
-
-export const insertIncidentSchema = createInsertSchema(incidents).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true
-});
-
-export const insertAlertSchema = createInsertSchema(alerts).omit({
-  id: true,
-  createdAt: true
-});
-
+// User schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   createdAt: true,
-  updatedAt: true
+  updatedAt: true,
+});
+export const selectUserSchema = createSelectSchema(users);
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type User = z.infer<typeof selectUserSchema>;
+
+// Store schemas
+export const insertStoreSchema = createInsertSchema(stores).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectStoreSchema = createSelectSchema(stores);
+export type InsertStore = z.infer<typeof insertStoreSchema>;
+export type Store = z.infer<typeof selectStoreSchema>;
+
+// Alert schemas
+export const insertAlertSchema = createInsertSchema(alerts).omit({
+  createdAt: true,
+  updatedAt: true,
+  detectedAt: true,
+});
+export const selectAlertSchema = createSelectSchema(alerts);
+export type InsertAlert = z.infer<typeof insertAlertSchema>;
+export type Alert = z.infer<typeof selectAlertSchema>;
+
+// Offender schemas
+export const insertOffenderSchema = createInsertSchema(offenders).omit({
+  createdAt: true,
+  updatedAt: true,
+  firstDetectedAt: true,
+});
+export const selectOffenderSchema = createSelectSchema(offenders);
+export type InsertOffender = z.infer<typeof insertOffenderSchema>;
+export type Offender = z.infer<typeof selectOffenderSchema>;
+
+// Theft schemas
+export const insertTheftSchema = createInsertSchema(thefts).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectTheftSchema = createSelectSchema(thefts);
+export type InsertTheft = z.infer<typeof insertTheftSchema>;
+export type Theft = z.infer<typeof selectTheftSchema>;
+
+// Payment schemas
+export const insertDebtPaymentSchema = createInsertSchema(debtPayments).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectDebtPaymentSchema = createSelectSchema(debtPayments);
+export type InsertDebtPayment = z.infer<typeof insertDebtPaymentSchema>;
+export type DebtPayment = z.infer<typeof selectDebtPaymentSchema>;
+
+// QR Token schemas
+export const insertQrTokenSchema = createInsertSchema(qrTokens).omit({
+  createdAt: true,
+});
+export const selectQrTokenSchema = createSelectSchema(qrTokens);
+export type InsertQrToken = z.infer<typeof insertQrTokenSchema>;
+export type QrToken = z.infer<typeof selectQrTokenSchema>;
+
+// Additional validation schemas for API
+export const loginSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
 });
 
-// Types
-export type Store = typeof stores.$inferSelect;
-export type InsertStore = z.infer<typeof insertStoreSchema>;
-
-export type Camera = typeof cameras.$inferSelect;
-export type InsertCamera = z.infer<typeof insertCameraSchema>;
-
-export type Offender = typeof offenders.$inferSelect;
-export type InsertOffender = z.infer<typeof insertOffenderSchema>;
-
-export type Incident = typeof incidents.$inferSelect;
-export type InsertIncident = z.infer<typeof insertIncidentSchema>;
-
-export type Alert = typeof alerts.$inferSelect;
-export type InsertAlert = z.infer<typeof insertAlertSchema>;
-
-export type NetworkShare = typeof networkShares.$inferSelect;
-
-export type User = typeof users.$inferSelect;
-export type InsertUser = z.infer<typeof insertUserSchema>;
-
-// Utility types
-export type AlertWithRelations = Alert & {
-  store: Store;
-  incident?: Incident;
-  camera?: Camera;
-};
-
-export type IncidentWithRelations = Incident & {
-  store: Store;
-  camera?: Camera;
-  offender?: Offender;
-  alerts: Alert[];
-};
-
-export type CameraWithStore = Camera & {
-  store: Store;
-};
+export const registerSchema = insertUserSchema.extend({
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
+});
