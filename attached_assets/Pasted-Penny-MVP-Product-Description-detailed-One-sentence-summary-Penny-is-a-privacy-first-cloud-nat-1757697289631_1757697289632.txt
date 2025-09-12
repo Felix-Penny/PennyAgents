@@ -1,0 +1,252 @@
+Penny — MVP Product Description (detailed)
+
+One-sentence summary
+Penny is a privacy-first, cloud-native web app that detects suspicious retail behavior from short camera clips, sends ultra-fast alerts to store staff, lets Penny reviewers confirm incidents before adding offenders to a permissioned local network, and provides an offender-facing QR-pay portal (Stripe) so stores can recover loss — all delivered as a simple 4-tab Store UI plus an internal Penny Ops console and an Offender Portal.
+
+What this MVP delivers (at launch)
+
+Real-time detection from motion-triggered clips (2–6s) and automated alerts to staff.
+
+Three user interfaces: Store (Monitor / Network / Recovery / Settings), Penny Team (review, confirm, network control, reporting), and Offender Portal (account, evidence view, pay).
+
+Human-in-the-loop confirmation: Penny reviewers approve incidents before they join the network.
+
+Secure encrypted evidence storage and access via pre-signed URLs.
+
+One-time full-debt payment via Stripe Checkout. Stores receive a recorded 10% commission on recovered amounts; Penny tracks commission accounting.
+
+Configurable staff alert contacts (SMS & email) and onboarding flow for new stores.
+
+Target users
+
+Store staff & managers (fast review & action)
+
+Regional Asset Protection / Store Admins (cross-store context)
+
+Penny Ops reviewers (verify and gate network additions)
+
+Offenders (receive QR, view evidence, pay or dispute)
+
+Core user experiences (MVP UIs)
+Store UI — 4 tabs (single-page app; mobile-first)
+
+Monitor
+
+Live alert queue (newest first): thumbnail + auto-play low-res preview (4s), composite confidence, camera & timestamp.
+
+One-tap actions: Monitor / Intervene / Request Payment (generate QR) / Call Police (pre-fill) / Confirm / Dismiss.
+
+Modal evidence viewer: scrub, bounding-box overlays, detector confidence timeline, comments, create Evidence Bundle.
+
+Alerts delivered via push/SMS/email simultaneously.
+
+Network
+
+Shows confirmed, networked offender alerts (local region).
+
+Lists returning offenders detected at this store or nearby stores with last-seen, summary of confirmed incidents, and recommended staff actions.
+
+Quick filter by offender ID, timeframe, or tag.
+
+Recovery
+
+Offender list (store-linked confirmed incidents): incident details, values, and total outstanding debt.
+
+Generate QR Code button: produces a QR linking to that offender’s Offender Portal signup + evidence packet.
+
+Button to “Send Notice” (email/SMS) with secure link; a record of sent notices and receipts.
+
+Commission ledger: shows store’s accrued 10% share of recovered amounts (tracked per-payment).
+
+Settings
+
+Staff contacts (add/remove phone & email) for alerts.
+
+Billing details for Penny subscription (Stripe integration).
+
+Commission payout info (bank/account details — optional MVP field for record).
+
+Support form to submit complaints/questions (routes to Penny via SES/email + creates a ticket).
+
+Penny Ops Dashboard (internal)
+
+Review queue: pending flagged events, with robust evidence viewer and model debug overlay (detector scores, frames used for matching).
+
+Approve / Reject flow for each incident (approval triggers network candidate creation).
+
+Network manager: policy editor (auto-promote rules like “2 unique store confirms in 14d”), offender watchlist, expiry/redaction tools.
+
+Billing & Commissions: track payments captured via Stripe webhooks, payment attribution to store, commission accounting, and simple export for payouts.
+
+Metrics: latency (ingest→alert), FP rate, confirmation rate, pilot ROI dashboards, storage usage.
+
+Offender Portal (public URL via QR)
+
+On first access, QR token prompts offender to create an email/password account (Cognito). Token is consumed to link account with offender profile.
+
+After login, offender sees: list of confirmed thefts associated with them, short evidence clips/images (playable via pre-signed URL), store name & timestamp, and amount owed.
+
+Pay Now → invokes backend to create a Stripe Checkout session (total debt amount). On success, webhook marks debts paid and creates receipts.
+
+Dispute button: opens a dispute form that notifies Penny Ops and logs the case (no payment required until resolved).
+
+Security: evidence accessible only to logged-in offender and Penny Ops; views are audited.
+
+Technical architecture (concise)
+
+Frontend
+
+React SPA (or Vue) deployed to S3 + CloudFront. Single codebase for Store + Penny + Offender with route-based RBAC.
+
+Auth
+
+AWS Cognito User Pools (email/password). User groups: store_staff, store_admin, penny_admin, offender.
+
+APIs & Server
+
+Python backend (FastAPI recommended) deployed as AWS Lambda via API Gateway (serverless) or a small ECS/Fargate cluster if you prefer containers.
+
+Lambdas for lightweight event handlers (S3 events, Rekognition callbacks, Stripe webhooks).
+
+Data storage
+
+Evidence & clips: S3 buckets (SSE-KMS enabled). Pre-signed URLs for temporary playback.
+
+Metadata & relational entities: DynamoDB (fast, serverless) or RDS/Postgres for relational reporting (either works; DynamoDB simplifies serverless scale).
+
+Face collection / embeddings: Rekognition Face Collection (for face indexing). Gait/body tracking artifacts stored as metadata in DB; no raw embeddings exposed in network.
+
+Queues & streams: SQS for alert queues; SNS for SMS/email notifications; optional Kinesis Video Streams if you want live RTSP ingestion.
+
+Computer vision
+
+Use AWS Rekognition Video / Rekognition APIs:
+
+Person tracking or label detection for motion → extract person segments.
+
+For each person segment, sample 5–10 frames (burst) and call SearchFacesByImage / CompareFaces against a Rekognition Face Collection.
+
+Complement with lightweight custom wrapper:
+
+Preprocess frames (crop, enhance contrast, align) with OpenCV to improve Rekognition matching on low-light/low-res footage.
+
+Gait/body tracking: use a simple OpenPose/MediaPipe pipeline on serverless containers (ECS/Fargate) or call a hosted ML endpoint to compute body-keypoint embeddings when available; store embedding id per offender for additional matching (optional MVP step).
+
+For behavior detection (concealment, shelf-removal, exit-without-payment): use bounding-box + object detection (Rekognition labels or a small YOLOv5 endpoint). For MVP, prioritize person tracking + face match + motion patterns to trigger alerts.
+
+Payments
+
+Stripe Checkout + Webhooks. Stripe account connected; Checkout session created server-side; checkout.session.completed webhook verifies payment and marks debt paid.
+
+Commission accounting recorded in DB: commission = amount * 0.10.
+
+Notifications
+
+AWS SNS for SMS. AWS SES for templated email alerts/receipts. Also push/poll endpoints for in-app notification.
+
+Security
+
+S3 SSE-KMS, encrypted DB fields for personally-identifying info. IAM roles scoped per-service. All APIs via HTTPS; JWTs from Cognito. Audit logs in CloudWatch & DynamoDB change logs. Evidence access requires pre-signed URLs with short TTL.
+
+Key data objects (MVP schema highlights)
+
+User (id, email, role, cognito_sub, store_id)
+
+Store (id, name, address, contacts[])
+
+Alert (id, store_id, camera_id, clip_s3_key, thumbnails[], detector_scores, composite_score, status: NEW/PENDING_REVIEW/CONFIRMED/DISMISSED, offender_candidate_id)
+
+Offender (id, network_offender_id (opaque), thumbnails[], confirmed_incident_ids[], total_debt, linked_cognito_user_id)
+
+Theft (id, offender_id, store_id, amount, timestamp, evidence_bundle_id, confirmed_by, network_status)
+
+EvidenceBundle (id, s3_keys[], kms_key, retention_until, access_policy)
+
+DebtPayment (id, theft_id, offender_id, amount, stripe_session_id, paid_at, commission_amount, store_share, penny_share)
+
+Primary user flows (step-by-step)
+Flow A — Ingest → Detect → Alert → Review → Confirm
+
+Camera/DVR → clip uploaded to S3 (or pushed via KVS). S3 triggers Lambda (ObjectCreated).
+
+Lambda kicks off Rekognition person tracking; retrieves person timestamps. Sample frames; call Rekognition face search.
+
+Build Alert record (composite score from motion + face match + object detection). Push to SQS & notify store contacts via SNS/SES + in-app push.
+
+Store receives alert; staff reviews in Monitor tab. Staff can Confirm or Dismiss; on Confirm, Penny Ops receives a pending review item.
+
+Penny reviewer watches clip in Ops Dashboard → Approve/Revoke. On Approve → create Theft record, link to Offender (existing or new), and mark as network candidate. If approved, optionally promote to network (per policy).
+
+Flow B — Network detection & return alerts
+
+New confirmed network offender entry has opaque ID + thumbnails + metadata. Add to Rekognition collection (if face data allowed).
+
+On later detections, face search hits that network offender → backend creates a Network Alert targeted to nearby stores (based on store-region config) → notifies via SNS + populates Network tab.
+
+Flow C — Recovery via QR → Offender payment
+
+Store staff generates QR (Recovery tab) for an offender; QR contains short-lived secure token linked to Offender.id.
+
+Offender scans QR → lands on Offender Portal; creates account (Cognito) or logs in; system links Cognito user to Offender.
+
+Offender clicks Pay Now → backend creates Stripe Checkout session and redirects to Stripe Checkout.
+
+On webhook success, backend marks thefts paid, records commission, notifies store, and issues receipt to offender.
+
+KPIs to track in MVP
+
+Average ingest → alert latency (goal ≤12s for alert generation; note Rekognition async jobs may add latency — use Kinesis Video for lower latency if needed).
+
+Alert volume and rates per store.
+
+False Positive rate (alerts dismissed / alerts total).
+
+Confirmation rate (by Penny Ops).
+
+Pilot conversion (% of pilots → paid rollouts).
+
+Payments captured and commission tracked.
+
+Non-functional requirements & constraints (MVP realities)
+
+Privacy & compliance: Default behavior-first, biometrics optional and opt-in; network additions require human confirmation. Offender data is opaque to stores beyond thumbnails & metadata. Document DSA & signage for each pilot store.
+
+Latency: Rekognition Video analysis is asynchronous; expect seconds–tens of seconds. For ultra-low latency real-time, Kinesis Video Streams + streaming ML is future work. MVP targets near-real-time with clear SLA messaging.
+
+False positives: Mitigated via human-in-loop and conservative alert thresholds initially. Keep per-store sensitivity slider for quick tuning.
+
+Scale: Start pilots in a few stores. Architect for serverless scale, but design DB and Rekognition usage to control costs.
+
+Roadmap (next steps after MVP)
+
+Add recurring payment / installment flows.
+
+Improve behavior models (on-premise MediaPipe/OpenPose or custom pose-based embeddings for gait matching).
+
+Offline/edge preprocessing (reduce bandwidth & latency).
+
+Integrations: POS to estimate item value automatically; LPR (license-plate recognition) for vehicle linking; law-enforcement export workflows.
+
+Automate network promotion rules with multi-store voting & trust scoring.
+
+Short technical checklist to hand to engineers
+
+Create AWS account, set up IAM roles and KMS keys.
+
+Provision S3 buckets (raw, processed, evidence) with SSE-KMS.
+
+Create Cognito User Pool and groups.
+
+Scaffold FastAPI backend with endpoints for alerts, evidence, QR-token creation, Stripe webhook handler.
+
+Build Rekognition orchestration Lambda (S3 trigger → StartPersonTracking → SNS callback → GetPersonTracking → sample frames → SearchFacesByImage).
+
+Implement frontend routes: /monitor, /network, /recovery, /settings, /ops, /offender/:token.
+
+Wire SNS (SMS) & SES (email) templates for notifications.
+
+Integrate Stripe Checkout and webhooks.
+
+Implement simple DB tables (DynamoDB) for Users/Stores/Alerts/Offenders/Thefts/Debts.
+
+Instrument logging & CloudWatch alarms; add monitoring dashboard.

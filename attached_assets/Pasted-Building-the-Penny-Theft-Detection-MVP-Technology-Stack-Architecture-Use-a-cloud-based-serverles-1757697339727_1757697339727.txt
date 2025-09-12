@@ -1,0 +1,184 @@
+Building the Penny Theft-Detection MVP
+
+Technology Stack & Architecture: Use a cloud-based serverless web architecture for rapid development and scalability. For example, host a React (or other SPA) frontend on AWS S3 + CloudFront, and use AWS Cognito for user sign-in (email/password)
+aws.amazon.com
+aws.amazon.com
+. Implement backend logic in Python (Flask/Django or AWS Lambda functions) exposed via API Gateway. Store data in a database (Amazon DynamoDB or RDS) and assets in S3. Leverage the AWS Free Tier for S3, API Gateway, Lambda, and Cognito to minimize costs
+aws.amazon.com
+aws.amazon.com
+. Use IAM to create roles for your services (e.g. a Lambda execution role with Rekognition and S3 access, and Cognito User Pool roles).
+
+Web Frontend: Create a single-page application (React/Vue) for the Store and Admin UIs. Deploy it to an S3 bucket with CloudFront for fast delivery
+aws.amazon.com
+.
+
+User Auth: Configure Amazon Cognito User Pools for sign-up/login of store staff, Penny admins, and offenders
+aws.amazon.com
+. Define separate user groups (e.g. “StoreStaff”, “PennyAdmin”, “Offender”) and configure email/password login (Cognito has a free tier for up to 50k users
+aws.amazon.com
+).
+
+Backend: Use AWS Lambda (Python) or a Python web server (Flask/Django on EC2/Elastic Beanstalk) for APIs. If serverless, set up API Gateway endpoints for each function (free tier ~1M calls
+aws.amazon.com
+). Integrate Lambda with DynamoDB or RDS for data persistence.
+
+Data Storage: Create S3 buckets for storing uploaded video clips and processed images. Enable server-side encryption (SSE) on the buckets for security. Configure S3 event notifications or Kinesis Video triggers to invoke Lambdas on new video input.
+
+Data Models: Design a schema with tables/collections for Stores, Users, Offenders, Thefts, and Debts. For example:
+
+Stores: ID, name, location, staff list (linked to User IDs).
+
+Users: ID, email, password hash (if not using Cognito), role (StoreStaff/PennyAdmin/Offender), linked Store or Offender profile.
+
+Offenders: ID, name (if known), face reference(s), associated User ID (Cognito), total debt.
+
+Thefts: ID, store ID, timestamp, video S3 key, confirmed (bool), offender ID (if identified), value, location.
+
+Debts: ID, offender ID, theft ID, amount owed, paid (bool).
+Use DynamoDB or a relational DB; ensure relations (e.g. offender–theft) are clear.
+
+Authentication: Implement email/password login for all users via Cognito
+aws.amazon.com
+. Use Cognito’s hosted UI or embed it in your app. After login, issue JWT tokens for API access. For offenders who scan a QR code, route them to a sign-up flow (Cognito) that links their new account to the offender profile (by matching the QR token). Store user credentials securely (Cognito handles hashing) and never log raw passwords.
+
+Store Interface (Web App)
+
+Overview: The Store UI has four tabs: Monitor, Network, Recovery, and Settings. Build this as a React or Vue app that calls your backend APIs.
+
+Monitor Tab: Show real-time alerts for “in-progress” thefts. For example, list active suspicious events (with a thumbnail or short video preview), time, and estimated value. Use WebSocket or AWS IoT for live updates, or poll an API for new events. When a theft is detected (see CV pipeline below), immediately send a notification to this tab and to staff via SMS/email.
+
+Network Tab: Display alerts about returning offenders and recent network-wide thefts. Query the Penny network database for any confirmed thefts at this store or known offenders caught elsewhere. List these incidents (with offender name/photo if identified, time, and theft details). This lets store staff see if a captured offender returns.
+
+Recovery Tab: Manage identified offenders and debt repayment. List offenders linked to this store (from past confirmed thefts). For each offender, show their profile (name/photo if any) and associated thefts with amounts. Provide a “Send Notification” button to email or text the offender about their debt. Include a “Generate QR Code” button: this produces a QR code that links to the offender’s portal (see Offender Portal below). Use a Python QR library (e.g. segno) to generate it on the backend
+realpython.com
+. For example: install segno (pip install segno) and encode the URL to the offender profile to save as a PNG
+realpython.com
+.
+
+Settings Tab: Allow store admins to configure alerts and billing. Include:
+
+A form to add/remove staff phone numbers and email addresses for real-time alerts (store these in your database). Use AWS SNS to send SMS to these numbers when incidents occur.
+
+A section to update billing details: credit card for Penny subscription (use Stripe) and preferred payment account to receive commissions.
+
+A Support/Help form or contact link: submissions here should email the Penny support team (e.g. via AWS SES or a simple backend that sends an email).
+
+Penny Dashboard (Internal Admin)
+
+Overview: Build a secure admin interface for Penny staff to review and manage theft cases. This can be a separate web app (React + API) or part of the same app with admin routes.
+
+Flagged Incidents: Display a queue of new flagged theft events (from any store) that require review. For each, show a video clip or images, timestamp, store location, and detected offender (if any).
+
+Review & Confirm: Provide Approve and Reject buttons. If the reviewer confirms a theft, mark the incident as confirmed (set Thefts.confirmed = true) and add the offender to the network database. If rejected, mark it false positive. This “human-in-the-loop” step reduces errors
+docs.aws.amazon.com
+.
+
+Offender Profiles: Allow searching the offender database. Show each offender’s image(s), linked thefts, and total debt. Enable editing profiles if needed.
+
+Commissions: Show reporting on debt recovery and commissions. Since stores earn 10% of each recovered theft, the dashboard should compute total debts collected and the store’s share. For each paid debt, record 10% to Penny and 90% to store; track payouts.
+
+Offender Portal
+
+Overview: When staff generate a QR code for an offender, it links to an Offender Portal on your web app. Offenders open this link to set up an account and view their debts.
+
+Account Signup/Login: The QR code URL should include a secure token linking to that offender profile. The portal prompts the offender to create an account (email/password via Cognito). After signup or login, link the Cognito user to the offender record (match via the QR token or user email).
+
+View Offenses: After login, fetch all theft records tied to this offender. Display each theft’s video evidence (playable or a still image), date/time, store name, and amount owed. Protect these views so only this offender and Penny staff can see them.
+
+Payment: For each debt (or an aggregate), show a “Pay Now” button. Integrate Stripe Checkout for full payment
+docs.stripe.com
+. For example, in your backend create a Stripe Checkout Session for the total debt amount (in USD or local currency) when the button is clicked. Redirect the user to Stripe’s secure page. On success, update Debts.paid = true and notify the store and admin. (Use Stripe webhooks to capture the payment event in your backend.) No installment logic is needed in MVP.
+
+Dispute Option: Provide a “Dispute” link or button if the offender believes there’s a mistake. This should open a form or email to contact Penny support about the case. Log the dispute in the system and notify a Penny admin.
+
+(QR Code Generation Note: To implement the QR code in the Recovery tab, use Python’s segno library
+realpython.com
+. Example code: import segno; q = segno.make_qr(offender_url); q.save("qrcode.png").)
+
+Data Ingestion (Video Sources)
+
+Design the pipeline so video can come from multiple sources:
+
+Manual Clip Upload: In the Store UI, provide an upload form for a specific video clip (e.g. a suspicious event). This form calls a backend API that saves the file to an S3 bucket (e.g. s3://penny-videos/raw/). Use an API endpoint (Flask or Lambda) that accepts multipart file upload. Set appropriate limits (MVP size can be small).
+
+On-Site Camera/DVR (Local Storage): For continuous monitoring, integrate the store’s existing security cameras. If cameras support RTSP, deploy a small gateway service (e.g. AWS Fargate container) running GStreamer to capture the RTSP feed and push it into Amazon Kinesis Video Streams. AWS provides a GStreamer plugin (kvssink) for this purpose
+aws.amazon.com
+. This stream is then processed by Rekognition. The AWS blog shows how to build an RTSP-to-Kinesis gateway on Fargate
+aws.amazon.com
+. If Fargate/containers are too heavy, alternatively mount the DVR storage and periodically upload files to S3.
+
+Cloud Storage: If the store has a camera that can upload to the cloud, configure it to write to S3 (e.g. via API or an intermediate service). Each video saved in S3 should trigger processing. You might also use AWS Kinesis Video Streams directly if you want live feeds.
+
+After ingestion, trigger processing: configure S3 Event Notifications (or Kinesis Data Streams) to invoke a Lambda that starts the analysis (see next section). For example, on S3 “ObjectCreated” event, call a Lambda that starts Rekognition’s person tracking or video analysis.
+
+Computer Vision & Recognition
+
+Implement the core analytics as follows:
+
+Person/Gait Detection: First detect human movement to reduce unnecessary face scans. Use Amazon Rekognition Video’s person tracking API on each video segment
+docs.aws.amazon.com
+. For example, call StartPersonTracking on the uploaded video in S3. Rekognition will asynchronously analyze and post completion to an SNS topic. Your Lambda (subscribed to the SNS topic) should then call GetPersonTracking to retrieve detected people and their timestamps. This yields bounding boxes and timestamps for each person in the video. You can filter or ignore detections below a confidence threshold.
+
+Frame Capture: For each person detected, extract a burst of frames (e.g. sample 5–10 frames evenly during the period the person is visible). You can use AWS Rekognition Video’s Timestamp data to pick frames, or download the video and use ffmpeg/OpenCV to grab frames. Store these frames (temporarily in-memory or S3) for face recognition.
+
+Face Recognition: For each captured frame, call Rekognition’s CompareFaces or SearchFacesByImage API against your Penny network database. Maintain an AWS Rekognition Face Collection of known offenders (add faces when confirmed). Use Rekognition’s managed face matching (no model training needed)
+aws.amazon.com
+. If a face match exceeds a similarity threshold (e.g. 90%), mark that person as a known offender. If not matched, you may skip or log them. (MVP can rely solely on Rekognition’s accuracy, but you could add custom image processing if needed.)
+
+Behavioral/Object Detection (Optional): For stronger theft detection, you could also run object detection or action recognition (e.g. detect if a hand takes an item). AWS Rekognition has label detection for common objects. This is beyond MVP scope, but note that focusing on faces and motion is usually sufficient to identify offenders.
+
+Human Review: After detection, create a record in the database for each potential theft event: include video URL, timestamps, detected face image, matched offender ID (if any), and estimated value (if known from camera input or POS integration). Mark the record “PendingReview”. Notify the Penny admin (e.g. via email or in-dashboard alert) that a new case awaits confirmation. The admin then reviews in the Penny Dashboard. Only after the admin confirms should you mark the theft as final in the database. This manual step ensures accuracy
+docs.aws.amazon.com
+.
+
+Encrypted Storage: Store all evidence (video clips, images, metadata) in encrypted form. For example, enable S3 server-side encryption (SSE) on your buckets. Do not expose raw URLs publicly; use pre-signed URLs or secure streaming when displaying video to users.
+
+Human-in-the-Loop Confirmation
+
+Every flagged incident must be reviewed by a Penny team member before shared across the network. In the Penny Dashboard, after clicking an item, the reviewer watches the clip and examines detections. Then the reviewer clicks “Confirm” or “Reject”. On confirm, update the theft record as confirmed, link the offender, and send a notification back to the store that the case is now in the network. On reject, delete or archive the record. This step is critical to avoid false positives
+docs.aws.amazon.com
+.
+
+Notifications & Alerts
+
+Real-Time Alerts: When the system flags a theft or identifies a returning offender, immediately notify store staff. Use AWS SNS to send SMS to the phone numbers entered in Settings, and use AWS SES or SNS email for email alerts. For example, in your Lambda that processes a detection, after writing a new “PendingReview” record, call SNS: sns.publish(PhoneNumber=staff_number, Message="Alert: suspected theft at Store X"). Ensure to check SNS pricing/limits for SMS.
+
+Email Alerts: Similarly, use AWS SES to send emails to a support address or staff email list. Customize the email template with details and a link to the Dashboard or the Store UI.
+
+On-Offender-Return Alerts: When a known offender is re-detected at a store, trigger an alert in the Network tab and send a notification (SMS/email) to that store’s staff, e.g. “Offender John Doe (previously caught) detected at your store at 3:45 PM.”
+
+Payments Integration (Stripe)
+
+For debt repayment, integrate Stripe for secure payment processing. The MVP only needs one-time, full payments (no installments). Steps:
+
+Set up Stripe: Create a Stripe account and obtain API keys. In your backend, install the Stripe Python library (pip install stripe).
+
+Create Checkout Session: In the Offender Portal, when the user clicks “Pay Now” for an amount, call your backend endpoint (e.g. /create-checkout-session) with the debt details. The backend creates a Stripe Checkout Session specifying the amount owed, currency, and success/cancel URLs
+docs.stripe.com
+. Use stripe.checkout.Session.create(...).
+
+Redirect to Stripe: Return the Checkout Session ID to the frontend, then redirect the offender to Stripe’s hosted payment page or embed Checkout (Stripe provides a drop-in JS snippet). Stripe Checkout is a secure, PCI-compliant payment form
+docs.stripe.com
+.
+
+Handle Webhook: Configure a Stripe webhook endpoint (e.g. /webhook/stripe) to listen for checkout.session.completed events. When received, verify the signature, then mark the corresponding debt record as paid in your database. Update Debts.paid = true, note the timestamp, and trigger any downstream actions (like sending a payment receipt email).
+
+Commission Accounting: On successful payment, compute the store’s commission (10% of the amount). Record this in your system so Penny can settle commissions later. You might immediately transfer 90% to the store’s account (if using Stripe Connect) or track it for batch payouts. For MVP, simply log the commission due to each store.
+
+Remember to use HTTPS for all payment endpoints and do not log sensitive payment info.
+
+Deployment and Testing
+
+AWS Deployment: Use AWS tools to deploy your components. For Lambdas, you can use the Serverless Framework or AWS SAM to package and deploy code. For the frontend, simply sync your build to the S3 bucket.
+
+CI/CD: Set up a Git-based pipeline (e.g. GitHub Actions) to run tests and deploy on push. Test key flows with sample videos and user accounts.
+
+Monitoring: Use Amazon CloudWatch to monitor Lambda invocations, DynamoDB usage, and errors. Set alarms for failures in the CV pipeline. For example, log all Rekognition results and human review outcomes to track false positives.
+
+Testing Data: During development, test with anonymized video clips. Create a small face collection of dummy offenders to validate the recognition flow.
+
+By following these steps, you will build a minimal viable Penny system: a web app for stores (with Monitor/Network/Recovery/Settings tabs), an admin dashboard for Penny staff, and an offender portal for debt repayment. The solution uses Python and AWS services (Rekognition, Cognito, S3, Lambda, etc.) for core functionality. Stripe handles payments
+docs.stripe.com
+ and QR codes can be generated with Python libraries
+realpython.com
+. Each component is connected by secure APIs and events, with manual confirmation to ensure accuracy.
