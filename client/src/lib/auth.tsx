@@ -36,10 +36,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   
   // Check if user is already authenticated
-  const { data: user, isLoading } = useQuery({
+  const { data: user, isLoading, error } = useQuery({
     queryKey: ['/api/user'],
     retry: false,
     refetchOnWindowFocus: false,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    gcTime: 1000 * 60 * 10, // 10 minutes
   });
 
   const loginMutation = useMutation({
@@ -49,6 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: (user) => {
       queryClient.setQueryData(['/api/user'], user);
+      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
     },
   });
 
@@ -59,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: (user) => {
       queryClient.setQueryData(['/api/user'], user);
+      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
     },
   });
 
@@ -85,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await logoutMutation.mutateAsync();
   };
 
-  const isAuthenticated = !!user && !isLoading;
+  const isAuthenticated = !!user && !isLoading && !error;
 
   return (
     <AuthContext.Provider
