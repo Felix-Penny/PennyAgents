@@ -64,22 +64,48 @@ export class VideoAnalysisService {
   }
 
   /**
-   * Extract frames from video at regular intervals for analysis
+   * Extract frames from video at regular intervals for analysis using ffmpeg
    */
   async extractFrames(videoPath: string, intervalSeconds: number = 2): Promise<string[]> {
-    // For MVP, we'll extract frames manually or use a simpler approach
-    // In production, you'd use ffmpeg or similar
     const framePaths: string[] = [];
+    const frameDir = path.join(this.uploadDir, 'frames');
     
-    // Placeholder: For now, we'll treat the video as a single frame
-    // In production, implement proper frame extraction
-    framePaths.push(videoPath);
-    
-    return framePaths;
+    try {
+      // Ensure frames directory exists
+      await fs.mkdir(frameDir, { recursive: true });
+      
+      const videoId = randomUUID();
+      const framePattern = path.join(frameDir, `${videoId}_frame_%03d.jpg`);
+      
+      // Use ffmpeg to extract frames at specified intervals
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      
+      const ffmpegCommand = `ffmpeg -i "${videoPath}" -vf "fps=1/${intervalSeconds}" -q:v 2 "${framePattern}"`;
+      
+      console.log('Extracting frames with command:', ffmpegCommand);
+      await execAsync(ffmpegCommand);
+      
+      // Read extracted frame files
+      const files = await fs.readdir(frameDir);
+      const videoFrames = files
+        .filter(file => file.startsWith(`${videoId}_frame_`) && file.endsWith('.jpg'))
+        .sort()
+        .map(file => path.join(frameDir, file));
+      
+      console.log(`Extracted ${videoFrames.length} frames from video`);
+      return videoFrames;
+      
+    } catch (error) {
+      console.error('Frame extraction failed:', error);
+      // Fallback: return original video path (will need different handling)
+      return [videoPath];
+    }
   }
 
   /**
-   * Convert video frame to base64 for OpenAI Vision API
+   * Convert image frame to base64 for OpenAI Vision API
    */
   private async frameToBase64(framePath: string): Promise<string> {
     try {
@@ -87,6 +113,34 @@ export class VideoAnalysisService {
       return frameBuffer.toString('base64');
     } catch (error) {
       throw new Error(`Failed to read frame: ${error.message}`);
+    }
+  }
+
+  /**
+   * Crop face from frame using bounding box coordinates
+   */
+  async cropFaceFromFrame(framePath: string, boundingBox: {x: number, y: number, width: number, height: number}): Promise<string> {
+    try {
+      const faceId = randomUUID();
+      const outputPath = path.join(this.uploadDir, 'faces', `face_${faceId}.jpg`);
+      
+      // Ensure faces directory exists
+      await fs.mkdir(path.dirname(outputPath), { recursive: true });
+      
+      // Use ffmpeg to crop the face region
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      
+      const cropCommand = `ffmpeg -i "${framePath}" -vf "crop=${boundingBox.width}:${boundingBox.height}:${boundingBox.x}:${boundingBox.y}" -q:v 2 "${outputPath}"`;
+      
+      await execAsync(cropCommand);
+      return outputPath;
+      
+    } catch (error) {
+      console.error('Face cropping failed:', error);
+      // Fallback: return original frame
+      return framePath;
     }
   }
 
@@ -180,60 +234,70 @@ export class VideoAnalysisService {
    * Compare detected face with known offenders using OpenAI vision
    */
   async compareFaceWithOffenders(
-    faceImage: string, 
+    faceImagePath: string, 
     knownOffenders: Array<{ id: string; name: string; thumbnails: string[] }>
   ): Promise<Array<{ offenderId: string; confidence: number; }>> {
     const matches: Array<{ offenderId: string; confidence: number; }> = [];
 
-    for (const offender of knownOffenders) {
-      if (offender.thumbnails.length === 0) continue;
+    try {
+      // Convert cropped face image to base64
+      const faceBase64 = await this.frameToBase64(faceImagePath);
 
-      try {
-        // Compare with first thumbnail (in production, compare with all)
-        const comparisonPrompt = `
-          Compare these two faces and determine if they are the same person.
-          Consider facial structure, features, and overall appearance.
-          
-          Respond with JSON: {"match": true/false, "confidence": 0.0-1.0, "reasoning": "explanation"}
-        `;
+      for (const offender of knownOffenders) {
+        if (offender.thumbnails.length === 0) continue;
 
-        const response = await openai.chat.completions.create({
-          model: "gpt-5",
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: comparisonPrompt
-                },
-                {
-                  type: "image_url",
-                  image_url: { url: `data:image/jpeg;base64,${faceImage}` }
-                },
-                {
-                  type: "image_url", 
-                  image_url: { url: `data:image/jpeg;base64,${offender.thumbnails[0]}` }
-                }
-              ],
-            },
-          ],
-          response_format: { type: "json_object" },
-          max_tokens: 200,
-        });
+        try {
+          // Compare with first thumbnail (in production, compare with all)
+          const comparisonPrompt = `
+            Compare these two faces and determine if they are the same person.
+            Consider facial structure, features, and overall appearance.
+            Ignore differences in lighting, angle, or photo quality.
+            Focus on permanent facial features like bone structure, eye shape, nose, mouth.
+            
+            Respond with JSON: {"match": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation"}
+          `;
 
-        const comparison = JSON.parse(response.choices[0].message.content || '{}');
-        
-        if (comparison.match && comparison.confidence > 0.7) {
-          matches.push({
-            offenderId: offender.id,
-            confidence: comparison.confidence
+          const response = await openai.chat.completions.create({
+            model: "gpt-5",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: comparisonPrompt
+                  },
+                  {
+                    type: "image_url",
+                    image_url: { url: `data:image/jpeg;base64,${faceBase64}` }
+                  },
+                  {
+                    type: "image_url", 
+                    image_url: { url: `data:image/jpeg;base64,${offender.thumbnails[0]}` }
+                  }
+                ],
+              },
+            ],
+            response_format: { type: "json_object" },
+            max_tokens: 200,
           });
-        }
 
-      } catch (error) {
-        console.error(`Face comparison failed for offender ${offender.id}:`, error);
+          const comparison = JSON.parse(response.choices[0].message.content || '{}');
+          
+          if (comparison.match && comparison.confidence > 0.7) {
+            matches.push({
+              offenderId: offender.id,
+              confidence: comparison.confidence
+            });
+          }
+
+        } catch (error) {
+          console.error(`Face comparison failed for offender ${offender.id}:`, error);
+        }
       }
+
+    } catch (error) {
+      console.error('Failed to process face image for comparison:', error);
     }
 
     return matches.sort((a, b) => b.confidence - a.confidence);

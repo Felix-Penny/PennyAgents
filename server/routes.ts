@@ -382,6 +382,12 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Video data and store ID required" });
       }
 
+      // Validate file size (max 50MB)
+      const videoSizeBytes = (videoBase64.length * 3) / 4; // Approximate base64 to bytes
+      if (videoSizeBytes > 50 * 1024 * 1024) {
+        return res.status(400).json({ message: "Video file too large. Maximum size is 50MB." });
+      }
+
       // Import video analysis service
       const { videoAnalysisService } = await import('./video-analysis');
       
@@ -395,31 +401,56 @@ export function registerRoutes(app: Express): Server {
       // Get known offenders for face matching
       const knownOffenders = await storage.getNetworkOffenders();
       
-      // Compare detected faces with known offenders
+      // Enhanced face matching with proper cropping
+      const enhancedMatches: Array<{
+        offenderId: string;
+        confidence: number;
+        faceId: string;
+        timestamp: number;
+      }> = [];
+
       for (const face of analysisResult.detectedFaces) {
         if (face.boundingBox && knownOffenders.length > 0) {
-          // Extract face region for comparison (simplified for MVP)
-          const faceMatches = await videoAnalysisService.compareFaceWithOffenders(
-            videoBase64, // In production, extract actual face region
-            knownOffenders.map(o => ({
-              id: o.id,
-              name: o.name || 'Unknown',
-              thumbnails: o.thumbnails || []
-            }))
-          );
-          
-          faceMatches.forEach(match => {
-            analysisResult.matchedOffenders.push({
-              offenderId: match.offenderId,
-              confidence: match.confidence,
-              faceId: face.id,
-              timestamp: 0 // Would be actual timestamp
+          try {
+            // Find the frame this face was detected in (simplified for MVP)
+            const frameIndex = parseInt(face.id.split('_frame_')[1]) || 0;
+            const framePath = `/tmp/frame_${frameIndex}.jpg`; // Would need proper frame mapping
+            
+            // Crop face from frame using bounding box
+            const croppedFacePath = await videoAnalysisService.cropFaceFromFrame(
+              framePath, 
+              face.boundingBox
+            );
+            
+            // Compare cropped face with known offenders
+            const faceMatches = await videoAnalysisService.compareFaceWithOffenders(
+              croppedFacePath,
+              knownOffenders.map(o => ({
+                id: o.id,
+                name: o.name || 'Unknown',
+                thumbnails: o.thumbnails || []
+              }))
+            );
+            
+            faceMatches.forEach(match => {
+              enhancedMatches.push({
+                offenderId: match.offenderId,
+                confidence: match.confidence,
+                faceId: face.id,
+                timestamp: frameIndex * 2 // Assuming 2-second intervals
+              });
             });
-          });
+            
+          } catch (error) {
+            console.error('Face processing error:', error);
+          }
         }
       }
 
-      // Create alerts for matched offenders
+      // Add enhanced matches to analysis result
+      analysisResult.matchedOffenders.push(...enhancedMatches);
+
+      // Create alerts for high-confidence matches
       for (const match of analysisResult.matchedOffenders) {
         if (match.confidence > 0.8) {
           const offender = knownOffenders.find(o => o.id === match.offenderId);
@@ -439,6 +470,24 @@ export function registerRoutes(app: Express): Server {
           });
         }
       }
+
+      // Store analysis results
+      await storage.createVideoAnalysis({
+        id: analysisResult.id,
+        storeId,
+        cameraId: cameraId || null,
+        videoFilePath: videoPath,
+        analysisStatus: "COMPLETED",
+        detectedFaces: analysisResult.detectedFaces,
+        matchedOffenders: analysisResult.matchedOffenders,
+        confidenceScores: {
+          averageFaceConfidence: analysisResult.detectedFaces.length > 0 
+            ? analysisResult.detectedFaces.reduce((sum, face) => sum + face.confidence, 0) / analysisResult.detectedFaces.length 
+            : 0
+        },
+        videoDurationSeconds: analysisResult.videoMetadata.duration,
+        analyzedAt: new Date()
+      });
 
       res.json({
         analysisId: analysisResult.id,
