@@ -1,6 +1,7 @@
 // Penny MVP Schema - Based on detailed specifications
 // Referenced from javascript_auth_all_persistance integration
-import { pgTable, varchar, text, integer, timestamp, boolean, decimal, jsonb, serial } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, timestamp, boolean, decimal, jsonb } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -9,18 +10,16 @@ import { z } from "zod";
 // =====================================
 
 export const users = pgTable("users", {
-  id: serial("id").primaryKey(),
-  email: varchar("email", { length: 255 }).notNull().unique(),
-  username: varchar("username", { length: 100 }).notNull().unique(),
-  password: varchar("password", { length: 255 }).notNull(),
-  role: varchar("role", { length: 50 }).notNull().default("store_staff"), // store_staff, store_admin, penny_admin, offender
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  username: text("username").notNull(),
+  password: text("password").notNull(),
+  email: text("email"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  role: text("role").default("operator"), // Match existing: operator, store_staff, store_admin, penny_admin, offender
   storeId: varchar("store_id", { length: 255 }), // links to store for staff
-  offenderId: varchar("offender_id", { length: 255 }), // links to offender for offender accounts
-  firstName: varchar("first_name", { length: 100 }),
-  lastName: varchar("last_name", { length: 100 }),
   isActive: boolean("is_active").default(true),
-  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
-  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
+  lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -54,7 +53,7 @@ export const stores = pgTable("stores", {
 // =====================================
 
 export const alerts = pgTable("alerts", {
-  id: varchar("id", { length: 255 }).primaryKey(),
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
   cameraId: varchar("camera_id", { length: 255 }),
   // Evidence storage (S3 keys)
@@ -74,21 +73,21 @@ export const alerts = pgTable("alerts", {
   // Metadata
   detectedAt: timestamp("detected_at").defaultNow(),
   reviewedAt: timestamp("reviewed_at"),
-  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedBy: varchar("reviewed_by", { length: 255 }).references(() => users.id),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const offenders = pgTable("offenders", {
-  id: varchar("id", { length: 255 }).primaryKey(),
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   // Network opaque ID for cross-store sharing
   networkOffenderId: varchar("network_offender_id", { length: 255 }).unique(),
   // Identity information
   name: varchar("name", { length: 255 }),
   aliases: jsonb("aliases").$type<string[]>().default([]),
   // Linked user account (for Offender Portal access)
-  linkedUserId: integer("linked_user_id").references(() => users.id),
+  linkedUserId: varchar("linked_user_id", { length: 255 }).references(() => users.id),
   // Evidence and detection data
   thumbnails: jsonb("thumbnails").$type<string[]>().default([]),
   confirmedIncidentIds: jsonb("confirmed_incident_ids").$type<string[]>().default([]),
@@ -98,7 +97,7 @@ export const offenders = pgTable("offenders", {
   // Network status
   isNetworkApproved: boolean("is_network_approved").default(false),
   networkApprovedAt: timestamp("network_approved_at"),
-  networkApprovedBy: integer("network_approved_by").references(() => users.id),
+  networkApprovedBy: varchar("network_approved_by", { length: 255 }).references(() => users.id),
   // Metadata
   firstDetectedAt: timestamp("first_detected_at").defaultNow(),
   lastSeenAt: timestamp("last_seen_at"),
@@ -111,7 +110,7 @@ export const offenders = pgTable("offenders", {
 // =====================================
 
 export const evidenceBundles = pgTable("evidence_bundles", {
-  id: varchar("id", { length: 255 }).primaryKey(),
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   s3Keys: jsonb("s3_keys").$type<string[]>().notNull(),
   kmsKey: varchar("kms_key", { length: 255 }),
   retentionUntil: timestamp("retention_until"),
@@ -124,7 +123,7 @@ export const evidenceBundles = pgTable("evidence_bundles", {
 });
 
 export const thefts = pgTable("thefts", {
-  id: varchar("id", { length: 255 }).primaryKey(),
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   offenderId: varchar("offender_id", { length: 255 }).notNull().references(() => offenders.id),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
   alertId: varchar("alert_id", { length: 255 }).references(() => alerts.id),
@@ -132,7 +131,7 @@ export const thefts = pgTable("thefts", {
   // Financial details
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   // Confirmation workflow
-  confirmedBy: integer("confirmed_by").references(() => users.id),
+  confirmedBy: varchar("confirmed_by", { length: 255 }).references(() => users.id),
   confirmedAt: timestamp("confirmed_at"),
   // Network sharing status
   networkStatus: varchar("network_status", { length: 50 }).default("PENDING"), // PENDING, APPROVED, REJECTED
@@ -150,7 +149,7 @@ export const thefts = pgTable("thefts", {
 // =====================================
 
 export const debtPayments = pgTable("debt_payments", {
-  id: varchar("id", { length: 255 }).primaryKey(),
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   theftId: varchar("theft_id", { length: 255 }).references(() => thefts.id),
   offenderId: varchar("offender_id", { length: 255 }).notNull().references(() => offenders.id),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
@@ -177,14 +176,14 @@ export const debtPayments = pgTable("debt_payments", {
 // =====================================
 
 export const qrTokens = pgTable("qr_tokens", {
-  id: varchar("id", { length: 255 }).primaryKey(),
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   token: varchar("token", { length: 255 }).notNull().unique(),
   offenderId: varchar("offender_id", { length: 255 }).notNull().references(() => offenders.id),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
-  generatedBy: integer("generated_by").notNull().references(() => users.id),
+  generatedBy: varchar("generated_by", { length: 255 }).notNull().references(() => users.id),
   isUsed: boolean("is_used").default(false),
   usedAt: timestamp("used_at"),
-  usedBy: integer("used_by").references(() => users.id),
+  usedBy: varchar("used_by", { length: 255 }).references(() => users.id),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -194,8 +193,8 @@ export const qrTokens = pgTable("qr_tokens", {
 // =====================================
 
 export const notifications = pgTable("notifications", {
-  id: varchar("id", { length: 255 }).primaryKey(),
-  userId: integer("user_id").references(() => users.id),
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 255 }).references(() => users.id),
   storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
   type: varchar("type", { length: 100 }).notNull(), // ALERT, PAYMENT, NETWORK, SYSTEM
   title: varchar("title", { length: 255 }).notNull(),
