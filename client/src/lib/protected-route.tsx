@@ -36,7 +36,7 @@ export function ProtectedRoute({
   }
 
   // Check role-based access if roles are specified
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  if (allowedRoles && user.role && !allowedRoles.includes(user.role)) {
     return (
       <Route path={path}>
         <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-red-50 to-white dark:from-gray-900 dark:to-gray-800">
@@ -49,7 +49,7 @@ export function ProtectedRoute({
               You don't have permission to access this area.
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-500">
-              Current role: <span className="font-medium">{user.role.replace('_', ' ')}</span>
+              Current role: <span className="font-medium">{user.role?.replace('_', ' ') || 'No role assigned'}</span>
             </p>
           </div>
         </div>
