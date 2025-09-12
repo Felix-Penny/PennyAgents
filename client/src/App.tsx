@@ -15,13 +15,21 @@ import Analytics from "./pages/analytics";
 import Network from "./pages/network";
 import Settings from "./pages/settings";
 import LoginPage from "./pages/login";
+import PortalSelectPage from "./pages/portal-select";
+import StoreLoginPage from "./pages/store-login";
+import PennyLoginPage from "./pages/penny-login";
+import RepaymentLoginPage from "./pages/repayment-login";
 import VideoTest from "./pages/video-test";
 
 function Router() {
   return (
     <Switch>
+      <Route path="/" component={PortalSelectPage} />
       <Route path="/login" component={LoginPage} />
-      <ProtectedRoute path="/" component={Dashboard} />
+      <Route path="/store/login" component={StoreLoginPage} />
+      <Route path="/penny/login" component={PennyLoginPage} />
+      <Route path="/repayment/login" component={RepaymentLoginPage} />
+      <ProtectedRoute path="/dashboard" component={Dashboard} />
       <ProtectedRoute path="/live-feeds" component={LiveFeeds} />
       <ProtectedRoute path="/alerts" component={Alerts} />
       <ProtectedRoute path="/offenders" component={Offenders} />

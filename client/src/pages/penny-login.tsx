@@ -7,8 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
 import { useEffect } from "react";
+import { Shield, ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
 
-export default function LoginPage() {
+export default function PennyLoginPage() {
   const [, setLocation] = useLocation();
   const { user, loginMutation, registerMutation } = useAuth();
   const [loginData, setLoginData] = useState({ username: "", password: "" });
@@ -45,9 +47,18 @@ export default function LoginPage() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">PENNY Security System</CardTitle>
+          <Link href="/">
+            <Button variant="ghost" size="sm" className="absolute top-4 left-4" data-testid="button-back">
+              <ArrowLeft className="w-4 h-4 mr-1" />
+              Back
+            </Button>
+          </Link>
+          <div className="mx-auto w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mb-4">
+            <Shield className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+          </div>
+          <CardTitle className="text-2xl font-bold">Penny Portal</CardTitle>
           <CardDescription>
-            Sign in to access your security dashboard
+            System administrator access to the PENNY platform
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -60,7 +71,7 @@ export default function LoginPage() {
             <TabsContent value="login">
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="username">Username</Label>
+                  <Label htmlFor="username">Administrator Username</Label>
                   <Input
                     id="username"
                     data-testid="input-username"
@@ -87,7 +98,7 @@ export default function LoginPage() {
                   data-testid="button-login"
                   disabled={loginMutation.isPending}
                 >
-                  {loginMutation.isPending ? "Signing in..." : "Sign In"}
+                  {loginMutation.isPending ? "Signing in..." : "Administrator Sign In"}
                 </Button>
               </form>
             </TabsContent>
@@ -117,7 +128,7 @@ export default function LoginPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="reg-username">Username</Label>
+                  <Label htmlFor="reg-username">Administrator Username</Label>
                   <Input
                     id="reg-username"
                     data-testid="input-reg-username"
@@ -165,8 +176,11 @@ export default function LoginPage() {
                   data-testid="button-register"
                   disabled={registerMutation.isPending}
                 >
-                  {registerMutation.isPending ? "Creating account..." : "Create Account"}
+                  {registerMutation.isPending ? "Creating account..." : "Create Administrator Account"}
                 </Button>
+                {registerData.password !== registerData.confirmPassword && registerData.confirmPassword && (
+                  <p className="text-sm text-red-600">Passwords do not match</p>
+                )}
               </form>
             </TabsContent>
           </Tabs>

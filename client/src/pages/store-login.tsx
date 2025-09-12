@@ -7,8 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
 import { useEffect } from "react";
+import { Store, ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
 
-export default function LoginPage() {
+export default function StoreLoginPage() {
   const [, setLocation] = useLocation();
   const { user, loginMutation, registerMutation } = useAuth();
   const [loginData, setLoginData] = useState({ username: "", password: "" });
@@ -45,9 +47,18 @@ export default function LoginPage() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">PENNY Security System</CardTitle>
+          <Link href="/">
+            <Button variant="ghost" size="sm" className="absolute top-4 left-4" data-testid="button-back">
+              <ArrowLeft className="w-4 h-4 mr-1" />
+              Back
+            </Button>
+          </Link>
+          <div className="mx-auto w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mb-4">
+            <Store className="w-8 h-8 text-green-600 dark:text-green-400" />
+          </div>
+          <CardTitle className="text-2xl font-bold">Store Portal</CardTitle>
           <CardDescription>
-            Sign in to access your security dashboard
+            Sign in to access your store security dashboard
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -167,6 +178,9 @@ export default function LoginPage() {
                 >
                   {registerMutation.isPending ? "Creating account..." : "Create Account"}
                 </Button>
+                {registerData.password !== registerData.confirmPassword && registerData.confirmPassword && (
+                  <p className="text-sm text-red-600">Passwords do not match</p>
+                )}
               </form>
             </TabsContent>
           </Tabs>

@@ -7,8 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
 import { useEffect } from "react";
+import { CreditCard, ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
 
-export default function LoginPage() {
+export default function RepaymentLoginPage() {
   const [, setLocation] = useLocation();
   const { user, loginMutation, registerMutation } = useAuth();
   const [loginData, setLoginData] = useState({ username: "", password: "" });
@@ -45,9 +47,18 @@ export default function LoginPage() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">PENNY Security System</CardTitle>
+          <Link href="/">
+            <Button variant="ghost" size="sm" className="absolute top-4 left-4" data-testid="button-back">
+              <ArrowLeft className="w-4 h-4 mr-1" />
+              Back
+            </Button>
+          </Link>
+          <div className="mx-auto w-16 h-16 bg-orange-100 dark:bg-orange-900 rounded-full flex items-center justify-center mb-4">
+            <CreditCard className="w-8 h-8 text-orange-600 dark:text-orange-400" />
+          </div>
+          <CardTitle className="text-2xl font-bold">Repayment Portal</CardTitle>
           <CardDescription>
-            Sign in to access your security dashboard
+            Access your payment account and manage restitution
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -60,7 +71,7 @@ export default function LoginPage() {
             <TabsContent value="login">
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="username">Username</Label>
+                  <Label htmlFor="username">Account ID or Username</Label>
                   <Input
                     id="username"
                     data-testid="input-username"
@@ -87,7 +98,7 @@ export default function LoginPage() {
                   data-testid="button-login"
                   disabled={loginMutation.isPending}
                 >
-                  {loginMutation.isPending ? "Signing in..." : "Sign In"}
+                  {loginMutation.isPending ? "Signing in..." : "Access Account"}
                 </Button>
               </form>
             </TabsContent>
@@ -165,8 +176,11 @@ export default function LoginPage() {
                   data-testid="button-register"
                   disabled={registerMutation.isPending}
                 >
-                  {registerMutation.isPending ? "Creating account..." : "Create Account"}
+                  {registerMutation.isPending ? "Creating account..." : "Create Payment Account"}
                 </Button>
+                {registerData.password !== registerData.confirmPassword && registerData.confirmPassword && (
+                  <p className="text-sm text-red-600">Passwords do not match</p>
+                )}
               </form>
             </TabsContent>
           </Tabs>
