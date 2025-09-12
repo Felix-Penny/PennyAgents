@@ -2,6 +2,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import Stripe from "stripe";
+import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess } from "./auth";
 
@@ -372,11 +373,112 @@ export function registerRoutes(app: Express): Server {
   // GENERAL API ENDPOINTS
   // =====================================
 
-  // Video upload for evidence
-  app.post("/api/evidence/upload", requireAuth, requireStoreStaff, async (req, res) => {
+  // Video upload and analysis endpoints
+  app.post("/api/video/analyze", requireAuth, requireStoreStaff, async (req, res) => {
     try {
-      // Handle video/image upload to S3 (placeholder for MVP)
-      res.json({ message: "Evidence upload endpoint - to be implemented with S3" });
+      const { videoBase64, storeId, cameraId } = req.body;
+      
+      if (!videoBase64 || !storeId) {
+        return res.status(400).json({ message: "Video data and store ID required" });
+      }
+
+      // Import video analysis service
+      const { videoAnalysisService } = await import('./video-analysis');
+      
+      // Convert base64 to buffer and save
+      const videoBuffer = Buffer.from(videoBase64, 'base64');
+      const videoPath = await videoAnalysisService.saveUploadedVideo(videoBuffer, 'upload.mp4');
+      
+      // Analyze video for faces and suspicious activity
+      const analysisResult = await videoAnalysisService.analyzeVideo(videoPath, storeId, cameraId);
+      
+      // Get known offenders for face matching
+      const knownOffenders = await storage.getNetworkOffenders();
+      
+      // Compare detected faces with known offenders
+      for (const face of analysisResult.detectedFaces) {
+        if (face.boundingBox && knownOffenders.length > 0) {
+          // Extract face region for comparison (simplified for MVP)
+          const faceMatches = await videoAnalysisService.compareFaceWithOffenders(
+            videoBase64, // In production, extract actual face region
+            knownOffenders.map(o => ({
+              id: o.id,
+              name: o.name || 'Unknown',
+              thumbnails: o.thumbnails || []
+            }))
+          );
+          
+          faceMatches.forEach(match => {
+            analysisResult.matchedOffenders.push({
+              offenderId: match.offenderId,
+              confidence: match.confidence,
+              faceId: face.id,
+              timestamp: 0 // Would be actual timestamp
+            });
+          });
+        }
+      }
+
+      // Create alerts for matched offenders
+      for (const match of analysisResult.matchedOffenders) {
+        if (match.confidence > 0.8) {
+          const offender = knownOffenders.find(o => o.id === match.offenderId);
+          await storage.createAlert({
+            storeId,
+            cameraId: cameraId || 'video-upload',
+            type: 'known_offender_detected',
+            severity: 'high',
+            title: 'Known Offender Detected',
+            message: `Known offender "${offender?.name || 'Unknown'}" detected in uploaded video with ${(match.confidence * 100).toFixed(1)}% confidence`,
+            metadata: {
+              analysisId: analysisResult.id,
+              offenderId: match.offenderId,
+              confidence: match.confidence,
+              faceId: match.faceId
+            }
+          });
+        }
+      }
+
+      res.json({
+        analysisId: analysisResult.id,
+        detectedFaces: analysisResult.detectedFaces.length,
+        matchedOffenders: analysisResult.matchedOffenders.length,
+        suspiciousActivities: analysisResult.suspiciousActivity.length,
+        highConfidenceMatches: analysisResult.matchedOffenders.filter(m => m.confidence > 0.8).length,
+        analysisResult
+      });
+
+    } catch (error: any) {
+      console.error('Video analysis error:', error);
+      res.status(500).json({ message: "Analysis failed: " + error.message });
+    }
+  });
+
+  // Create video clip from analysis
+  app.post("/api/video/create-clip", requireAuth, requireStoreStaff, async (req, res) => {
+    try {
+      const { analysisId, startTime, endTime, reason } = req.body;
+      
+      // Import video analysis service
+      const { videoAnalysisService } = await import('./video-analysis');
+      
+      // For MVP, create a clip (simplified)
+      const clipPath = await videoAnalysisService.createClip(
+        `/uploads/${analysisId}.mp4`,
+        startTime,
+        endTime
+      );
+
+      res.json({
+        clipId: analysisId + '_clip',
+        clipPath,
+        message: "Video clip created successfully",
+        startTime,
+        endTime,
+        reason
+      });
+
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

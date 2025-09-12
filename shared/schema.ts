@@ -229,8 +229,6 @@ export type Store = z.infer<typeof selectStoreSchema>;
 // Alert schemas
 export const insertAlertSchema = createInsertSchema(alerts).omit({
   createdAt: true,
-  updatedAt: true,
-  detectedAt: true,
 });
 export const selectAlertSchema = createSelectSchema(alerts);
 export type InsertAlert = z.infer<typeof insertAlertSchema>;

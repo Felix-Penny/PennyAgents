@@ -18,6 +18,7 @@ import LoginPage from "./pages/login";
 import PortalSelectPage from "./pages/portal-select";
 import PennyDashboard from "./pages/penny-dashboard";
 import RepaymentDashboard from "./pages/repayment-dashboard";
+import VideoUpload from "./pages/video-upload";
 import VideoTest from "./pages/video-test";
 
 function Router() {
@@ -34,6 +35,7 @@ function Router() {
       <ProtectedRoute path="/analytics" component={Analytics} />
       <ProtectedRoute path="/network" component={Network} />
       <ProtectedRoute path="/settings" component={Settings} />
+      <ProtectedRoute path="/video-upload" component={VideoUpload} />
       <ProtectedRoute path="/video-test" component={VideoTest} />
       <Route component={NotFound} />
     </Switch>
