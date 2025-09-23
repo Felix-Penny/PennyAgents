@@ -12,7 +12,15 @@ import { useToast } from "@/hooks/use-toast";
 export default function PortalSelectPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const { loginMutation } = useAuth();
+  const [registerData, setRegisterData] = useState({
+    username: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    firstName: "",
+    lastName: "",
+  });
+  const { loginMutation, registerMutation } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -26,6 +34,29 @@ export default function PortalSelectPage() {
       toast({
         title: "Login failed", 
         description: error.message || "Please check your credentials",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (registerData.password !== registerData.confirmPassword) {
+      toast({
+        title: "Password mismatch",
+        description: "Passwords do not match",
+        variant: "destructive"
+      });
+      return;
+    }
+    try {
+      const user = await registerMutation.mutateAsync(registerData);
+      // Redirect to multi-agent platform dashboard
+      setLocation('/platform');
+    } catch (error: any) {
+      toast({
+        title: "Registration failed",
+        description: error.message || "Please try again",
         variant: "destructive"
       });
     }
@@ -113,15 +144,96 @@ export default function PortalSelectPage() {
                 </TabsContent>
                 
                 <TabsContent value="signup" className="space-y-4">
-                  <div className="text-center py-8">
-                    <p className="text-muted-foreground mb-4">
-                      Contact your organization administrator to request platform access
-                    </p>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <p>Available agents: Security, Finance, Sales, Operations, HR</p>
-                      <p>Role-based access control ensures you see only authorized data</p>
+                  <form onSubmit={handleRegister} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="firstName">First Name</Label>
+                        <Input
+                          id="firstName"
+                          data-testid="input-firstName"
+                          type="text"
+                          value={registerData.firstName}
+                          onChange={(e) => setRegisterData({ ...registerData, firstName: e.target.value })}
+                          placeholder="Enter first name"
+                          className="h-12"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="lastName">Last Name</Label>
+                        <Input
+                          id="lastName"
+                          data-testid="input-lastName"
+                          type="text"
+                          value={registerData.lastName}
+                          onChange={(e) => setRegisterData({ ...registerData, lastName: e.target.value })}
+                          placeholder="Enter last name"
+                          className="h-12"
+                        />
+                      </div>
                     </div>
-                  </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="reg-username">Username</Label>
+                      <Input
+                        id="reg-username"
+                        data-testid="input-reg-username"
+                        type="text"
+                        value={registerData.username}
+                        onChange={(e) => setRegisterData({ ...registerData, username: e.target.value })}
+                        placeholder="Choose a username"
+                        className="h-12"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <Input
+                        id="email"
+                        data-testid="input-email"
+                        type="email"
+                        value={registerData.email}
+                        onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
+                        placeholder="Enter your email"
+                        className="h-12"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="reg-password">Password</Label>
+                      <Input
+                        id="reg-password"
+                        data-testid="input-reg-password"
+                        type="password"
+                        value={registerData.password}
+                        onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
+                        placeholder="Create a password"
+                        className="h-12"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="confirm-password">Confirm Password</Label>
+                      <Input
+                        id="confirm-password"
+                        data-testid="input-confirm-password"
+                        type="password"
+                        value={registerData.confirmPassword}
+                        onChange={(e) => setRegisterData({ ...registerData, confirmPassword: e.target.value })}
+                        placeholder="Confirm your password"
+                        className="h-12"
+                        required
+                      />
+                    </div>
+                    {registerData.password !== registerData.confirmPassword && registerData.confirmPassword && (
+                      <p className="text-sm text-red-600">Passwords do not match</p>
+                    )}
+                    <Button 
+                      type="submit" 
+                      className="w-full h-12 text-lg" 
+                      data-testid="button-register"
+                      disabled={registerMutation.isPending}
+                    >
+                      {registerMutation.isPending ? "Creating account..." : "Join Platform"}
+                    </Button>
+                  </form>
                 </TabsContent>
               </Tabs>
             </CardContent>
