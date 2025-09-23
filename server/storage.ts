@@ -14,6 +14,10 @@ import {
   qrTokens,
   notifications,
   evidenceBundles,
+  organizations,
+  agents,
+  userAgentAccess,
+  agentConfigurations,
   type InsertUser,
   type User,
   type InsertStore,
@@ -28,6 +32,14 @@ import {
   type DebtPayment,
   type InsertQrToken,
   type QrToken,
+  type InsertOrganization,
+  type Organization,
+  type InsertAgent,
+  type Agent,
+  type InsertUserAgentAccess,
+  type UserAgentAccess,
+  type InsertAgentConfiguration,
+  type AgentConfiguration,
 } from "@shared/schema";
 
 const PostgresSessionStore = connectPg(session);
@@ -112,6 +124,30 @@ export interface IStorage {
   getNotificationsByUser(userId: string): Promise<any[]>;
   markNotificationRead(id: string): Promise<any>;
 
+  // Multi-Agent Platform Management
+  // Organizations
+  createOrganization(org: InsertOrganization): Promise<Organization>;
+  getOrganization(id: string): Promise<Organization | null>;
+  updateOrganization(id: string, updates: Partial<InsertOrganization>): Promise<Organization>;
+  
+  // Agents
+  getAgents(): Promise<Agent[]>;
+  getAgent(id: string): Promise<Agent | null>;
+  getAgentsByOrganization(organizationId: string): Promise<Agent[]>;
+  
+  // User Agent Access
+  createUserAgentAccess(access: InsertUserAgentAccess): Promise<UserAgentAccess>;
+  getUserAgentAccess(userId: string, agentId: string): Promise<UserAgentAccess | null>;
+  getUserAgentsByUser(userId: string): Promise<UserAgentAccess[]>;
+  updateUserAgentAccess(id: string, updates: Partial<InsertUserAgentAccess>): Promise<UserAgentAccess>;
+  removeUserAgentAccess(userId: string, agentId: string): Promise<void>;
+  
+  // Agent Configurations
+  createAgentConfiguration(config: InsertAgentConfiguration): Promise<AgentConfiguration>;
+  getAgentConfiguration(organizationId: string, agentId: string): Promise<AgentConfiguration | null>;
+  getOrganizationAgentConfigurations(organizationId: string): Promise<AgentConfiguration[]>;
+  updateAgentConfiguration(id: string, updates: Partial<InsertAgentConfiguration>): Promise<AgentConfiguration>;
+
   // Session store for authentication
   sessionStore: any; // Using any to avoid type issues with session.SessionStore
 }
@@ -188,8 +224,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getStoresByRegion(region?: string): Promise<Store[]> {
-    // For MVP, return all active stores (can add region filtering later)
-    return await db.select().from(stores).where(eq(stores.isActive, true));
+    // For MVP, return all stores (can add region filtering later)
+    return await db.select().from(stores);
   }
 
   async updateStore(id: string, updates: Partial<InsertStore>): Promise<Store> {
@@ -244,7 +280,7 @@ export class DatabaseStorage implements IStorage {
   async updateAlert(id: string, updates: Partial<InsertAlert>): Promise<Alert> {
     const [updatedAlert] = await db
       .update(alerts)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updates)
       .where(eq(alerts.id, id))
       .returning();
     return updatedAlert;
@@ -485,6 +521,131 @@ export class DatabaseStorage implements IStorage {
     // For MVP, return updates - in production update video_analyses table
     console.log(`Updating video analysis: ${id}`);
     return updates;
+  }
+
+  // =====================================
+  // Multi-Agent Platform Management
+  // =====================================
+
+  // Organizations
+  async createOrganization(org: InsertOrganization): Promise<Organization> {
+    const [newOrg] = await db.insert(organizations).values(org).returning();
+    return newOrg;
+  }
+
+  async getOrganization(id: string): Promise<Organization | null> {
+    const org = await db.select().from(organizations).where(eq(organizations.id, id)).limit(1);
+    return org[0] || null;
+  }
+
+  async updateOrganization(id: string, updates: Partial<InsertOrganization>): Promise<Organization> {
+    const [updatedOrg] = await db
+      .update(organizations)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(organizations.id, id))
+      .returning();
+    return updatedOrg;
+  }
+
+  // Agents
+  async getAgents(): Promise<Agent[]> {
+    return await db.select().from(agents).where(eq(agents.isActive, true));
+  }
+
+  async getAgent(id: string): Promise<Agent | null> {
+    const agent = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
+    return agent[0] || null;
+  }
+
+  async getAgentsByOrganization(organizationId: string): Promise<Agent[]> {
+    // Get enabled agents for this organization based on agent configurations
+    return await db
+      .select(agents)
+      .from(agents)
+      .innerJoin(agentConfigurations, eq(agentConfigurations.agentId, agents.id))
+      .where(
+        and(
+          eq(agentConfigurations.organizationId, organizationId),
+          eq(agentConfigurations.isEnabled, true),
+          eq(agents.isActive, true)
+        )
+      );
+  }
+
+  // User Agent Access
+  async createUserAgentAccess(access: InsertUserAgentAccess): Promise<UserAgentAccess> {
+    const [newAccess] = await db.insert(userAgentAccess).values(access).returning();
+    return newAccess;
+  }
+
+  async getUserAgentAccess(userId: string, agentId: string): Promise<UserAgentAccess | null> {
+    const access = await db
+      .select()
+      .from(userAgentAccess)
+      .where(and(eq(userAgentAccess.userId, userId), eq(userAgentAccess.agentId, agentId)))
+      .limit(1);
+    return access[0] || null;
+  }
+
+  async getUserAgentsByUser(userId: string): Promise<UserAgentAccess[]> {
+    return await db
+      .select()
+      .from(userAgentAccess)
+      .where(and(eq(userAgentAccess.userId, userId), eq(userAgentAccess.isActive, true)))
+      .orderBy(userAgentAccess.createdAt);
+  }
+
+  async updateUserAgentAccess(id: string, updates: Partial<InsertUserAgentAccess>): Promise<UserAgentAccess> {
+    const [updatedAccess] = await db
+      .update(userAgentAccess)
+      .set(updates)
+      .where(eq(userAgentAccess.id, id))
+      .returning();
+    return updatedAccess;
+  }
+
+  async removeUserAgentAccess(userId: string, agentId: string): Promise<void> {
+    await db
+      .update(userAgentAccess)
+      .set({ isActive: false })
+      .where(and(eq(userAgentAccess.userId, userId), eq(userAgentAccess.agentId, agentId)));
+  }
+
+  // Agent Configurations
+  async createAgentConfiguration(config: InsertAgentConfiguration): Promise<AgentConfiguration> {
+    const [newConfig] = await db.insert(agentConfigurations).values(config).returning();
+    return newConfig;
+  }
+
+  async getAgentConfiguration(organizationId: string, agentId: string): Promise<AgentConfiguration | null> {
+    const config = await db
+      .select()
+      .from(agentConfigurations)
+      .where(
+        and(
+          eq(agentConfigurations.organizationId, organizationId),
+          eq(agentConfigurations.agentId, agentId)
+        )
+      )
+      .limit(1);
+    return config[0] || null;
+  }
+
+  async getOrganizationAgentConfigurations(organizationId: string): Promise<AgentConfiguration[]> {
+    return await db
+      .select()
+      .from(agentConfigurations)
+      .where(eq(agentConfigurations.organizationId, organizationId))
+      .orderBy(agentConfigurations.createdAt);
+  }
+
+  async updateAgentConfiguration(id: string, updates: Partial<InsertAgentConfiguration>): Promise<AgentConfiguration> {
+    const [updatedConfig] = await db
+      .update(agentConfigurations)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(agentConfigurations.id, id))
+      .returning();
+    return updatedConfig;
   }
 }
 

@@ -1,4 +1,4 @@
-// Penny MVP Schema - Based on detailed specifications
+// Penny Multi-Agent Platform Schema
 // Referenced from javascript_auth_all_persistance integration
 import { pgTable, varchar, text, timestamp, boolean, decimal, jsonb } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -6,7 +6,75 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // =====================================
-// Core User Management
+// Platform Core - Multi-Agent Architecture
+// =====================================
+
+export const organizations = pgTable("organizations", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 255 }).notNull(),
+  domain: varchar("domain", { length: 255 }).unique(), // for enterprise SSO
+  subscription: jsonb("subscription").$type<{
+    plan: 'free' | 'starter' | 'professional' | 'enterprise';
+    agents: string[]; // which agents are enabled
+    limits: {
+      users: number;
+      locations: number;
+      agents: number;
+    };
+  }>().default({ plan: 'free', agents: ['security'], limits: { users: 10, locations: 5, agents: 3 } }),
+  billingInfo: jsonb("billing_info").$type<{
+    stripeCustomerId?: string;
+    billingEmail?: string;
+  }>(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const agents = pgTable("agents", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  sector: varchar("sector", { length: 100 }).notNull(), // security, finance, sales, operations, hr
+  icon: varchar("icon", { length: 100 }), // lucide icon name
+  colorScheme: jsonb("color_scheme").$type<{
+    primary: string;
+    secondary: string;
+    accent: string;
+  }>().default({ primary: '#1976D2', secondary: '#DC004E', accent: '#4CAF50' }),
+  features: jsonb("features").$type<string[]>().default([]),
+  baseRoute: varchar("base_route", { length: 100 }).notNull(), // /security, /finance, etc.
+  isActive: boolean("is_active").default(true),
+  minimumRole: varchar("minimum_role", { length: 50 }).default("viewer"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const userAgentAccess = pgTable("user_agent_access", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  agentId: varchar("agent_id", { length: 255 }).notNull().references(() => agents.id),
+  role: varchar("role", { length: 100 }).notNull(), // agent-specific role
+  permissions: jsonb("permissions").$type<string[]>().default([]),
+  isActive: boolean("is_active").default(true),
+  grantedBy: varchar("granted_by", { length: 255 }).references(() => users.id),
+  grantedAt: timestamp("granted_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const agentConfigurations = pgTable("agent_configurations", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  agentId: varchar("agent_id", { length: 255 }).notNull().references(() => agents.id),
+  settings: jsonb("settings").default({}), // agent-specific configuration
+  isEnabled: boolean("is_enabled").default(true),
+  configuredBy: varchar("configured_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
+// Core User Management (Enhanced)
 // =====================================
 
 export const users = pgTable("users", {
@@ -16,8 +84,23 @@ export const users = pgTable("users", {
   email: text("email"),
   firstName: text("first_name"),
   lastName: text("last_name"),
+  // Platform role (super_admin, org_admin, org_user, viewer)
+  platformRole: varchar("platform_role", { length: 50 }).default("viewer"),
+  // Legacy role for backward compatibility
   role: text("role").default("operator"), // Match existing: operator, store_staff, store_admin, penny_admin, offender
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
   storeId: varchar("store_id", { length: 255 }), // links to store for staff
+  profile: jsonb("profile").$type<{
+    avatar?: string;
+    phone?: string;
+    department?: string;
+    title?: string;
+    preferences?: {
+      theme: 'light' | 'dark' | 'system';
+      language: string;
+      notifications: boolean;
+    };
+  }>().default({ preferences: { theme: 'system', language: 'en', notifications: true } }),
   isActive: boolean("is_active").default(true),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -26,24 +109,31 @@ export const users = pgTable("users", {
 
 export const stores = pgTable("stores", {
   id: varchar("id", { length: 255 }).primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
+  name: text("name").notNull(),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
   address: text("address").notNull(),
-  city: varchar("city", { length: 100 }),
-  state: varchar("state", { length: 50 }),
-  zipCode: varchar("zip_code", { length: 20 }),
-  phone: varchar("phone", { length: 50 }),
-  email: varchar("email", { length: 255 }),
-  isActive: boolean("is_active").default(true),
-  // Alert contacts stored as JSON array
-  alertContacts: jsonb("alert_contacts").$type<{
-    phone: string[];
-    email: string[];
-  }>().default({ phone: [], email: [] }),
-  // Billing and commission settings
-  billingInfo: jsonb("billing_info").$type<{
-    stripeCustomerId?: string;
-    commissionAccountDetails?: string;
-  }>(),
+  city: text("city").notNull(),
+  state: text("state").notNull(),
+  zipCode: text("zip_code").notNull(),
+  phone: text("phone"),
+  managerId: varchar("manager_id", { length: 255 }),
+  networkEnabled: boolean("network_enabled").default(true),
+  // New platform field for multi-agent settings
+  agentSettings: jsonb("agent_settings").$type<{
+    security?: {
+      alertContacts?: { phone: string[]; email: string[]; };
+      cameraCount?: number;
+      aiEnabled?: boolean;
+    };
+    finance?: {
+      posIntegration?: boolean;
+      inventoryTracking?: boolean;
+    };
+    sales?: {
+      targetGoals?: number;
+      commissionRates?: { [key: string]: number };
+    };
+  }>().default({}),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -282,3 +372,55 @@ export const registerSchema = insertUserSchema.extend({
   message: "Passwords don't match",
   path: ["confirmPassword"],
 });
+
+// =====================================
+// Multi-Agent Platform Schemas
+// =====================================
+
+// Organization schemas
+export const insertOrganizationSchema = createInsertSchema(organizations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectOrganizationSchema = createSelectSchema(organizations);
+export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
+export type Organization = z.infer<typeof selectOrganizationSchema>;
+
+// Agent schemas
+export const insertAgentSchema = createInsertSchema(agents).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectAgentSchema = createSelectSchema(agents);
+export type InsertAgent = z.infer<typeof insertAgentSchema>;
+export type Agent = z.infer<typeof selectAgentSchema>;
+
+// User Agent Access schemas
+export const insertUserAgentAccessSchema = createInsertSchema(userAgentAccess).omit({
+  id: true,
+  createdAt: true,
+  grantedAt: true,
+});
+export const selectUserAgentAccessSchema = createSelectSchema(userAgentAccess);
+export type InsertUserAgentAccess = z.infer<typeof insertUserAgentAccessSchema>;
+export type UserAgentAccess = z.infer<typeof selectUserAgentAccessSchema>;
+
+// Agent Configuration schemas
+export const insertAgentConfigurationSchema = createInsertSchema(agentConfigurations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectAgentConfigurationSchema = createSelectSchema(agentConfigurations);
+export type InsertAgentConfiguration = z.infer<typeof insertAgentConfigurationSchema>;
+export type AgentConfiguration = z.infer<typeof selectAgentConfigurationSchema>;
+
+// Platform-specific validation schemas
+export const platformRoles = ['super_admin', 'org_admin', 'org_user', 'viewer'] as const;
+export const agentSectors = ['security', 'finance', 'sales', 'operations', 'hr', 'marketing', 'customer_service'] as const;
+export const subscriptionPlans = ['free', 'starter', 'professional', 'enterprise'] as const;
+
+export type PlatformRole = typeof platformRoles[number];
+export type AgentSector = typeof agentSectors[number];
+export type SubscriptionPlan = typeof subscriptionPlans[number];
