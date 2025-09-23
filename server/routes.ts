@@ -338,9 +338,21 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/store/:storeId/offenders/:offenderId/generate-qr", requireAuth, requireStoreStaff, async (req, res) => {
+  app.post("/api/store/:storeId/offenders/:offenderId/generate-qr", requireAuth, requireStoreStaff, requireStoreAccess, async (req, res) => {
     try {
       const { storeId, offenderId } = req.params;
+      
+      // Verify offender belongs to this store
+      const offender = await storage.getOffender(offenderId);
+      if (!offender) {
+        return res.status(404).json({ message: "Offender not found" });
+      }
+      
+      // Enforce store ownership: offender must belong to the requesting store
+      if (!offender.storeId || offender.storeId !== storeId) {
+        return res.status(404).json({ message: "Offender not found in this store" });
+      }
+      
       const token = `qr_${Date.now()}_${Math.random().toString(36).substring(7)}`;
       
       const qrToken = await storage.createQrToken({
@@ -381,11 +393,22 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/store/:storeId/settings", requireAuth, requireStoreAdmin, async (req, res) => {
+  app.put("/api/store/:storeId/settings", requireAuth, requireStoreAdmin, requireStoreAccess, async (req, res) => {
     try {
       const { storeId } = req.params;
-      const updates = req.body;
-      const store = await storage.updateStore(storeId, updates);
+      
+      // Validate request body
+      if (!req.body || typeof req.body !== 'object') {
+        return res.status(400).json({ message: "Valid settings object is required" });
+      }
+      
+      // Verify store exists and user has access
+      const existingStore = await storage.getStore(storeId);
+      if (!existingStore) {
+        return res.status(404).json({ message: "Store not found" });
+      }
+      
+      const store = await storage.updateStore(storeId, req.body);
       res.json(store);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -411,6 +434,31 @@ export function registerRoutes(app: Express): Server {
     try {
       const { alertId } = req.params;
       const { offenderId, amount } = req.body;
+      
+      // Validate request body
+      if (!offenderId || typeof offenderId !== 'string') {
+        return res.status(400).json({ message: "Valid offenderId is required" });
+      }
+      if (!amount || typeof amount !== 'number' || amount <= 0) {
+        return res.status(400).json({ message: "Valid positive amount is required" });
+      }
+      
+      // Verify alert exists
+      const existingAlert = await storage.getAlert(alertId);
+      if (!existingAlert) {
+        return res.status(404).json({ message: "Alert not found" });
+      }
+      
+      // Verify offender exists and belongs to same store as alert
+      const offender = await storage.getOffender(offenderId);
+      if (!offender) {
+        return res.status(404).json({ message: "Offender not found" });
+      }
+      
+      // Enforce cross-tenant security: offender must belong to same store as alert
+      if (!offender.storeId || offender.storeId !== existingAlert.storeId) {
+        return res.status(400).json({ message: "Offender does not belong to alert's store" });
+      }
 
       // Update alert status
       const alert = await storage.updateAlert(alertId, {
@@ -432,7 +480,6 @@ export function registerRoutes(app: Express): Server {
       });
 
       // Update offender debt
-      const offender = await storage.getOffender(offenderId);
       if (offender) {
         const newDebt = parseFloat(offender.totalDebt || "0") + parseFloat(amount);
         await storage.updateOffender(offenderId, {
@@ -629,12 +676,19 @@ export function registerRoutes(app: Express): Server {
   // =====================================
 
   // Video upload and analysis endpoints
-  app.post("/api/video/analyze", requireAuth, requireStoreStaff, async (req, res) => {
+  app.post("/api/store/:storeId/video/analyze", requireAuth, requireStoreStaff, requireStoreAccess, async (req, res) => {
     try {
-      const { videoBase64, storeId, cameraId } = req.body;
+      const { storeId } = req.params;
+      const { videoBase64, cameraId } = req.body;
       
-      if (!videoBase64 || !storeId) {
-        return res.status(400).json({ message: "Video data and store ID required" });
+      if (!videoBase64) {
+        return res.status(400).json({ message: "Video data is required" });
+      }
+      
+      // Verify store exists and user has access
+      const existingStore = await storage.getStore(storeId);
+      if (!existingStore) {
+        return res.status(404).json({ message: "Store not found" });
       }
 
       // Validate file size (max 50MB)
@@ -760,9 +814,33 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Create video clip from analysis
-  app.post("/api/video/create-clip", requireAuth, requireStoreStaff, async (req, res) => {
+  app.post("/api/store/:storeId/video/create-clip", requireAuth, requireStoreStaff, requireStoreAccess, async (req, res) => {
     try {
+      const { storeId } = req.params;
       const { analysisId, startTime, endTime, reason } = req.body;
+      
+      // Validate request body
+      if (!analysisId || typeof analysisId !== 'string') {
+        return res.status(400).json({ message: "Valid analysisId is required" });
+      }
+      if (typeof startTime !== 'number' || startTime < 0) {
+        return res.status(400).json({ message: "Valid startTime is required" });
+      }
+      if (typeof endTime !== 'number' || endTime <= startTime) {
+        return res.status(400).json({ message: "Valid endTime (greater than startTime) is required" });
+      }
+      if (!reason || typeof reason !== 'string') {
+        return res.status(400).json({ message: "Valid reason is required" });
+      }
+      
+      // Verify analysis exists and belongs to this store
+      const analysis = await storage.getVideoAnalysis(analysisId);
+      if (!analysis) {
+        return res.status(404).json({ message: "Analysis not found" });
+      }
+      if (analysis.storeId !== storeId) {
+        return res.status(404).json({ message: "Analysis not found in this store" });
+      }
       
       // Import video analysis service
       const { videoAnalysisService } = await import('./video-analysis');
