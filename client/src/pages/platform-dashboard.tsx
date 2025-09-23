@@ -35,8 +35,6 @@ const agentIcons = {
 };
 
 export default function PlatformDashboard() {
-  console.log("🚀 PlatformDashboard component loaded");
-  
   const { data: agents = [], isLoading: agentsLoading, error: agentsError } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
     queryFn: async () => {
@@ -54,19 +52,6 @@ export default function PlatformDashboard() {
       return response.json();
     }
   });
-
-  console.log("📊 Query state:", { 
-    agents: agents.length, 
-    agentsLoading, 
-    agentsError: agentsError?.message || agentsError,
-    userAgents: userAgents.length, 
-    userAgentsLoading,
-    userAgentsError: userAgentsError?.message || userAgentsError
-  });
-  
-  // Show detailed error info
-  if (agentsError) console.error("❌ Agents API Error:", agentsError);
-  if (userAgentsError) console.error("❌ User Agents API Error:", userAgentsError);
 
   if (agentsLoading || userAgentsLoading) {
     return (

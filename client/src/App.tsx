@@ -8,6 +8,10 @@ import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
 import NotFound from "./pages/not-found";
 import Dashboard from "./pages/dashboard";
+import FinanceDashboard from "./pages/finance-dashboard";
+import SalesDashboard from "./pages/sales-dashboard";
+import OperationsDashboard from "./pages/operations-dashboard";
+import HRDashboard from "./pages/hr-dashboard";
 import LiveFeeds from "./pages/live-feeds";
 import Alerts from "./pages/alerts";
 import Offenders from "./pages/offenders";
@@ -42,6 +46,34 @@ function Router() {
           <ProtectedRoute path="/settings" component={Settings} />
           <ProtectedRoute path="/video-upload" component={VideoUpload} />
           <ProtectedRoute path="/video-test" component={VideoTest} />
+        </AgentProtectedRoute>
+      </Route>
+      
+      {/* Finance Agent Routes */}
+      <Route path="/finance">
+        <AgentProtectedRoute agentId="finance" minimumRole="viewer">
+          <ProtectedRoute path="/" component={FinanceDashboard} />
+        </AgentProtectedRoute>
+      </Route>
+      
+      {/* Sales Agent Routes */}
+      <Route path="/sales">
+        <AgentProtectedRoute agentId="sales" minimumRole="viewer">
+          <ProtectedRoute path="/" component={SalesDashboard} />
+        </AgentProtectedRoute>
+      </Route>
+      
+      {/* Operations Agent Routes */}
+      <Route path="/operations">
+        <AgentProtectedRoute agentId="operations" minimumRole="viewer">
+          <ProtectedRoute path="/" component={OperationsDashboard} />
+        </AgentProtectedRoute>
+      </Route>
+      
+      {/* HR Agent Routes */}
+      <Route path="/hr">
+        <AgentProtectedRoute agentId="hr" minimumRole="viewer">
+          <ProtectedRoute path="/" component={HRDashboard} />
         </AgentProtectedRoute>
       </Route>
       
