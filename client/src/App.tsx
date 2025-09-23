@@ -21,6 +21,7 @@ import PennyDashboard from "./pages/penny-dashboard";
 import RepaymentDashboard from "./pages/repayment-dashboard";
 import VideoUpload from "./pages/video-upload";
 import VideoTest from "./pages/video-test";
+import { AgentProtectedRoute } from "@/lib/agent-protected-route";
 
 function Router() {
   return (
@@ -28,17 +29,37 @@ function Router() {
       <Route path="/" component={PortalSelectPage} />
       <Route path="/login" component={LoginPage} />
       <ProtectedRoute path="/platform" component={PlatformDashboard} />
-      <ProtectedRoute path="/dashboard" component={Dashboard} />
+      
+      {/* Security Agent Routes */}
+      <Route path="/security">
+        <AgentProtectedRoute agentId="security" minimumRole="viewer">
+          <ProtectedRoute path="/dashboard" component={Dashboard} />
+          <ProtectedRoute path="/live-feeds" component={LiveFeeds} />
+          <ProtectedRoute path="/alerts" component={Alerts} />
+          <ProtectedRoute path="/offenders" component={Offenders} />
+          <ProtectedRoute path="/analytics" component={Analytics} />
+          <ProtectedRoute path="/network" component={Network} />
+          <ProtectedRoute path="/settings" component={Settings} />
+          <ProtectedRoute path="/video-upload" component={VideoUpload} />
+          <ProtectedRoute path="/video-test" component={VideoTest} />
+        </AgentProtectedRoute>
+      </Route>
+      
+      {/* Legacy routes for backward compatibility */}
+      <AgentProtectedRoute agentId="security" minimumRole="viewer">
+        <ProtectedRoute path="/dashboard" component={Dashboard} />
+        <ProtectedRoute path="/live-feeds" component={LiveFeeds} />
+        <ProtectedRoute path="/alerts" component={Alerts} />
+        <ProtectedRoute path="/offenders" component={Offenders} />
+        <ProtectedRoute path="/analytics" component={Analytics} />
+        <ProtectedRoute path="/network" component={Network} />
+        <ProtectedRoute path="/settings" component={Settings} />
+        <ProtectedRoute path="/video-upload" component={VideoUpload} />
+        <ProtectedRoute path="/video-test" component={VideoTest} />
+      </AgentProtectedRoute>
+      
       <ProtectedRoute path="/penny/dashboard" component={PennyDashboard} allowedRoles={["penny_admin"]} />
       <ProtectedRoute path="/repayment/dashboard" component={RepaymentDashboard} allowedRoles={["offender"]} />
-      <ProtectedRoute path="/live-feeds" component={LiveFeeds} />
-      <ProtectedRoute path="/alerts" component={Alerts} />
-      <ProtectedRoute path="/offenders" component={Offenders} />
-      <ProtectedRoute path="/analytics" component={Analytics} />
-      <ProtectedRoute path="/network" component={Network} />
-      <ProtectedRoute path="/settings" component={Settings} />
-      <ProtectedRoute path="/video-upload" component={VideoUpload} />
-      <ProtectedRoute path="/video-test" component={VideoTest} />
       <Route component={NotFound} />
     </Switch>
   );

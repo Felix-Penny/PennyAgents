@@ -207,3 +207,126 @@ export async function requireOffenderAccess(req: any, res: any, next: any) {
 
   next();
 }
+
+// =====================================
+// Multi-Agent Platform Access Control
+// =====================================
+
+// Platform role-based access control
+export function requirePlatformRole(allowedPlatformRoles: string[]) {
+  return (req: any, res: any, next: any) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const user = req.user;
+    
+    // Super admins can access everything
+    if (user.platformRole === "super_admin") {
+      return next();
+    }
+
+    if (!user.platformRole || !allowedPlatformRoles.includes(user.platformRole)) {
+      return res.status(403).json({ message: "Insufficient platform permissions" });
+    }
+
+    next();
+  };
+}
+
+// Agent-specific access control
+export function requireAgentAccess(agentId: string, minimumRole?: string) {
+  return async (req: any, res: any, next: any) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const user = req.user;
+
+    // Super admins can access any agent
+    if (user.platformRole === "super_admin") {
+      return next();
+    }
+    
+    // Org admins can only access agents within their organization
+    if (user.platformRole === "org_admin") {
+      // This will be handled by the user agent access check below
+      // Don't bypass - let it check the user_agent_access table
+    }
+
+    try {
+      // Check user's agent access
+      const userAgents = await storage.getUserAgentAccess(user.id);
+      const agentAccess = userAgents.find(ua => ua.agentId === agentId && ua.isActive);
+
+      if (!agentAccess) {
+        return res.status(403).json({ message: "Access denied to this agent" });
+      }
+
+      // Check minimum role requirement if specified
+      if (minimumRole) {
+        const roleHierarchy = ["viewer", "operator", "admin"];
+        const userRoleLevel = roleHierarchy.indexOf(agentAccess.role);
+        const requiredRoleLevel = roleHierarchy.indexOf(minimumRole);
+
+        if (userRoleLevel < requiredRoleLevel) {
+          return res.status(403).json({ message: "Insufficient agent permissions" });
+        }
+      }
+
+      // Add agent access info to request for downstream use
+      req.userAgentAccess = agentAccess;
+      next();
+    } catch (error) {
+      return res.status(500).json({ message: "Error checking agent access" });
+    }
+  };
+}
+
+// Organization boundary access control
+export function requireOrganizationAccess(req: any, res: any, next: any) {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+
+  const user = req.user;
+  const requestedOrgId = req.params.orgId || req.params.organizationId || req.body.organizationId;
+
+  // Super admins can access any organization
+  if (user.platformRole === "super_admin") {
+    return next();
+  }
+
+  // Users can only access their own organization
+  if (!user.organizationId || user.organizationId !== requestedOrgId) {
+    return res.status(403).json({ message: "Access denied to this organization" });
+  }
+
+  next();
+}
+
+// Combined agent and organization access control
+export function requireAgentWithOrganization(agentId: string, minimumRole?: string) {
+  return async (req: any, res: any, next: any) => {
+    // First check organization access
+    requireOrganizationAccess(req, res, async (orgErr: any) => {
+      if (orgErr) return next(orgErr);
+      
+      // Then check agent access
+      const agentMiddleware = requireAgentAccess(agentId, minimumRole);
+      return agentMiddleware(req, res, next);
+    });
+  };
+}
+
+// Convenience middleware for specific agents
+export const requireSecurityAgent = (minimumRole?: string) => requireAgentAccess("security", minimumRole);
+export const requireFinanceAgent = (minimumRole?: string) => requireAgentAccess("finance", minimumRole);
+export const requireSalesAgent = (minimumRole?: string) => requireAgentAccess("sales", minimumRole);
+export const requireOperationsAgent = (minimumRole?: string) => requireAgentAccess("operations", minimumRole);
+export const requireHRAgent = (minimumRole?: string) => requireAgentAccess("hr", minimumRole);
+
+// Platform admin roles
+export const requireSuperAdmin = requirePlatformRole(["super_admin"]);
+export const requireOrgAdmin = requirePlatformRole(["org_admin", "super_admin"]);
+export const requirePlatformUser = requirePlatformRole(["user", "org_admin", "super_admin"]);

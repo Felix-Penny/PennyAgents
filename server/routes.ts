@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import Stripe from "stripe";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess } from "./auth";
+import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess, requireSecurityAgent, requireFinanceAgent, requireSalesAgent, requireOperationsAgent, requireHRAgent, requirePlatformRole, requireOrganizationAccess } from "./auth";
 import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema } from "../shared/schema";
 
 // Initialize Stripe if keys are available
@@ -23,8 +23,8 @@ export function registerRoutes(app: Express): Server {
   // STORE UI ENDPOINTS (4 TABS)
   // =====================================
 
-  // MONITOR TAB - Real-time alerts and incident management
-  app.get("/api/store/:storeId/alerts", requireAuth, requireStoreAccess, async (req, res) => {
+  // MONITOR TAB - Real-time alerts and incident management (Security Agent)
+  app.get("/api/store/:storeId/alerts", requireAuth, requireSecurityAgent("viewer"), requireStoreAccess, async (req, res) => {
     try {
       const { storeId } = req.params;
       const alerts = await storage.getActiveAlerts(storeId);
@@ -34,8 +34,8 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Get ALL alerts for a store (not just active ones)
-  app.get("/api/alerts/:storeId", requireAuth, requireStoreAccess, async (req, res) => {
+  // Get ALL alerts for a store (not just active ones) (Security Agent)
+  app.get("/api/alerts/:storeId", requireAuth, requireSecurityAgent("viewer"), requireStoreAccess, async (req, res) => {
     try {
       const { storeId } = req.params;
       const alerts = await storage.getAlertsByStore(storeId);
@@ -45,7 +45,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/store/:storeId/alerts/:alertId/confirm", requireAuth, requireStoreStaff, async (req, res) => {
+  app.post("/api/store/:storeId/alerts/:alertId/confirm", requireAuth, requireSecurityAgent("operator"), requireStoreStaff, async (req, res) => {
     try {
       const { alertId } = req.params;
       const alert = await storage.updateAlert(alertId, {
@@ -59,7 +59,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/store/:storeId/alerts/:alertId/dismiss", requireAuth, requireStoreStaff, async (req, res) => {
+  app.post("/api/store/:storeId/alerts/:alertId/dismiss", requireAuth, requireSecurityAgent("operator"), requireStoreStaff, async (req, res) => {
     try {
       const { alertId } = req.params;
       const alert = await storage.updateAlert(alertId, {
@@ -638,7 +638,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Agent configurations endpoints
-  app.get("/api/organizations/:orgId/agent-configurations", requireAuth, async (req, res) => {
+  app.get("/api/organizations/:orgId/agent-configurations", requireAuth, requireOrganizationAccess, async (req, res) => {
     try {
       const { orgId } = req.params;
       const configurations = await storage.getAgentConfigurationsByOrganization(orgId);
@@ -648,7 +648,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.get("/api/organizations/:orgId/agents/:agentId/configuration", requireAuth, async (req, res) => {
+  app.get("/api/organizations/:orgId/agents/:agentId/configuration", requireAuth, requireOrganizationAccess, async (req, res) => {
     try {
       const { orgId, agentId } = req.params;
       const configuration = await storage.getAgentConfiguration(orgId, agentId);
@@ -661,7 +661,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.put("/api/organizations/:orgId/agents/:agentId/configuration", requireAuth, async (req, res) => {
+  app.put("/api/organizations/:orgId/agents/:agentId/configuration", requireAuth, requireOrganizationAccess, async (req, res) => {
     try {
       const { orgId, agentId } = req.params;
       const validatedData = insertAgentConfigurationSchema.parse({
