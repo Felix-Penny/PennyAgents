@@ -1046,13 +1046,15 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Sales Agent Dashboard Data
-  app.get("/api/sales", requireAuth, requireSalesAgent("viewer"), async (req, res) => {
+  // Sales Agent Dashboard Data - NOW WITH PROPER TENANCY SCOPING
+  app.get("/api/sales", requireAuth, requireOrganizationAccess, requireSalesAgent("viewer"), async (req, res) => {
     try {
-      // Get real sales metrics from storage
-      const salesMetrics = await storage.getSalesMetrics();
-      const recentDeals = await storage.getRecentCompletedPayments(5);
-      const paymentsLast30Days = await storage.getPaymentsInLast30Days();
+      const organizationId = req.user!.organizationId;
+      
+      // Get real sales metrics from storage with organization scoping
+      const salesMetrics = await storage.getSalesMetrics(organizationId);
+      const recentDeals = await storage.getRecentCompletedPayments(5, organizationId);
+      const paymentsLast30Days = await storage.getPaymentsInLast30Days(organizationId);
 
       // Calculate additional metrics
       const monthlyTarget = 500000; // Default target, could come from agent settings
@@ -1085,6 +1087,9 @@ export function registerRoutes(app: Express): Server {
         topPerformers
       };
       
+      // Log successful data access for auditing
+      console.info(`[AUDIT] Sales data accessed by user: ${req.user?.username}, organizationId: ${organizationId}, Time: ${new Date().toISOString()}`);
+      
       res.json(salesStats);
     } catch (error: any) {
       console.error("Sales API error:", error);
@@ -1092,9 +1097,17 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Demo Data Seeding (for development)
-  app.post("/api/seed-demo-data", requireAuth, requirePennyAdmin, async (req, res) => {
+  // Demo Data Seeding (for development) - SECURE WITH PRODUCTION BLOCKING
+  app.post("/api/seed-demo-data", requireAuth, requirePlatformRole("admin"), async (req, res) => {
     try {
+      // Block in production environment
+      if (process.env.NODE_ENV === 'production') {
+        console.warn(`[SECURITY AUDIT] Demo data seeding blocked in production. User: ${req.user?.username}, IP: ${req.ip}, Time: ${new Date().toISOString()}`);
+        return res.status(403).json({ message: "Demo data seeding is not allowed in production" });
+      }
+      
+      // Log usage for auditing
+      console.info(`[AUDIT] Demo data seeding initiated by user: ${req.user?.username}, organizationId: ${req.user?.organizationId}, Time: ${new Date().toISOString()}`);
       // Create demo stores first
       const demoStores = [
         { id: "store-1", name: "Downtown Electronics", address: "123 Main St", city: "New York", state: "NY", zipCode: "10001" },

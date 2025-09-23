@@ -161,16 +161,16 @@ export interface IStorage {
   getNotificationsByUser(userId: string): Promise<any[]>;
   markNotificationRead(id: string): Promise<any>;
 
-  // Sales Metrics (for Sales Agent Dashboard)
-  getSalesMetrics(): Promise<{
+  // Sales Metrics (for Sales Agent Dashboard) - with organization scoping
+  getSalesMetrics(organizationId?: string): Promise<{
     totalSales: number;
     avgDealSize: number;
     conversionRate: number;
     pipelineValue: number;
     activeLeads: number;
   }>;
-  getRecentCompletedPayments(limit?: number): Promise<Array<DebtPayment & { offenderName?: string; storeName?: string }>>;
-  getPaymentsInLast30Days(): Promise<DebtPayment[]>;
+  getRecentCompletedPayments(limit?: number, organizationId?: string): Promise<Array<DebtPayment & { offenderName?: string; storeName?: string }>>;
+  getPaymentsInLast30Days(organizationId?: string): Promise<DebtPayment[]>;
 
   // Multi-Agent Platform Management
   // Organizations
@@ -1088,7 +1088,7 @@ export class DatabaseStorage implements IStorage {
   // Sales Metrics Implementation
   // =====================================
 
-  async getSalesMetrics(): Promise<{
+  async getSalesMetrics(organizationId?: string): Promise<{
     totalSales: number;
     avgDealSize: number;
     conversionRate: number;
@@ -1099,34 +1099,66 @@ export class DatabaseStorage implements IStorage {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
-    const completedPayments = await db
-      .select()
+    let completedPaymentsQuery = db
+      .select({
+        debtPayment: debtPayments,
+        store: stores
+      })
       .from(debtPayments)
+      .leftJoin(stores, eq(debtPayments.storeId, stores.id))
       .where(and(
         eq(debtPayments.status, "COMPLETED"),
         sql`${debtPayments.paidAt} >= ${thirtyDaysAgo}`
       ));
+    
+    if (organizationId) {
+      completedPaymentsQuery = completedPaymentsQuery.where(eq(stores.organizationId, organizationId));
+    }
+    
+    const completedPayments = await completedPaymentsQuery;
 
     const totalSales = completedPayments.reduce((sum, payment) => 
-      sum + parseFloat(payment.amount), 0);
+      sum + parseFloat(payment.debtPayment.amount), 0);
 
     const avgDealSize = completedPayments.length > 0 ? 
       totalSales / completedPayments.length : 0;
 
     // Get all payments for conversion rate
-    const allPayments = await db.select().from(debtPayments);
-    const completed = allPayments.filter(p => p.status === "COMPLETED").length;
+    let allPaymentsQuery = db
+      .select({
+        debtPayment: debtPayments,
+        store: stores
+      })
+      .from(debtPayments)
+      .leftJoin(stores, eq(debtPayments.storeId, stores.id));
+    
+    if (organizationId) {
+      allPaymentsQuery = allPaymentsQuery.where(eq(stores.organizationId, organizationId));
+    }
+    
+    const allPayments = await allPaymentsQuery;
+    const completed = allPayments.filter(p => p.debtPayment.status === "COMPLETED").length;
     const conversionRate = allPayments.length > 0 ? 
       (completed / allPayments.length) * 100 : 0;
 
     // Get pending payments for pipeline value
-    const pendingPayments = await db
-      .select()
+    let pendingPaymentsQuery = db
+      .select({
+        debtPayment: debtPayments,
+        store: stores
+      })
       .from(debtPayments)
+      .leftJoin(stores, eq(debtPayments.storeId, stores.id))
       .where(eq(debtPayments.status, "PENDING"));
+    
+    if (organizationId) {
+      pendingPaymentsQuery = pendingPaymentsQuery.where(eq(stores.organizationId, organizationId));
+    }
+    
+    const pendingPayments = await pendingPaymentsQuery;
 
     const pendingValue = pendingPayments.reduce((sum, payment) => 
-      sum + parseFloat(payment.amount), 0);
+      sum + parseFloat(payment.debtPayment.amount), 0);
 
     // Get offenders with unpaid debt
     const offendersWithDebt = await db
@@ -1151,8 +1183,8 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getRecentCompletedPayments(limit: number = 10): Promise<Array<DebtPayment & { offenderName?: string; storeName?: string }>> {
-    const payments = await db
+  async getRecentCompletedPayments(limit: number = 10, organizationId?: string): Promise<Array<DebtPayment & { offenderName?: string; storeName?: string }>> {
+    let paymentsQuery = db
       .select({
         debtPayment: debtPayments,
         offenderName: offenders.name,
@@ -1164,6 +1196,12 @@ export class DatabaseStorage implements IStorage {
       .where(eq(debtPayments.status, "COMPLETED"))
       .orderBy(desc(debtPayments.paidAt))
       .limit(limit);
+    
+    if (organizationId) {
+      paymentsQuery = paymentsQuery.where(eq(stores.organizationId, organizationId));
+    }
+    
+    const payments = await paymentsQuery;
 
     return payments.map(p => ({
       ...p.debtPayment,
@@ -1172,18 +1210,28 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getPaymentsInLast30Days(): Promise<DebtPayment[]> {
+  async getPaymentsInLast30Days(organizationId?: string): Promise<DebtPayment[]> {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
-    return await db
-      .select()
+    let query = db
+      .select({
+        debtPayment: debtPayments
+      })
       .from(debtPayments)
+      .leftJoin(stores, eq(debtPayments.storeId, stores.id))
       .where(and(
         eq(debtPayments.status, "COMPLETED"),
         sql`${debtPayments.paidAt} >= ${thirtyDaysAgo}`
       ))
       .orderBy(desc(debtPayments.paidAt));
+    
+    if (organizationId) {
+      query = query.where(eq(stores.organizationId, organizationId));
+    }
+    
+    const result = await query;
+    return result.map(r => r.debtPayment);
   }
 }
 
