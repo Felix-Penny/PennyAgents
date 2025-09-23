@@ -105,7 +105,9 @@ export function setupAuth(app: Express) {
 
       req.login(user, (err) => {
         if (err) return next(err);
-        res.status(201).json(user);
+        // Return sanitized user object without password
+        const { password: _, ...safeUser } = user;
+        res.status(201).json(safeUser);
       });
     } catch (error) {
       next(error);
@@ -114,7 +116,7 @@ export function setupAuth(app: Express) {
 
   // Login endpoint
   app.post("/api/login", (req, res, next) => {
-    passport.authenticate("local", (err, user, info) => {
+    passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) {
         return res.status(500).json({ message: "Authentication error", error: err.message });
       }
@@ -125,7 +127,9 @@ export function setupAuth(app: Express) {
         if (loginErr) {
           return res.status(500).json({ message: "Login error", error: loginErr.message });
         }
-        res.status(200).json(user);
+        // Return sanitized user object without password
+        const { password: _, ...safeUser } = user;
+        res.status(200).json(safeUser);
       });
     })(req, res, next);
   });
@@ -141,7 +145,9 @@ export function setupAuth(app: Express) {
   // Get current user
   app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
+    // Return sanitized user object without password
+    const { password: _, ...safeUser } = req.user as any;
+    res.json(safeUser);
   });
 }
 
@@ -275,10 +281,9 @@ export function requireAgentAccess(agentId: string, minimumRole?: string) {
 
     try {
       // Check user's agent access
-      const userAgents = await storage.getUserAgentAccess(user.id);
-      const agentAccess = userAgents.find(ua => ua.agentId === agentId && ua.isActive);
+      const agentAccess = await storage.getUserAgentAccess(user.id, agentId);
 
-      if (!agentAccess) {
+      if (!agentAccess || !agentAccess.isActive) {
         return res.status(403).json({ message: "Access denied to this agent" });
       }
 

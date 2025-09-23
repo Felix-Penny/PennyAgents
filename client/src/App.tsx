@@ -35,52 +35,47 @@ function Router() {
       <ProtectedRoute path="/platform" component={PlatformDashboard} />
       
       {/* Security Agent Routes */}
-      <Route path="/security">
+      <Route path="/security/:rest*">
         <AgentProtectedRoute agentId="security" minimumRole="viewer">
-          <ProtectedRoute path="/dashboard" component={Dashboard} />
-          <ProtectedRoute path="/live-feeds" component={LiveFeeds} />
-          <ProtectedRoute path="/alerts" component={Alerts} />
-          <ProtectedRoute path="/offenders" component={Offenders} />
-          <ProtectedRoute path="/analytics" component={Analytics} />
-          <ProtectedRoute path="/network" component={Network} />
-          <ProtectedRoute path="/settings" component={Settings} />
-          <ProtectedRoute path="/video-upload" component={VideoUpload} />
-          <ProtectedRoute path="/video-test" component={VideoTest} />
+          <ProtectedRoute path="/security/dashboard" component={Dashboard} />
+          <ProtectedRoute path="/security/live-feeds" component={LiveFeeds} />
+          <ProtectedRoute path="/security/alerts" component={Alerts} />
+          <ProtectedRoute path="/security/offenders" component={Offenders} />
+          <ProtectedRoute path="/security/analytics" component={Analytics} />
+          <ProtectedRoute path="/security/network" component={Network} />
+          <ProtectedRoute path="/security/settings" component={Settings} />
+          <ProtectedRoute path="/security/video-upload" component={VideoUpload} />
+          <ProtectedRoute path="/security/video-test" component={VideoTest} />
         </AgentProtectedRoute>
       </Route>
       
       {/* Finance Agent Routes */}
-      <AgentProtectedRoute agentId="finance" minimumRole="viewer">
-        <ProtectedRoute path="/finance" component={FinanceDashboard} />
-      </AgentProtectedRoute>
+      <Route path="/finance">
+        <AgentProtectedRoute agentId="finance" minimumRole="viewer">
+          <FinanceDashboard />
+        </AgentProtectedRoute>
+      </Route>
       
       {/* Sales Agent Routes */}
-      <AgentProtectedRoute agentId="sales" minimumRole="viewer">
-        <ProtectedRoute path="/sales" component={SalesDashboard} />
-      </AgentProtectedRoute>
+      <Route path="/sales">
+        <AgentProtectedRoute agentId="sales" minimumRole="viewer">
+          <SalesDashboard />
+        </AgentProtectedRoute>
+      </Route>
       
       {/* Operations Agent Routes */}
-      <AgentProtectedRoute agentId="operations" minimumRole="viewer">
-        <ProtectedRoute path="/operations" component={OperationsDashboard} />
-      </AgentProtectedRoute>
+      <Route path="/operations">
+        <AgentProtectedRoute agentId="operations" minimumRole="viewer">
+          <OperationsDashboard />
+        </AgentProtectedRoute>
+      </Route>
       
       {/* HR Agent Routes */}
-      <AgentProtectedRoute agentId="hr" minimumRole="viewer">
-        <ProtectedRoute path="/hr" component={HRDashboard} />
-      </AgentProtectedRoute>
-      
-      {/* Legacy routes for backward compatibility */}
-      <AgentProtectedRoute agentId="security" minimumRole="viewer">
-        <ProtectedRoute path="/dashboard" component={Dashboard} />
-        <ProtectedRoute path="/live-feeds" component={LiveFeeds} />
-        <ProtectedRoute path="/alerts" component={Alerts} />
-        <ProtectedRoute path="/offenders" component={Offenders} />
-        <ProtectedRoute path="/analytics" component={Analytics} />
-        <ProtectedRoute path="/network" component={Network} />
-        <ProtectedRoute path="/settings" component={Settings} />
-        <ProtectedRoute path="/video-upload" component={VideoUpload} />
-        <ProtectedRoute path="/video-test" component={VideoTest} />
-      </AgentProtectedRoute>
+      <Route path="/hr">
+        <AgentProtectedRoute agentId="hr" minimumRole="viewer">
+          <HRDashboard />
+        </AgentProtectedRoute>
+      </Route>
       
       <ProtectedRoute path="/penny/dashboard" component={PennyDashboard} allowedRoles={["penny_admin"]} />
       <ProtectedRoute path="/repayment/dashboard" component={RepaymentDashboard} allowedRoles={["offender"]} />

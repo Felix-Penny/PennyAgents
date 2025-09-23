@@ -9,26 +9,41 @@ import { useQuery } from "@tanstack/react-query";
 export default function FinanceDashboard() {
   const { user } = useAuth();
 
-  // Real financial data (can be connected to actual APIs later)
-  const financialStats = {
-    totalRevenue: 847650,
-    monthlyProfit: 124300,
-    expenses: 723350,
-    profitMargin: 14.7,
-    budgetUtilization: 78,
-    cashFlow: "positive"
-  };
+  // Fetch financial data from backend API
+  const { data: financialData, isLoading, error, refetch } = useQuery({
+    queryKey: ['/api/finance'],
+    enabled: !!user
+  });
 
-  const recentTransactions = [
-    { id: 1, description: "Product Sales Revenue", amount: 15420, type: "income", date: "2025-09-23" },
-    { id: 2, description: "Office Rent Payment", amount: -8500, type: "expense", date: "2025-09-22" },
-    { id: 3, description: "Equipment Purchase", amount: -3200, type: "expense", date: "2025-09-21" },
-    { id: 4, description: "Client Payment - Project A", amount: 12800, type: "income", date: "2025-09-20" }
-  ];
+  const financialStats = financialData || {};
+  const recentTransactions = financialData?.recentTransactions || [];
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="text-center" data-testid="loading-state">
+          <p>Loading financial data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="text-center text-red-600" data-testid="error-state">
+          <p>Error loading financial data. Please try again.</p>
+          <Button onClick={() => refetch()} className="mt-2" data-testid="button-retry">
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -41,10 +56,15 @@ export default function FinanceDashboard() {
           <p className="text-muted-foreground">Track revenue, expenses, and financial performance</p>
           {user && <p className="text-sm text-muted-foreground">Financial Analyst: {user.username}</p>}
         </div>
-        <Badge variant="outline" className="text-green-600">
-          <TrendingUp className="w-4 h-4 mr-1" />
-          Profitable Quarter
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-green-600">
+            <TrendingUp className="w-4 h-4 mr-1" />
+            Live Data
+          </Badge>
+          <Button onClick={() => refetch()} variant="outline" size="sm" data-testid="button-refresh">
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Financial Overview Cards */}

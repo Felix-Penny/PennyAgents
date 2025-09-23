@@ -1019,6 +1019,95 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // =====================================
+  // Business Agent Dashboard API Routes
+  // =====================================
+
+  // Finance Agent Dashboard Data
+  app.get("/api/finance", requireAuth, requireFinanceAgent("viewer"), async (req, res) => {
+    try {
+      const financialStats = {
+        totalRevenue: 847650,
+        monthlyProfit: 124300,
+        expenses: 723350,
+        profitMargin: 14.7,
+        budgetUtilization: 78,
+        cashFlow: "positive",
+        recentTransactions: [
+          { id: 1, description: "Product Sales Revenue", amount: 15420, type: "income", date: "2025-09-23" },
+          { id: 2, description: "Office Rent Payment", amount: -8500, type: "expense", date: "2025-09-22" },
+          { id: 3, description: "Equipment Purchase", amount: -3200, type: "expense", date: "2025-09-21" },
+          { id: 4, description: "Client Payment - Project A", amount: 12800, type: "income", date: "2025-09-20" }
+        ]
+      };
+      res.json(financialStats);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Sales Agent Dashboard Data
+  app.get("/api/sales", requireAuth, requireSalesAgent("viewer"), async (req, res) => {
+    try {
+      const salesStats = {
+        totalSales: 245000,
+        monthlyGrowth: 18.5,
+        conversionRate: 34.2,
+        averageDealSize: 2850,
+        activePipeline: 89,
+        dealsThisMonth: 47,
+        topPerformers: [
+          { name: "Sarah Johnson", sales: 45000, deals: 12 },
+          { name: "Mike Chen", sales: 38500, deals: 9 },
+          { name: "Emily Rodriguez", sales: 32000, deals: 8 }
+        ]
+      };
+      res.json(salesStats);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Operations Agent Dashboard Data  
+  app.get("/api/operations", requireAuth, requireOperationsAgent("viewer"), async (req, res) => {
+    try {
+      const operationsStats = {
+        systemUptime: 99.8,
+        activeProcesses: 342,
+        completedTasks: 1247,
+        efficiency: 94.2,
+        resourceUtilization: 76,
+        incidentCount: 3
+      };
+      res.json(operationsStats);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // HR Agent Dashboard Data
+  app.get("/api/hr", requireAuth, requireHRAgent("viewer"), async (req, res) => {
+    try {
+      const hrStats = {
+        totalEmployees: 156,
+        activeEmployees: 152,
+        newHires: 8,
+        satisfactionScore: 4.2,
+        turnoverRate: 12.5,
+        openPositions: 7,
+        departments: [
+          { name: "Engineering", employees: 45, satisfaction: 4.4 },
+          { name: "Sales", employees: 32, satisfaction: 4.1 },
+          { name: "Marketing", employees: 18, satisfaction: 4.3 },
+          { name: "Operations", employees: 23, satisfaction: 4.0 }
+        ]
+      };
+      res.json(hrStats);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
