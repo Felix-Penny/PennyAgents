@@ -40,21 +40,41 @@ export function AgentProtectedRoute({
   const { data: userAgents = [], isLoading: agentsLoading } = useQuery<UserAgentAccess[]>({
     queryKey: ["/api/user/agents"],
     enabled: !!user,
+    queryFn: async () => {
+      const response = await fetch("/api/user/agents", { credentials: "include" });
+      if (!response.ok) throw new Error(`Failed to fetch user agents: ${response.status}`);
+      return response.json();
+    }
   });
 
   useEffect(() => {
+    console.log("🔐 AgentProtectedRoute effect:", { 
+      agentId, 
+      authLoading, 
+      agentsLoading, 
+      userCount: userAgents.length,
+      user: user?.username 
+    });
+
     if (authLoading || agentsLoading) return;
 
     if (!user) {
+      console.log("❌ No user, redirecting to login");
       setLocation("/login");
       return;
     }
 
     // Check if user has access to this agent
     const agentAccess = userAgents.find(ua => ua.agentId === agentId && ua.isActive);
+    console.log("🔍 Agent access check:", { 
+      agentId, 
+      agentAccess: !!agentAccess,
+      agentData: agentAccess?.agent,
+      userAgentsCount: userAgents.length 
+    });
     
     if (!agentAccess) {
-      // No access to this agent, redirect to platform dashboard
+      console.log("❌ No agent access, redirecting to platform");
       setLocation(fallbackPath);
       return;
     }
@@ -66,17 +86,20 @@ export function AgentProtectedRoute({
       const requiredRoleLevel = roleHierarchy.indexOf(minimumRole);
 
       if (userRoleLevel < requiredRoleLevel) {
-        // Insufficient role, redirect to platform dashboard
+        console.log("❌ Insufficient role, redirecting to platform");
         setLocation(fallbackPath);
         return;
       }
     }
 
     // Check if agent itself is active
-    if (!agentAccess.agent.isActive) {
+    if (!agentAccess.agent?.isActive) {
+      console.log("❌ Agent not active, redirecting to platform");
       setLocation(fallbackPath);
       return;
     }
+
+    console.log("✅ Agent access granted, rendering children");
   }, [user, userAgents, authLoading, agentsLoading, agentId, minimumRole, fallbackPath, setLocation]);
 
   // Show loading state while checking authentication and permissions
@@ -92,10 +115,16 @@ export function AgentProtectedRoute({
   }
 
   // Don't render children until we've verified access
-  if (!user) return null;
+  if (!user) {
+    console.log("🔐 No user for final render check");
+    return null;
+  }
   
   const agentAccess = userAgents.find(ua => ua.agentId === agentId && ua.isActive);
-  if (!agentAccess || !agentAccess.agent.isActive) return null;
+  if (!agentAccess || !agentAccess.agent?.isActive) {
+    console.log("🔐 No valid agent access for final render:", { agentAccess: !!agentAccess, agentActive: agentAccess?.agent?.isActive });
+    return null;
+  }
 
   // Check minimum role one more time
   if (minimumRole) {
@@ -103,8 +132,12 @@ export function AgentProtectedRoute({
     const userRoleLevel = roleHierarchy.indexOf(agentAccess.role);
     const requiredRoleLevel = roleHierarchy.indexOf(minimumRole);
 
-    if (userRoleLevel < requiredRoleLevel) return null;
+    if (userRoleLevel < requiredRoleLevel) {
+      console.log("🔐 Insufficient role for final render");
+      return null;
+    }
   }
 
+  console.log("🎉 Rendering children for agent:", agentId);
   return <>{children}</>;
 }

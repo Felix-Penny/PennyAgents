@@ -625,11 +625,31 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserAgentsByUser(userId: string): Promise<UserAgentAccess[]> {
-    return await db
-      .select()
+    const results = await db
+      .select({
+        id: userAgentAccess.id,
+        userId: userAgentAccess.userId,
+        agentId: userAgentAccess.agentId,
+        role: userAgentAccess.role,
+        isActive: userAgentAccess.isActive,
+        grantedBy: userAgentAccess.grantedBy,
+        grantedAt: userAgentAccess.grantedAt,
+        agent: {
+          id: agents.id,
+          name: agents.name,
+          isActive: agents.isActive,
+          category: agents.sector,
+          description: agents.description,
+          baseRoute: agents.baseRoute,
+          minimumRole: agents.minimumRole
+        }
+      })
       .from(userAgentAccess)
+      .innerJoin(agents, eq(userAgentAccess.agentId, agents.id))
       .where(and(eq(userAgentAccess.userId, userId), eq(userAgentAccess.isActive, true)))
-      .orderBy(userAgentAccess.createdAt);
+      .orderBy(userAgentAccess.grantedAt);
+      
+    return results as UserAgentAccess[];
   }
 
   async updateUserAgentAccess(id: string, updates: Partial<InsertUserAgentAccess>): Promise<UserAgentAccess> {

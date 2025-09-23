@@ -50,32 +50,24 @@ function Router() {
       </Route>
       
       {/* Finance Agent Routes */}
-      <Route path="/finance">
-        <AgentProtectedRoute agentId="finance" minimumRole="viewer">
-          <ProtectedRoute path="/" component={FinanceDashboard} />
-        </AgentProtectedRoute>
-      </Route>
+      <AgentProtectedRoute agentId="finance" minimumRole="viewer">
+        <ProtectedRoute path="/finance" component={FinanceDashboard} />
+      </AgentProtectedRoute>
       
       {/* Sales Agent Routes */}
-      <Route path="/sales">
-        <AgentProtectedRoute agentId="sales" minimumRole="viewer">
-          <ProtectedRoute path="/" component={SalesDashboard} />
-        </AgentProtectedRoute>
-      </Route>
+      <AgentProtectedRoute agentId="sales" minimumRole="viewer">
+        <ProtectedRoute path="/sales" component={SalesDashboard} />
+      </AgentProtectedRoute>
       
       {/* Operations Agent Routes */}
-      <Route path="/operations">
-        <AgentProtectedRoute agentId="operations" minimumRole="viewer">
-          <ProtectedRoute path="/" component={OperationsDashboard} />
-        </AgentProtectedRoute>
-      </Route>
+      <AgentProtectedRoute agentId="operations" minimumRole="viewer">
+        <ProtectedRoute path="/operations" component={OperationsDashboard} />
+      </AgentProtectedRoute>
       
       {/* HR Agent Routes */}
-      <Route path="/hr">
-        <AgentProtectedRoute agentId="hr" minimumRole="viewer">
-          <ProtectedRoute path="/" component={HRDashboard} />
-        </AgentProtectedRoute>
-      </Route>
+      <AgentProtectedRoute agentId="hr" minimumRole="viewer">
+        <ProtectedRoute path="/hr" component={HRDashboard} />
+      </AgentProtectedRoute>
       
       {/* Legacy routes for backward compatibility */}
       <AgentProtectedRoute agentId="security" minimumRole="viewer">
