@@ -35,13 +35,38 @@ const agentIcons = {
 };
 
 export default function PlatformDashboard() {
-  const { data: agents = [], isLoading: agentsLoading } = useQuery<Agent[]>({
+  console.log("🚀 PlatformDashboard component loaded");
+  
+  const { data: agents = [], isLoading: agentsLoading, error: agentsError } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
+    queryFn: async () => {
+      const response = await fetch("/api/agents", { credentials: "include" });
+      if (!response.ok) throw new Error(`Failed to fetch agents: ${response.status}`);
+      return response.json();
+    }
   });
 
-  const { data: userAgents = [], isLoading: userAgentsLoading } = useQuery<UserAgentAccess[]>({
+  const { data: userAgents = [], isLoading: userAgentsLoading, error: userAgentsError } = useQuery<UserAgentAccess[]>({
     queryKey: ["/api/user/agents"],
+    queryFn: async () => {
+      const response = await fetch("/api/user/agents", { credentials: "include" });
+      if (!response.ok) throw new Error(`Failed to fetch user agents: ${response.status}`);
+      return response.json();
+    }
   });
+
+  console.log("📊 Query state:", { 
+    agents: agents.length, 
+    agentsLoading, 
+    agentsError: agentsError?.message || agentsError,
+    userAgents: userAgents.length, 
+    userAgentsLoading,
+    userAgentsError: userAgentsError?.message || userAgentsError
+  });
+  
+  // Show detailed error info
+  if (agentsError) console.error("❌ Agents API Error:", agentsError);
+  if (userAgentsError) console.error("❌ User Agents API Error:", userAgentsError);
 
   if (agentsLoading || userAgentsLoading) {
     return (
