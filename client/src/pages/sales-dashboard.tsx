@@ -4,37 +4,84 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { TrendingUp, Users, Target, ShoppingCart, Phone, Mail } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
+
+interface SalesData {
+  totalSales: number;
+  avgDealSize: number;
+  conversionRate: number;
+  pipelineValue: number;
+  activeLeads: number;
+  monthlyTarget: number;
+  targetProgress: number;
+  recentDeals: Array<{
+    id: string;
+    client: string;
+    store: string;
+    value: number;
+    stage: string;
+    probability: number;
+    date: string;
+  }>;
+  topPerformers: Array<{
+    name: string;
+    sales: number;
+    deals: number;
+  }>;
+}
 
 export default function SalesDashboard() {
   const { user } = useAuth();
 
-  const salesStats = {
-    totalSales: 542800,
-    monthlyTarget: 600000,
-    activeLeads: 47,
-    conversionRate: 23.5,
-    avgDealSize: 11560,
-    pipelineValue: 890000
+  // Fetch sales data from backend API
+  const { data: salesData, isLoading, error, refetch } = useQuery<SalesData>({
+    queryKey: ['/api/sales'],
+    enabled: !!user
+  });
+
+  const salesStats = salesData || {
+    totalSales: 0,
+    avgDealSize: 0,
+    conversionRate: 0,
+    pipelineValue: 0,
+    activeLeads: 0,
+    monthlyTarget: 500000,
+    targetProgress: 0,
+    recentDeals: [],
+    topPerformers: []
   };
-
-  const recentDeals = [
-    { id: 1, client: "Acme Corp", value: 45000, stage: "Negotiation", probability: 80 },
-    { id: 2, client: "TechStart Inc", value: 28000, stage: "Proposal", probability: 60 },
-    { id: 3, client: "Global Solutions", value: 67000, stage: "Closing", probability: 90 },
-    { id: 4, client: "Innovation Labs", value: 15000, stage: "Discovery", probability: 30 }
-  ];
-
-  const topPerformers = [
-    { name: "Sarah Johnson", sales: 125000, deals: 12 },
-    { name: "Mike Chen", sales: 98000, deals: 8 },
-    { name: "Emily Davis", sales: 87000, deals: 10 }
-  ];
+  const recentDeals = salesData?.recentDeals || [];
+  const topPerformers = salesData?.topPerformers || [];
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
 
-  const targetProgress = (salesStats.totalSales / salesStats.monthlyTarget) * 100;
+  const targetProgress = salesStats.totalSales && salesStats.monthlyTarget ? 
+    (salesStats.totalSales / salesStats.monthlyTarget) * 100 : 0;
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="text-center" data-testid="loading-state">
+          <p>Loading sales data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="text-center text-red-600" data-testid="error-state">
+          <p>Error loading sales data. Please try again.</p>
+          <Button onClick={() => refetch()} className="mt-2" data-testid="button-retry">
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -47,10 +94,19 @@ export default function SalesDashboard() {
           <p className="text-muted-foreground">Track sales performance and manage customer relationships</p>
           {user && <p className="text-sm text-muted-foreground">Sales Manager: {user.username}</p>}
         </div>
-        <Badge variant="outline" className="text-orange-600">
-          <Target className="w-4 h-4 mr-1" />
-          {targetProgress.toFixed(0)}% to Target
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-green-600">
+            <TrendingUp className="w-4 h-4 mr-1" />
+            Live Data
+          </Badge>
+          <Badge variant="outline" className="text-orange-600">
+            <Target className="w-4 h-4 mr-1" />
+            {targetProgress.toFixed(0)}% to Target
+          </Badge>
+          <Button onClick={() => refetch()} variant="outline" size="sm" data-testid="button-refresh">
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Sales Overview Cards */}

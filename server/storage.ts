@@ -161,6 +161,17 @@ export interface IStorage {
   getNotificationsByUser(userId: string): Promise<any[]>;
   markNotificationRead(id: string): Promise<any>;
 
+  // Sales Metrics (for Sales Agent Dashboard)
+  getSalesMetrics(): Promise<{
+    totalSales: number;
+    avgDealSize: number;
+    conversionRate: number;
+    pipelineValue: number;
+    activeLeads: number;
+  }>;
+  getRecentCompletedPayments(limit?: number): Promise<Array<DebtPayment & { offenderName?: string; storeName?: string }>>;
+  getPaymentsInLast30Days(): Promise<DebtPayment[]>;
+
   // Multi-Agent Platform Management
   // Organizations
   createOrganization(org: InsertOrganization): Promise<Organization>;
@@ -204,7 +215,11 @@ export class DatabaseStorage implements IStorage {
   // =====================================
 
   async createUser(user: InsertUser): Promise<User> {
-    const [newUser] = await db.insert(users).values(user).returning();
+    const userData = {
+      ...user,
+      profile: user.profile as any // Type assertion for JSON field
+    };
+    const [newUser] = await db.insert(users).values([userData]).returning();
     return newUser;
   }
 
@@ -224,9 +239,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUser(id: string, updates: Partial<InsertUser>): Promise<User> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      profile: updates.profile as any // Type assertion for JSON field
+    };
     const [updatedUser] = await db
       .update(users)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(users.id, id))
       .returning();
     return updatedUser;
@@ -251,7 +271,11 @@ export class DatabaseStorage implements IStorage {
   // =====================================
 
   async createStore(store: InsertStore): Promise<Store> {
-    const [newStore] = await db.insert(stores).values(store).returning();
+    const storeData = {
+      ...store,
+      agentSettings: store.agentSettings as any // Type assertion for JSON field
+    };
+    const [newStore] = await db.insert(stores).values([storeData]).returning();
     return newStore;
   }
 
@@ -266,9 +290,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateStore(id: string, updates: Partial<InsertStore>): Promise<Store> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      agentSettings: updates.agentSettings as any // Type assertion for JSON field
+    };
     const [updatedStore] = await db
       .update(stores)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(stores.id, id))
       .returning();
     return updatedStore;
@@ -283,7 +312,12 @@ export class DatabaseStorage implements IStorage {
   // =====================================
 
   async createAlert(alert: InsertAlert): Promise<Alert> {
-    const [newAlert] = await db.insert(alerts).values(alert).returning();
+    const alertData = {
+      ...alert,
+      location: alert.location as any, // Type assertion for JSON field
+      metadata: alert.metadata as any // Type assertion for JSON field
+    };
+    const [newAlert] = await db.insert(alerts).values([alertData]).returning();
     return newAlert;
   }
 
@@ -315,9 +349,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateAlert(id: string, updates: Partial<InsertAlert>): Promise<Alert> {
+    const updateData = {
+      ...updates,
+      location: updates.location as any, // Type assertion for JSON field
+      metadata: updates.metadata as any // Type assertion for JSON field
+    };
     const [updatedAlert] = await db
       .update(alerts)
-      .set(updates)
+      .set(updateData)
       .where(eq(alerts.id, id))
       .returning();
     return updatedAlert;
@@ -336,7 +375,19 @@ export class DatabaseStorage implements IStorage {
   // =====================================
 
   async createOffender(offender: InsertOffender): Promise<Offender> {
-    const [newOffender] = await db.insert(offenders).values(offender).returning();
+    const offenderData = {
+      ...offender,
+      aliases: offender.aliases ? Array.from(offender.aliases as string[]) : [],
+      physicalDescription: offender.physicalDescription as any,
+      contactInfo: offender.contactInfo as any,
+      behaviorPatterns: offender.behaviorPatterns ? Array.from(offender.behaviorPatterns as string[]) : [],
+      thumbnails: offender.thumbnails ? Array.from(offender.thumbnails as string[]) : [],
+      confirmedIncidentIds: offender.confirmedIncidentIds ? Array.from(offender.confirmedIncidentIds as string[]) : [],
+      bannedFromStores: offender.bannedFromStores ? Array.from(offender.bannedFromStores as string[]) : [],
+      biometricData: offender.biometricData as any,
+      lastSeenLocation: offender.lastSeenLocation as any
+    };
+    const [newOffender] = await db.insert(offenders).values([offenderData]).returning();
     return newOffender;
   }
 
@@ -364,9 +415,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateOffender(id: string, updates: Partial<InsertOffender>): Promise<Offender> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      aliases: updates.aliases ? Array.from(updates.aliases as string[]) : undefined,
+      physicalDescription: updates.physicalDescription as any,
+      contactInfo: updates.contactInfo as any,
+      behaviorPatterns: updates.behaviorPatterns ? Array.from(updates.behaviorPatterns as string[]) : undefined,
+      thumbnails: updates.thumbnails ? Array.from(updates.thumbnails as string[]) : undefined,
+      confirmedIncidentIds: updates.confirmedIncidentIds ? Array.from(updates.confirmedIncidentIds as string[]) : undefined,
+      bannedFromStores: updates.bannedFromStores ? Array.from(updates.bannedFromStores as string[]) : undefined,
+      biometricData: updates.biometricData as any,
+      lastSeenLocation: updates.lastSeenLocation as any
+    };
+    // Remove undefined values
+    Object.keys(updateData).forEach(key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]);
     const [updatedOffender] = await db
       .update(offenders)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(offenders.id, id))
       .returning();
     return updatedOffender;
@@ -381,7 +447,7 @@ export class DatabaseStorage implements IStorage {
   // =====================================
 
   async createTheft(theft: InsertTheft): Promise<Theft> {
-    const [newTheft] = await db.insert(thefts).values(theft).returning();
+    const [newTheft] = await db.insert(thefts).values([theft]).returning();
     return newTheft;
   }
 
@@ -428,7 +494,7 @@ export class DatabaseStorage implements IStorage {
   // =====================================
 
   async createDebtPayment(payment: InsertDebtPayment): Promise<DebtPayment> {
-    const [newPayment] = await db.insert(debtPayments).values(payment).returning();
+    const [newPayment] = await db.insert(debtPayments).values([payment]).returning();
     return newPayment;
   }
 
@@ -475,7 +541,7 @@ export class DatabaseStorage implements IStorage {
   // =====================================
 
   async createQrToken(token: InsertQrToken): Promise<QrToken> {
-    const [newToken] = await db.insert(qrTokens).values(token).returning();
+    const [newToken] = await db.insert(qrTokens).values([token]).returning();
     return newToken;
   }
 
@@ -502,7 +568,7 @@ export class DatabaseStorage implements IStorage {
   // =====================================
 
   async createNotification(notification: any): Promise<any> {
-    const [newNotification] = await db.insert(notifications).values(notification).returning();
+    const [newNotification] = await db.insert(notifications).values([notification]).returning();
     return newNotification;
   }
 
@@ -566,7 +632,17 @@ export class DatabaseStorage implements IStorage {
 
   // Organizations
   async createOrganization(org: InsertOrganization): Promise<Organization> {
-    const [newOrg] = await db.insert(organizations).values(org).returning();
+    const orgData = {
+      ...org,
+      subscription: org.subscription ? {
+        plan: org.subscription.plan as "free" | "starter" | "professional" | "enterprise",
+        agents: Array.from(org.subscription.agents as string[]),
+        limits: org.subscription.limits
+      } : undefined,
+      billingInfo: org.billingInfo as any
+    };
+    Object.keys(orgData).forEach(key => orgData[key as keyof typeof orgData] === undefined && delete orgData[key as keyof typeof orgData]);
+    const [newOrg] = await db.insert(organizations).values([orgData]).returning();
     return newOrg;
   }
 
@@ -576,9 +652,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateOrganization(id: string, updates: Partial<InsertOrganization>): Promise<Organization> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      subscription: updates.subscription ? {
+        plan: updates.subscription.plan as "free" | "starter" | "professional" | "enterprise",
+        agents: Array.from(updates.subscription.agents as string[]),
+        limits: updates.subscription.limits
+      } : undefined,
+      billingInfo: updates.billingInfo as any
+    };
+    Object.keys(updateData).forEach(key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]);
     const [updatedOrg] = await db
       .update(organizations)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(organizations.id, id))
       .returning();
     return updatedOrg;
@@ -611,7 +698,11 @@ export class DatabaseStorage implements IStorage {
 
   // User Agent Access
   async createUserAgentAccess(access: InsertUserAgentAccess): Promise<UserAgentAccess> {
-    const [newAccess] = await db.insert(userAgentAccess).values(access).returning();
+    const accessData = {
+      ...access,
+      permissions: access.permissions ? Array.from(access.permissions as string[]) : []
+    };
+    const [newAccess] = await db.insert(userAgentAccess).values([accessData]).returning();
     return newAccess;
   }
 
@@ -670,7 +761,7 @@ export class DatabaseStorage implements IStorage {
 
   // Agent Configurations
   async createAgentConfiguration(config: InsertAgentConfiguration): Promise<AgentConfiguration> {
-    const [newConfig] = await db.insert(agentConfigurations).values(config).returning();
+    const [newConfig] = await db.insert(agentConfigurations).values([config]).returning();
     return newConfig;
   }
 
@@ -829,7 +920,7 @@ export class DatabaseStorage implements IStorage {
   async createCamera(camera: InsertCamera): Promise<Camera> {
     const [newCamera] = await db
       .insert(cameras)
-      .values(camera)
+      .values([camera])
       .returning();
     return newCamera;
   }
@@ -917,7 +1008,7 @@ export class DatabaseStorage implements IStorage {
   async createIncident(incident: InsertIncident): Promise<Incident> {
     const [newIncident] = await db
       .insert(incidents)
-      .values(incident)
+      .values([incident])
       .returning();
     return newIncident;
   }
@@ -991,6 +1082,108 @@ export class DatabaseStorage implements IStorage {
       .delete(incidents)
       .where(eq(incidents.id, id));
     return result.rowCount > 0;
+  }
+
+  // =====================================
+  // Sales Metrics Implementation
+  // =====================================
+
+  async getSalesMetrics(): Promise<{
+    totalSales: number;
+    avgDealSize: number;
+    conversionRate: number;
+    pipelineValue: number;
+    activeLeads: number;
+  }> {
+    // Get completed payments in last 30 days for totalSales
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const completedPayments = await db
+      .select()
+      .from(debtPayments)
+      .where(and(
+        eq(debtPayments.status, "COMPLETED"),
+        sql`${debtPayments.paidAt} >= ${thirtyDaysAgo}`
+      ));
+
+    const totalSales = completedPayments.reduce((sum, payment) => 
+      sum + parseFloat(payment.amount), 0);
+
+    const avgDealSize = completedPayments.length > 0 ? 
+      totalSales / completedPayments.length : 0;
+
+    // Get all payments for conversion rate
+    const allPayments = await db.select().from(debtPayments);
+    const completed = allPayments.filter(p => p.status === "COMPLETED").length;
+    const conversionRate = allPayments.length > 0 ? 
+      (completed / allPayments.length) * 100 : 0;
+
+    // Get pending payments for pipeline value
+    const pendingPayments = await db
+      .select()
+      .from(debtPayments)
+      .where(eq(debtPayments.status, "PENDING"));
+
+    const pendingValue = pendingPayments.reduce((sum, payment) => 
+      sum + parseFloat(payment.amount), 0);
+
+    // Get offenders with unpaid debt
+    const offendersWithDebt = await db
+      .select()
+      .from(offenders)
+      .where(sql`CAST(${offenders.totalDebt} AS DECIMAL) > CAST(${offenders.totalPaid} AS DECIMAL)`);
+
+    const unpaidDebtValue = offendersWithDebt.reduce((sum, offender) => 
+      sum + (parseFloat(offender.totalDebt || "0") - parseFloat(offender.totalPaid || "0")), 0);
+
+    const pipelineValue = pendingValue + unpaidDebtValue;
+
+    // Active leads: offenders with recent activity or unpaid debt
+    const activeLeads = offendersWithDebt.length;
+
+    return {
+      totalSales,
+      avgDealSize,
+      conversionRate,
+      pipelineValue,
+      activeLeads
+    };
+  }
+
+  async getRecentCompletedPayments(limit: number = 10): Promise<Array<DebtPayment & { offenderName?: string; storeName?: string }>> {
+    const payments = await db
+      .select({
+        debtPayment: debtPayments,
+        offenderName: offenders.name,
+        storeName: stores.name
+      })
+      .from(debtPayments)
+      .leftJoin(offenders, eq(debtPayments.offenderId, offenders.id))
+      .leftJoin(stores, eq(debtPayments.storeId, stores.id))
+      .where(eq(debtPayments.status, "COMPLETED"))
+      .orderBy(desc(debtPayments.paidAt))
+      .limit(limit);
+
+    return payments.map(p => ({
+      ...p.debtPayment,
+      offenderName: p.offenderName || "Unknown",
+      storeName: p.storeName || "Unknown Store"
+    }));
+  }
+
+  async getPaymentsInLast30Days(): Promise<DebtPayment[]> {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    return await db
+      .select()
+      .from(debtPayments)
+      .where(and(
+        eq(debtPayments.status, "COMPLETED"),
+        sql`${debtPayments.paidAt} >= ${thirtyDaysAgo}`
+      ))
+      .orderBy(desc(debtPayments.paidAt));
   }
 }
 
