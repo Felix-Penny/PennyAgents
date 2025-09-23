@@ -5,7 +5,7 @@ import Stripe from "stripe";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess, requireSecurityAgent, requireFinanceAgent, requireSalesAgent, requireOperationsAgent, requireHRAgent, requirePlatformRole, requireOrganizationAccess } from "./auth";
-import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema } from "../shared/schema";
+import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema } from "../shared/schema";
 
 // Initialize Stripe if keys are available
 let stripe: Stripe | null = null;
@@ -45,29 +45,273 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/store/:storeId/alerts/:alertId/confirm", requireAuth, requireSecurityAgent("operator"), requireStoreStaff, async (req, res) => {
+  app.post("/api/store/:storeId/alerts/:alertId/confirm", requireAuth, requireSecurityAgent("operator"), requireStoreAccess, async (req, res) => {
     try {
-      const { alertId } = req.params;
-      const alert = await storage.updateAlert(alertId, {
+      const { storeId, alertId } = req.params;
+      
+      // Verify alert belongs to this store
+      const alert = await storage.getAlert(alertId);
+      if (!alert || alert.storeId !== storeId) {
+        return res.status(404).json({ message: "Alert not found in this store" });
+      }
+      
+      const updatedAlert = await storage.updateAlert(alertId, {
         status: "PENDING_REVIEW",
-        reviewedBy: req.user!.id,
-        reviewedAt: new Date(),
+        acknowledgedBy: req.user!.id,
+        acknowledgedAt: new Date(),
       });
-      res.json(alert);
+      res.json(updatedAlert);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post("/api/store/:storeId/alerts/:alertId/dismiss", requireAuth, requireSecurityAgent("operator"), requireStoreStaff, async (req, res) => {
+  app.post("/api/store/:storeId/alerts/:alertId/dismiss", requireAuth, requireSecurityAgent("operator"), requireStoreAccess, async (req, res) => {
     try {
-      const { alertId } = req.params;
-      const alert = await storage.updateAlert(alertId, {
+      const { storeId, alertId } = req.params;
+      
+      // Verify alert belongs to this store
+      const alert = await storage.getAlert(alertId);
+      if (!alert || alert.storeId !== storeId) {
+        return res.status(404).json({ message: "Alert not found in this store" });
+      }
+      
+      const updatedAlert = await storage.updateAlert(alertId, {
         status: "DISMISSED",
-        reviewedBy: req.user!.id,
-        reviewedAt: new Date(),
+        resolvedBy: req.user!.id,
+        resolvedAt: new Date(),
       });
-      res.json(alert);
+      res.json(updatedAlert);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // =====================================
+  // Enhanced Security Agent API Routes  
+  // =====================================
+
+  // Enhanced Alert Management
+  app.get("/api/store/:storeId/alerts/priority/:priority", requireAuth, requireSecurityAgent("viewer"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId, priority } = req.params;
+      const alerts = await storage.getAlertsByPriority(storeId, priority);
+      res.json(alerts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/store/:storeId/alerts/status/:status", requireAuth, requireSecurityAgent("viewer"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId, status } = req.params;
+      const alerts = await storage.getAlertsByStatus(storeId, status);
+      res.json(alerts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/store/:storeId/alerts/:alertId/assign", requireAuth, requireSecurityAgent("operator"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId, alertId } = req.params;
+      
+      // Validate request body
+      const { userId } = req.body;
+      if (userId && typeof userId !== 'string') {
+        return res.status(400).json({ message: "Invalid userId format" });
+      }
+      
+      // Verify alert belongs to this store
+      const alert = await storage.getAlert(alertId);
+      if (!alert || alert.storeId !== storeId) {
+        return res.status(404).json({ message: "Alert not found in this store" });
+      }
+      
+      const updatedAlert = await storage.assignAlert(alertId, userId || req.user!.id);
+      res.json(updatedAlert);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/store/:storeId/alerts/:alertId/acknowledge", requireAuth, requireSecurityAgent("operator"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId, alertId } = req.params;
+      
+      // Verify alert belongs to this store
+      const alert = await storage.getAlert(alertId);
+      if (!alert || alert.storeId !== storeId) {
+        return res.status(404).json({ message: "Alert not found in this store" });
+      }
+      
+      const updatedAlert = await storage.acknowledgeAlert(alertId, req.user!.id);
+      res.json(updatedAlert);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/store/:storeId/alerts/:alertId/escalate", requireAuth, requireSecurityAgent("operator"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId, alertId } = req.params;
+      const { reason } = req.body;
+      
+      // Verify alert belongs to this store
+      const alert = await storage.getAlert(alertId);
+      if (!alert || alert.storeId !== storeId) {
+        return res.status(404).json({ message: "Alert not found in this store" });
+      }
+      
+      const updatedAlert = await storage.escalateAlert(alertId, reason);
+      res.json(updatedAlert);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Camera Management
+  app.get("/api/store/:storeId/cameras", requireAuth, requireSecurityAgent("viewer"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const cameras = await storage.getCamerasByStore(storeId);
+      res.json(cameras);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/cameras/:cameraId", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { cameraId } = req.params;
+      const camera = await storage.getCameraById(cameraId);
+      if (!camera) {
+        return res.status(404).json({ message: "Camera not found" });
+      }
+      res.json(camera);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/store/:storeId/cameras", requireAuth, requireSecurityAgent("admin"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      
+      // Validate request body with Zod
+      const validatedData = insertCameraSchema.parse({ ...req.body, storeId });
+      const camera = await storage.createCamera(validatedData);
+      res.status(201).json(camera);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid camera data", errors: error.errors });
+      }
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/store/:storeId/cameras/:cameraId/heartbeat", requireAuth, requireSecurityAgent("viewer"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId, cameraId } = req.params;
+      
+      // Verify camera belongs to this store
+      const camera = await storage.getCameraById(cameraId);
+      if (!camera || camera.storeId !== storeId) {
+        return res.status(404).json({ message: "Camera not found in this store" });
+      }
+      
+      const updatedCamera = await storage.updateCameraHeartbeat(cameraId);
+      res.json(updatedCamera);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Incident Management
+  app.get("/api/store/:storeId/incidents", requireAuth, requireSecurityAgent("viewer"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const incidents = await storage.getIncidentsByStore(storeId);
+      res.json(incidents);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/incidents/:incidentId", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { incidentId } = req.params;
+      const incident = await storage.getIncidentById(incidentId);
+      if (!incident) {
+        return res.status(404).json({ message: "Incident not found" });
+      }
+      res.json(incident);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/store/:storeId/incidents", requireAuth, requireSecurityAgent("operator"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      
+      // Validate request body with Zod
+      const validatedData = insertIncidentSchema.parse({ 
+        ...req.body, 
+        storeId, 
+        reportedBy: req.user!.id 
+      });
+      const incident = await storage.createIncident(validatedData);
+      res.status(201).json(incident);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid incident data", errors: error.errors });
+      }
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/store/:storeId/incidents/:incidentId/assign", requireAuth, requireSecurityAgent("operator"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId, incidentId } = req.params;
+      
+      // Validate request body
+      const { userId } = req.body;
+      if (userId && typeof userId !== 'string') {
+        return res.status(400).json({ message: "Invalid userId format" });
+      }
+      
+      // Verify incident belongs to this store
+      const incident = await storage.getIncidentById(incidentId);
+      if (!incident || incident.storeId !== storeId) {
+        return res.status(404).json({ message: "Incident not found in this store" });
+      }
+      
+      const updatedIncident = await storage.assignIncident(incidentId, userId || req.user!.id);
+      res.json(updatedIncident);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/store/:storeId/incidents/:incidentId/evidence", requireAuth, requireSecurityAgent("operator"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId, incidentId } = req.params;
+      const { evidenceFiles } = req.body;
+      
+      // Validate request body
+      if (!evidenceFiles || !Array.isArray(evidenceFiles)) {
+        return res.status(400).json({ message: "evidenceFiles array is required" });
+      }
+      
+      // Verify incident belongs to this store
+      const incident = await storage.getIncidentById(incidentId);
+      if (!incident || incident.storeId !== storeId) {
+        return res.status(404).json({ message: "Incident not found in this store" });
+      }
+      
+      const updatedIncident = await storage.addEvidenceToIncident(incidentId, evidenceFiles);
+      res.json(updatedIncident);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -171,8 +415,8 @@ export function registerRoutes(app: Express): Server {
       // Update alert status
       const alert = await storage.updateAlert(alertId, {
         status: "CONFIRMED",
-        reviewedBy: req.user!.id,
-        reviewedAt: new Date(),
+        resolvedBy: req.user!.id,
+        resolvedAt: new Date(),
       });
 
       // Create theft record
@@ -208,8 +452,8 @@ export function registerRoutes(app: Express): Server {
       const { alertId } = req.params;
       const alert = await storage.updateAlert(alertId, {
         status: "DISMISSED",
-        reviewedBy: req.user!.id,
-        reviewedAt: new Date(),
+        resolvedBy: req.user!.id,
+        resolvedAt: new Date(),
       });
       res.json(alert);
     } catch (error: any) {
@@ -305,7 +549,17 @@ export function registerRoutes(app: Express): Server {
         return res.status(500).json({ message: "Stripe not configured" });
       }
 
+      // Validate request body
       const { amount, offenderId, theftIds } = req.body;
+      if (!amount || typeof amount !== 'number' || amount <= 0) {
+        return res.status(400).json({ message: "Valid positive amount is required" });
+      }
+      if (!offenderId || typeof offenderId !== 'string') {
+        return res.status(400).json({ message: "Valid offenderId is required" });
+      }
+      if (!theftIds || !Array.isArray(theftIds)) {
+        return res.status(400).json({ message: "theftIds array is required" });
+      }
       
       const paymentIntent = await stripe.paymentIntents.create({
         amount: Math.round(amount * 100), // Convert to cents
@@ -547,8 +801,15 @@ export function registerRoutes(app: Express): Server {
   app.post("/api/notifications/:id/read", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const notification = await storage.markNotificationRead(id);
-      res.json(notification);
+      
+      // Verify notification belongs to this user
+      const notification = await storage.getNotificationById(id);
+      if (!notification || notification.userId !== req.user!.id) {
+        return res.status(404).json({ message: "Notification not found" });
+      }
+      
+      const updatedNotification = await storage.markNotificationRead(id);
+      res.json(updatedNotification);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

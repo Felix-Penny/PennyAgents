@@ -18,6 +18,8 @@ import {
   agents,
   userAgentAccess,
   agentConfigurations,
+  cameras,
+  incidents,
   type InsertUser,
   type User,
   type InsertStore,
@@ -40,6 +42,10 @@ import {
   type UserAgentAccess,
   type InsertAgentConfiguration,
   type AgentConfiguration,
+  type InsertCamera,
+  type Camera,
+  type InsertIncident,
+  type Incident,
 } from "@shared/schema";
 
 const PostgresSessionStore = connectPg(session);
@@ -66,13 +72,44 @@ export interface IStorage {
   updateStore(id: string, updates: Partial<InsertStore>): Promise<Store>;
   getStoreUsers(storeId: string): Promise<User[]>;
 
-  // Alert & Detection System
+  // Enhanced Alert & Detection System
   createAlert(alert: InsertAlert): Promise<Alert>;
   getAlert(id: string): Promise<Alert | null>;
   getAlertsByStore(storeId: string, limit?: number): Promise<Alert[]>;
   getActiveAlerts(storeId?: string): Promise<Alert[]>;
+  getAlertsByPriority(storeId: string, priority: string): Promise<Alert[]>;
+  getAlertsByStatus(storeId: string, status: string): Promise<Alert[]>;
+  getAssignedAlerts(userId: string): Promise<Alert[]>;
   updateAlert(id: string, updates: Partial<InsertAlert>): Promise<Alert>;
+  assignAlert(id: string, userId: string): Promise<Alert | null>;
+  acknowledgeAlert(id: string, userId: string): Promise<Alert | null>;
+  resolveAlert(id: string, userId: string): Promise<Alert | null>;
+  escalateAlert(id: string, reason: string): Promise<Alert | null>;
   getPendingReviewAlerts(): Promise<Alert[]>; // For Penny Ops Dashboard
+  deleteAlert(id: string): Promise<boolean>;
+  
+  // Camera Management
+  getCamerasByStore(storeId: string): Promise<Camera[]>;
+  getCameraById(id: string): Promise<Camera | null>;
+  getCamerasByStatus(storeId: string, status: string): Promise<Camera[]>;
+  createCamera(camera: InsertCamera): Promise<Camera>;
+  updateCamera(id: string, updates: Partial<Camera>): Promise<Camera | null>;
+  updateCameraStatus(id: string, status: string): Promise<Camera | null>;
+  updateCameraHeartbeat(id: string): Promise<Camera | null>;
+  deleteCamera(id: string): Promise<boolean>;
+  
+  // Incident Management  
+  getIncidentsByStore(storeId: string): Promise<Incident[]>;
+  getIncidentById(id: string): Promise<Incident | null>;
+  getIncidentsByStatus(storeId: string, status: string): Promise<Incident[]>;
+  getIncidentsByOffender(offenderId: string): Promise<Incident[]>;
+  createIncident(incident: InsertIncident): Promise<Incident>;
+  updateIncident(id: string, updates: Partial<Incident>): Promise<Incident | null>;
+  assignIncident(id: string, userId: string): Promise<Incident | null>;
+  addEvidenceToIncident(id: string, evidenceFiles: string[]): Promise<Incident | null>;
+  addWitnessAccount(id: string, witness: { name: string; contact: string; statement: string }): Promise<Incident | null>;
+  resolveIncident(id: string, userId: string): Promise<Incident | null>;
+  deleteIncident(id: string): Promise<boolean>;
 
   // Offender Management
   createOffender(offender: InsertOffender): Promise<Offender>;
@@ -646,6 +683,294 @@ export class DatabaseStorage implements IStorage {
       .where(eq(agentConfigurations.id, id))
       .returning();
     return updatedConfig;
+  }
+
+  // =====================================
+  // Enhanced Alert Management (Security Agent)
+  // =====================================
+
+  async getAlertsByPriority(storeId: string, priority: string): Promise<Alert[]> {
+    return await db
+      .select()
+      .from(alerts)
+      .where(and(eq(alerts.storeId, storeId), eq(alerts.priority, priority)))
+      .orderBy(desc(alerts.createdAt));
+  }
+
+  async getAlertsByStatus(storeId: string, status: string): Promise<Alert[]> {
+    return await db
+      .select()
+      .from(alerts)
+      .where(and(eq(alerts.storeId, storeId), eq(alerts.status, status)))
+      .orderBy(desc(alerts.createdAt));
+  }
+
+  async getAssignedAlerts(userId: string): Promise<Alert[]> {
+    return await db
+      .select()
+      .from(alerts)
+      .where(eq(alerts.assignedTo, userId))
+      .orderBy(desc(alerts.createdAt));
+  }
+
+  async assignAlert(id: string, userId: string): Promise<Alert | null> {
+    const [updated] = await db
+      .update(alerts)
+      .set({ 
+        assignedTo: userId, 
+        status: "IN_PROGRESS",
+        updatedAt: new Date() 
+      })
+      .where(eq(alerts.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async acknowledgeAlert(id: string, userId: string): Promise<Alert | null> {
+    const [updated] = await db
+      .update(alerts)
+      .set({ 
+        acknowledgedBy: userId,
+        acknowledgedAt: new Date(),
+        isRead: true,
+        updatedAt: new Date()
+      })
+      .where(eq(alerts.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async resolveAlert(id: string, userId: string): Promise<Alert | null> {
+    const now = new Date();
+    const [updated] = await db
+      .update(alerts)
+      .set({ 
+        resolvedBy: userId,
+        resolvedAt: now,
+        status: "RESOLVED",
+        isActive: false,
+        updatedAt: now
+      })
+      .where(eq(alerts.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async escalateAlert(id: string, reason: string): Promise<Alert | null> {
+    const [updated] = await db
+      .update(alerts)
+      .set({ 
+        status: "ESCALATED",
+        priority: "urgent",
+        metadata: sql`jsonb_set(COALESCE(metadata, '{}'), '{escalation_reason}', ${reason})`,
+        updatedAt: new Date()
+      })
+      .where(eq(alerts.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async deleteAlert(id: string): Promise<boolean> {
+    const result = await db
+      .delete(alerts)
+      .where(eq(alerts.id, id));
+    return result.rowCount > 0;
+  }
+
+  // =====================================
+  // Camera Management (Security Agent)
+  // =====================================
+
+  async getCamerasByStore(storeId: string): Promise<Camera[]> {
+    return await db
+      .select()
+      .from(cameras)
+      .where(and(eq(cameras.storeId, storeId), eq(cameras.isActive, true)))
+      .orderBy(cameras.name);
+  }
+
+  async getCameraById(id: string): Promise<Camera | null> {
+    const [camera] = await db
+      .select()
+      .from(cameras)
+      .where(eq(cameras.id, id))
+      .limit(1);
+    return camera || null;
+  }
+
+  async getCamerasByStatus(storeId: string, status: string): Promise<Camera[]> {
+    return await db
+      .select()
+      .from(cameras)
+      .where(and(eq(cameras.storeId, storeId), eq(cameras.status, status)))
+      .orderBy(cameras.name);
+  }
+
+  async createCamera(camera: InsertCamera): Promise<Camera> {
+    const [newCamera] = await db
+      .insert(cameras)
+      .values(camera)
+      .returning();
+    return newCamera;
+  }
+
+  async updateCamera(id: string, updates: Partial<Camera>): Promise<Camera | null> {
+    const [updated] = await db
+      .update(cameras)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(cameras.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async updateCameraStatus(id: string, status: string): Promise<Camera | null> {
+    const [updated] = await db
+      .update(cameras)
+      .set({ 
+        status, 
+        lastHeartbeat: new Date(),
+        updatedAt: new Date() 
+      })
+      .where(eq(cameras.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async updateCameraHeartbeat(id: string): Promise<Camera | null> {
+    const [updated] = await db
+      .update(cameras)
+      .set({ 
+        lastHeartbeat: new Date(),
+        status: "online",
+        updatedAt: new Date() 
+      })
+      .where(eq(cameras.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async deleteCamera(id: string): Promise<boolean> {
+    const result = await db
+      .update(cameras)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(cameras.id, id));
+    return result.rowCount > 0;
+  }
+
+  // =====================================
+  // Incident Management (Security Agent)
+  // =====================================
+
+  async getIncidentsByStore(storeId: string): Promise<Incident[]> {
+    return await db
+      .select()
+      .from(incidents)
+      .where(eq(incidents.storeId, storeId))
+      .orderBy(desc(incidents.createdAt));
+  }
+
+  async getIncidentById(id: string): Promise<Incident | null> {
+    const [incident] = await db
+      .select()
+      .from(incidents)
+      .where(eq(incidents.id, id))
+      .limit(1);
+    return incident || null;
+  }
+
+  async getIncidentsByStatus(storeId: string, status: string): Promise<Incident[]> {
+    return await db
+      .select()
+      .from(incidents)
+      .where(and(eq(incidents.storeId, storeId), eq(incidents.status, status)))
+      .orderBy(desc(incidents.createdAt));
+  }
+
+  async getIncidentsByOffender(offenderId: string): Promise<Incident[]> {
+    return await db
+      .select()
+      .from(incidents)
+      .where(eq(incidents.offenderId, offenderId))
+      .orderBy(desc(incidents.createdAt));
+  }
+
+  async createIncident(incident: InsertIncident): Promise<Incident> {
+    const [newIncident] = await db
+      .insert(incidents)
+      .values(incident)
+      .returning();
+    return newIncident;
+  }
+
+  async updateIncident(id: string, updates: Partial<Incident>): Promise<Incident | null> {
+    const [updated] = await db
+      .update(incidents)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(incidents.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async assignIncident(id: string, userId: string): Promise<Incident | null> {
+    const [updated] = await db
+      .update(incidents)
+      .set({ 
+        assignedTo: userId, 
+        status: "INVESTIGATING",
+        updatedAt: new Date() 
+      })
+      .where(eq(incidents.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async addEvidenceToIncident(id: string, evidenceFiles: string[]): Promise<Incident | null> {
+    const [updated] = await db
+      .update(incidents)
+      .set({ 
+        evidenceFiles: sql`COALESCE(evidence_files, '[]'::jsonb) || ${JSON.stringify(evidenceFiles)}::jsonb`,
+        updatedAt: new Date()
+      })
+      .where(eq(incidents.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async addWitnessAccount(id: string, witness: { name: string; contact: string; statement: string }): Promise<Incident | null> {
+    const witnessWithTimestamp = {
+      ...witness,
+      timestamp: new Date().toISOString()
+    };
+    
+    const [updated] = await db
+      .update(incidents)
+      .set({ 
+        witnessAccounts: sql`COALESCE(witness_accounts, '[]'::jsonb) || ${JSON.stringify([witnessWithTimestamp])}::jsonb`,
+        updatedAt: new Date()
+      })
+      .where(eq(incidents.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async resolveIncident(id: string, userId: string): Promise<Incident | null> {
+    const [updated] = await db
+      .update(incidents)
+      .set({ 
+        status: "RESOLVED",
+        resolvedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(incidents.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async deleteIncident(id: string): Promise<boolean> {
+    const result = await db
+      .delete(incidents)
+      .where(eq(incidents.id, id));
+    return result.rowCount > 0;
   }
 }
 
