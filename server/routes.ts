@@ -5,6 +5,7 @@ import Stripe from "stripe";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess } from "./auth";
+import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema } from "../shared/schema";
 
 // Initialize Stripe if keys are available
 let stripe: Stripe | null = null;
@@ -550,6 +551,129 @@ export function registerRoutes(app: Express): Server {
       res.json(notification);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // =====================================
+  // MULTI-AGENT PLATFORM ENDPOINTS
+  // =====================================
+
+  // Organizations endpoints
+  app.get("/api/organizations", requireAuth, async (req, res) => {
+    try {
+      const organizations = await storage.getAllOrganizations();
+      res.json(organizations);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/organizations/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const organization = await storage.getOrganizationById(id);
+      if (!organization) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+      res.json(organization);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/organizations", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertOrganizationSchema.parse(req.body);
+      const organization = await storage.createOrganization(validatedData);
+      res.status(201).json(organization);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Agents endpoints
+  app.get("/api/agents", requireAuth, async (req, res) => {
+    try {
+      const agents = await storage.getAllAgents();
+      res.json(agents);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/agents/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const agent = await storage.getAgentById(id);
+      if (!agent) {
+        return res.status(404).json({ message: "Agent not found" });
+      }
+      res.json(agent);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // User agent access endpoints
+  app.get("/api/user/agents", requireAuth, async (req, res) => {
+    try {
+      const userAgents = await storage.getUserAgentAccess(req.user!.id);
+      res.json(userAgents);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/user/agents", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertUserAgentAccessSchema.parse({
+        ...req.body,
+        grantedBy: req.user!.id
+      });
+      const userAgentAccess = await storage.createUserAgentAccess(validatedData);
+      res.status(201).json(userAgentAccess);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Agent configurations endpoints
+  app.get("/api/organizations/:orgId/agent-configurations", requireAuth, async (req, res) => {
+    try {
+      const { orgId } = req.params;
+      const configurations = await storage.getAgentConfigurationsByOrganization(orgId);
+      res.json(configurations);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/organizations/:orgId/agents/:agentId/configuration", requireAuth, async (req, res) => {
+    try {
+      const { orgId, agentId } = req.params;
+      const configuration = await storage.getAgentConfiguration(orgId, agentId);
+      if (!configuration) {
+        return res.status(404).json({ message: "Agent configuration not found" });
+      }
+      res.json(configuration);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/organizations/:orgId/agents/:agentId/configuration", requireAuth, async (req, res) => {
+    try {
+      const { orgId, agentId } = req.params;
+      const validatedData = insertAgentConfigurationSchema.parse({
+        ...req.body,
+        organizationId: orgId,
+        agentId,
+        configuredBy: req.user!.id
+      });
+      const configuration = await storage.upsertAgentConfiguration(validatedData);
+      res.json(configuration);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
     }
   });
 
