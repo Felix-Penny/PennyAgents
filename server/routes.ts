@@ -933,7 +933,7 @@ export function registerRoutes(app: Express): Server {
   // Agents endpoints
   app.get("/api/agents", requireAuth, async (req, res) => {
     try {
-      const agents = await storage.getAllAgents();
+      const agents = await storage.getAgents();
       res.json(agents);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
