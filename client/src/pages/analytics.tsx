@@ -21,6 +21,11 @@ import ThreatHeatmap from "@/components/ThreatHeatmap";
 import PerformanceMetrics from "@/components/PerformanceMetrics";
 import IncidentTrends from "@/components/IncidentTrends";
 import ReportsCenter from "@/components/ReportsCenter";
+import BehavioralAnalytics from "@/components/behavioral/BehavioralAnalytics";
+import BaselineChart from "@/components/behavioral/BaselineChart";
+import AnomalyTimeline from "@/components/behavioral/AnomalyTimeline";
+import BehavioralHeatmap from "@/components/behavioral/BehavioralHeatmap";
+import PatternTrends from "@/components/behavioral/PatternTrends";
 
 interface DateRange {
   from: Date;
@@ -246,11 +251,12 @@ export default function Analytics() {
 
       {/* Main Analytics Tabs */}
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="incidents">Incident Trends</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="spatial">Heatmap</TabsTrigger>
+          <TabsTrigger value="behavioral">Behavioral</TabsTrigger>
           <TabsTrigger value="predictions">Predictions</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
@@ -358,6 +364,13 @@ export default function Analytics() {
           <ThreatHeatmap 
             storeId={selectedStore !== "all" ? selectedStore : undefined}
             period={selectedPeriod}
+            dateRange={dateRange}
+          />
+        </TabsContent>
+
+        <TabsContent value="behavioral" className="space-y-6">
+          <BehavioralAnalytics 
+            storeId={selectedStore !== "all" ? selectedStore : ""} 
             dateRange={dateRange}
           />
         </TabsContent>

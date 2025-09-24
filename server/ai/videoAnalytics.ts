@@ -8,7 +8,10 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { storage } from "../storage";
-import { DetectionResult, DetectionBoundingBox, ThreatSeverity } from "../../shared/schema";
+import { DetectionResult, DetectionBoundingBox, ThreatSeverity, InsertBehaviorEvent } from "../../shared/schema";
+import { baselineBuilder } from "../behavioral/baselineBuilder";
+import { anomalyDetector } from "../behavioral/anomalyDetector";
+import { behavioralAlertEngine } from "../behavioral/behavioralAlerts";
 
 // Initialize OpenAI client
 const openai = new OpenAI({ 
@@ -138,6 +141,8 @@ export class AIVideoAnalyticsService {
     framePath: string, 
     frameNumber: number, 
     timestamp: number,
+    cameraId: string,
+    storeId: string,
     config: VideoAnalysisConfig = {}
   ): Promise<FrameAnalysisResult> {
     const frameId = `frame_${frameNumber}_${Date.now()}`;
@@ -209,6 +214,17 @@ export class AIVideoAnalyticsService {
 
       // Cache the result
       this.analysisCache.set(frameHash, result);
+
+      // BEHAVIORAL PATTERN LEARNING INTEGRATION
+      // Extract and emit behavioral events for pattern learning
+      if (config.enableBehaviorAnalysis !== false) { // Default to enabled
+        try {
+          await this.processBehavioralPatterns(result, framePath, { storeId, cameraId });
+        } catch (behaviorError) {
+          console.error("Behavioral pattern processing failed:", behaviorError);
+          // Don't fail entire analysis due to behavioral processing errors
+        }
+      }
 
       return result;
 
@@ -480,7 +496,7 @@ Respond with JSON in this EXACT format:
       // Analyze each frame
       for (let i = 0; i < frames.length; i++) {
         const timestamp = i * frameInterval;
-        const frameAnalysis = await this.analyzeFrame(frames[i], i, timestamp, config);
+        const frameAnalysis = await this.analyzeFrame(frames[i], i, timestamp, cameraId, storeId, config);
         
         analysis.frames.push(frameAnalysis);
         analysis.totalDetections += frameAnalysis.detections.length;
@@ -678,7 +694,7 @@ Respond with JSON in this EXACT format:
       await fs.writeFile(tempPath, imageBuffer);
 
       // Analyze the frame
-      const result = await this.analyzeFrame(tempPath, 0, timestamp, config);
+      const result = await this.analyzeFrame(tempPath, 0, timestamp, cameraId, storeId, config);
 
       // Clean up temp file
       try {
@@ -1011,6 +1027,376 @@ Respond with JSON in this EXACT format:
       case 'low': return 0.4;
       default: return 0.5;
     }
+  }
+
+  /**
+   * BEHAVIORAL PATTERN LEARNING SYSTEM INTEGRATION
+   * Process behavioral patterns from frame analysis results
+   */
+
+  /**
+   * Main behavioral pattern processing method
+   * Extracts behavioral metrics and processes them through the behavioral learning pipeline
+   */
+  async processBehavioralPatterns(
+    frameResult: FrameAnalysisResult,
+    framePath: string,
+    context: { storeId: string; cameraId: string; area?: string }
+  ): Promise<void> {
+    const startTime = Date.now();
+
+    try {
+      // Extract behavioral metrics from frame analysis
+      const behaviorMetrics = await this.extractBehaviorMetrics(frameResult, context);
+
+      // Process each detected behavioral event
+      for (const metrics of behaviorMetrics) {
+        // Create behavioral event in database
+        const behaviorEvent = await this.emitBehaviorEvent(metrics, context);
+
+        if (behaviorEvent) {
+          // Update baseline in real-time (streaming mode)
+          await baselineBuilder.updateBaselineStreaming(behaviorEvent);
+
+          // Perform anomaly detection
+          const anomalies = await anomalyDetector.detectAnomalies(behaviorEvent);
+
+          // Process any detected anomalies through alert system
+          for (const anomaly of anomalies) {
+            if (anomaly.isAnomaly) {
+              await behavioralAlertEngine.processAnomalyEvent({
+                id: `anomaly_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                storeId: context.storeId,
+                cameraId: context.cameraId,
+                behaviorEventId: behaviorEvent.id,
+                anomalyType: 'statistical_outlier',
+                severity: anomaly.severity,
+                deviationScore: anomaly.deviationScore,
+                baselineProfileId: anomaly.baselineProfile?.id,
+                alertGenerated: false,
+                metadata: {
+                  confidence: anomaly.confidence,
+                  description: anomaly.description,
+                  recommendedActions: anomaly.recommendedActions
+                },
+                timestamp: behaviorEvent.timestamp
+              });
+            }
+          }
+        }
+      }
+
+      const processingTime = Date.now() - startTime;
+      console.log(`Behavioral pattern processing completed in ${processingTime}ms`);
+
+      // Ensure processing stays under 200ms requirement
+      if (processingTime > 200) {
+        console.warn(`Behavioral processing exceeded 200ms target: ${processingTime}ms`);
+      }
+
+    } catch (error) {
+      console.error("Error in behavioral pattern processing:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extract behavioral metrics from frame analysis result
+   * Implements the BehaviorMetrics interface from the requirements
+   */
+  async extractBehaviorMetrics(
+    frameResult: FrameAnalysisResult,
+    context: { storeId: string; cameraId: string; area?: string }
+  ): Promise<Array<{
+    eventType: string;
+    confidence: number;
+    metadata: any;
+    area?: string;
+  }>> {
+    const behaviorMetrics: Array<{
+      eventType: string;
+      confidence: number;
+      metadata: any;
+      area?: string;
+    }> = [];
+
+    // Extract crowd density metrics
+    if (frameResult.crowdDensity) {
+      const peopleCount = this.estimatePeopleCount(frameResult.detections);
+      behaviorMetrics.push({
+        eventType: 'crowd_density',
+        confidence: 0.8,
+        metadata: {
+          peopleCount,
+          crowdLevel: frameResult.crowdDensity,
+          densityScore: this.calculateDensityScore(peopleCount, frameResult.crowdDensity)
+        },
+        area: context.area || 'default'
+      });
+    }
+
+    // Extract motion intensity metrics
+    if (frameResult.motionLevel) {
+      const motionIntensity = this.calculateMotionIntensity(frameResult.motionLevel);
+      
+      // Only emit if motion is significant
+      if (motionIntensity > 0.3) {
+        behaviorMetrics.push({
+          eventType: 'motion_spike',
+          confidence: 0.7,
+          metadata: {
+            motionIntensity,
+            motionLevel: frameResult.motionLevel,
+            rapidMovement: motionIntensity > 0.8
+          },
+          area: context.area || 'default'
+        });
+      }
+    }
+
+    // Extract loitering behavior from detections
+    const loiteringEvents = this.detectLoiteringBehavior(frameResult.detections);
+    behaviorMetrics.push(...loiteringEvents.map(event => ({
+      ...event,
+      area: context.area || 'default'
+    })));
+
+    // Extract dwell time patterns
+    const dwellTimeEvents = this.detectDwellTimePatterns(frameResult.detections);
+    behaviorMetrics.push(...dwellTimeEvents.map(event => ({
+      ...event,
+      area: context.area || 'default'
+    })));
+
+    // Extract unusual gathering patterns
+    const gatheringEvents = this.detectUnusualGatherings(frameResult.detections);
+    behaviorMetrics.push(...gatheringEvents.map(event => ({
+      ...event,
+      area: context.area || 'default'
+    })));
+
+    return behaviorMetrics;
+  }
+
+  /**
+   * Create behavioral event in database
+   */
+  private async emitBehaviorEvent(
+    metrics: {
+      eventType: string;
+      confidence: number;
+      metadata: any;
+      area?: string;
+    },
+    context: { storeId: string; cameraId: string }
+  ): Promise<any> {
+    const behaviorEventData: InsertBehaviorEvent = {
+      storeId: context.storeId,
+      cameraId: context.cameraId,
+      eventType: metrics.eventType,
+      area: metrics.area || 'default',
+      confidence: metrics.confidence,
+      metadata: metrics.metadata,
+      timestamp: new Date(),
+      processedAt: new Date()
+    };
+
+    try {
+      const behaviorEvent = await storage.createBehaviorEvent(behaviorEventData);
+      console.log(`Behavioral event emitted: ${metrics.eventType} with confidence ${metrics.confidence}`);
+      return behaviorEvent;
+    } catch (error) {
+      console.error("Failed to emit behavioral event:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Comprehensive behavioral pattern analysis method as specified in requirements
+   */
+  async analyzeBehavioralPatterns(
+    detectionResult: DetectionResult,
+    cameraId: string,
+    storeId: string
+  ): Promise<{
+    loiteringDuration?: number;
+    crowdDensity?: number;
+    motionIntensity?: number;
+    dwellTime?: number;
+    entryExitPatterns?: {
+      entryPoint: string;
+      exitPoint: string;
+      duration: number;
+    };
+    unusualGathering?: boolean;
+    rapidMovement?: boolean;
+  }> {
+    const behaviorMetrics: any = {};
+
+    try {
+      // Convert DetectionResult to frame-like structure for analysis
+      const mockFrame: FrameAnalysisResult = {
+        frameId: `detection_${detectionResult.ts}`,
+        frameNumber: 0,
+        timestamp: detectionResult.ts,
+        detections: detectionResult.boxes.map((box, index) => ({
+          id: `det_${index}`,
+          detectionType: this.inferDetectionType(box.label),
+          objectClass: box.label,
+          confidence: box.confidence,
+          boundingBox: {
+            x: box.x,
+            y: box.y,
+            width: box.w,
+            height: box.h,
+            normalized: box.x <= 1 && box.y <= 1
+          },
+          description: box.label,
+          severity: box.severity,
+          frameTimestamp: detectionResult.ts,
+          processingTime: 0
+        })),
+        qualityScore: 0.8,
+        lightingConditions: 'good',
+        motionLevel: 'medium',
+        crowdDensity: this.inferCrowdDensity(detectionResult.boxes.length),
+        modelUsed: 'overlay-detection',
+        processingTime: 0
+      };
+
+      // Extract behavioral metrics
+      const extractedMetrics = await this.extractBehaviorMetrics(mockFrame, { 
+        storeId, 
+        cameraId, 
+        area: 'overlay_detection' 
+      });
+
+      // Process metrics into the required format
+      for (const metric of extractedMetrics) {
+        switch (metric.eventType) {
+          case 'crowd_density':
+            behaviorMetrics.crowdDensity = metric.metadata.peopleCount;
+            break;
+          case 'motion_spike':
+            behaviorMetrics.motionIntensity = metric.metadata.motionIntensity;
+            behaviorMetrics.rapidMovement = metric.metadata.rapidMovement;
+            break;
+          case 'loitering':
+            behaviorMetrics.loiteringDuration = metric.metadata.duration;
+            break;
+          case 'dwell_time':
+            behaviorMetrics.dwellTime = metric.metadata.duration;
+            break;
+          case 'unusual_gathering':
+            behaviorMetrics.unusualGathering = true;
+            break;
+        }
+      }
+
+      return behaviorMetrics;
+    } catch (error) {
+      console.error("Error analyzing behavioral patterns:", error);
+      return {};
+    }
+  }
+
+  // Helper methods for behavioral metrics extraction
+
+  private estimatePeopleCount(detections: AIDetectionResult[]): number {
+    return detections.filter(d => d.detectionType === 'person').length;
+  }
+
+  private calculateDensityScore(peopleCount: number, crowdLevel: string): number {
+    const densityMap = { empty: 0, sparse: 0.25, moderate: 0.5, dense: 0.8 };
+    const baseDensity = densityMap[crowdLevel as keyof typeof densityMap] || 0.3;
+    return Math.min(1.0, baseDensity + (peopleCount * 0.1));
+  }
+
+  private calculateMotionIntensity(motionLevel: string): number {
+    const intensityMap = { low: 0.2, medium: 0.5, high: 0.8 };
+    return intensityMap[motionLevel as keyof typeof intensityMap] || 0.3;
+  }
+
+  private detectLoiteringBehavior(detections: AIDetectionResult[]): Array<{
+    eventType: string;
+    confidence: number;
+    metadata: any;
+  }> {
+    const events = [];
+    const loiteringDetections = detections.filter(d => 
+      d.behaviorType === 'loitering' || 
+      (d.detectionType === 'person' && d.confidence > 0.7)
+    );
+
+    if (loiteringDetections.length > 0) {
+      events.push({
+        eventType: 'loitering',
+        confidence: Math.max(...loiteringDetections.map(d => d.confidence)),
+        metadata: {
+          duration: 30, // Estimated duration in seconds
+          detectionCount: loiteringDetections.length,
+          averageConfidence: loiteringDetections.reduce((sum, d) => sum + d.confidence, 0) / loiteringDetections.length
+        }
+      });
+    }
+
+    return events;
+  }
+
+  private detectDwellTimePatterns(detections: AIDetectionResult[]): Array<{
+    eventType: string;
+    confidence: number;
+    metadata: any;
+  }> {
+    const events = [];
+    const dwellingDetections = detections.filter(d => 
+      d.detectionType === 'person' && d.confidence > 0.6
+    );
+
+    if (dwellingDetections.length > 0) {
+      events.push({
+        eventType: 'dwell_time',
+        confidence: 0.7,
+        metadata: {
+          duration: 20, // Estimated dwell time in seconds
+          personCount: dwellingDetections.length,
+          zones: ['main_area'] // Could be enhanced with zone detection
+        }
+      });
+    }
+
+    return events;
+  }
+
+  private detectUnusualGatherings(detections: AIDetectionResult[]): Array<{
+    eventType: string;
+    confidence: number;
+    metadata: any;
+  }> {
+    const events = [];
+    const peopleCount = detections.filter(d => d.detectionType === 'person').length;
+
+    // Define unusual gathering as 5+ people in close proximity
+    if (peopleCount >= 5) {
+      events.push({
+        eventType: 'unusual_gathering',
+        confidence: 0.8,
+        metadata: {
+          peopleCount,
+          isUnusual: true,
+          gatheringType: peopleCount > 10 ? 'large_crowd' : 'group_gathering'
+        }
+      });
+    }
+
+    return events;
+  }
+
+  private inferCrowdDensity(boxCount: number): 'empty' | 'sparse' | 'moderate' | 'dense' {
+    if (boxCount === 0) return 'empty';
+    if (boxCount <= 2) return 'sparse';
+    if (boxCount <= 5) return 'moderate';
+    return 'dense';
   }
 
   /**

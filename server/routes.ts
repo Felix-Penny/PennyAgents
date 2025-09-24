@@ -2652,6 +2652,458 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // =====================================
+  // BEHAVIORAL PATTERN LEARNING ANALYTICS
+  // =====================================
+
+  // Behavioral analytics dashboard data
+  app.get("/api/analytics/behavioral/dashboard", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, period = "daily", startDate, endDate } = req.query;
+      
+      const context: any = {
+        storeId: storeId as string,
+        organizationId: req.user?.organizationId,
+        period: period as string,
+        startDate: startDate ? new Date(startDate as string) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        endDate: endDate ? new Date(endDate as string) : new Date(),
+        scope: storeId ? "store" : "organization",
+        userId: req.user!.id
+      };
+
+      // Get behavioral events, baselines, and anomalies for dashboard
+      const [behaviorEvents, anomalies, baselines] = await Promise.all([
+        storage.getBehaviorEventsByStore(context.storeId, {
+          since: context.startDate,
+          until: context.endDate,
+          limit: 100
+        }),
+        storage.getAnomalyEventsByStore(context.storeId, {
+          since: context.startDate,
+          until: context.endDate,
+          limit: 50
+        }),
+        storage.getAreaBaselineProfilesByStore(context.storeId)
+      ]);
+
+      // Calculate summary statistics
+      const totalEvents = behaviorEvents.length;
+      const totalAnomalies = anomalies.length;
+      const anomalyRate = totalEvents > 0 ? (totalAnomalies / totalEvents) * 100 : 0;
+      const severityDistribution = {
+        critical: anomalies.filter(a => a.severity === 'critical').length,
+        high: anomalies.filter(a => a.severity === 'high').length,
+        medium: anomalies.filter(a => a.severity === 'medium').length,
+        low: anomalies.filter(a => a.severity === 'low').length
+      };
+
+      res.json({
+        summary: {
+          totalEvents,
+          totalAnomalies,
+          anomalyRate: Math.round(anomalyRate * 100) / 100,
+          severityDistribution,
+          baselineCount: baselines.length
+        },
+        timeline: behaviorEvents.map(event => ({
+          timestamp: event.timestamp,
+          eventType: event.eventType,
+          area: event.area,
+          confidence: event.confidence
+        })),
+        anomalies: anomalies.map(anomaly => ({
+          id: anomaly.id,
+          timestamp: anomaly.timestamp,
+          severity: anomaly.severity,
+          deviationScore: anomaly.deviationScore,
+          area: anomaly.metadata?.area || 'unknown',
+          description: anomaly.metadata?.description || 'Behavioral anomaly detected'
+        })),
+        baselines: baselines.map(baseline => ({
+          area: baseline.area,
+          eventType: baseline.eventType,
+          timeWindow: baseline.timeWindow,
+          meanValue: baseline.meanValue,
+          standardDeviation: baseline.standardDeviation,
+          sampleCount: baseline.sampleCount
+        }))
+      });
+    } catch (error: any) {
+      console.error("Behavioral analytics dashboard error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get behavior events for a store
+  app.get("/api/behavioral/events", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, eventType, area, startDate, endDate, limit = 50, offset = 0 } = req.query;
+
+      if (!storeId) {
+        return res.status(400).json({ message: "storeId is required" });
+      }
+
+      const events = await storage.getBehaviorEventsByStore(storeId as string, {
+        eventType: eventType as string,
+        area: area as string,
+        since: startDate ? new Date(startDate as string) : new Date(Date.now() - 24 * 60 * 60 * 1000),
+        until: endDate ? new Date(endDate as string) : new Date(),
+        limit: parseInt(limit as string),
+        offset: parseInt(offset as string)
+      });
+
+      res.json(events);
+    } catch (error: any) {
+      console.error("Get behavior events error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get baseline profiles for a store
+  app.get("/api/behavioral/baselines", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, area, eventType, timeWindow } = req.query;
+
+      if (!storeId) {
+        return res.status(400).json({ message: "storeId is required" });
+      }
+
+      let baselines;
+      if (area && eventType && timeWindow) {
+        // Get specific baseline profile
+        const baseline = await storage.getAreaBaselineProfileByKey(
+          storeId as string,
+          area as string,
+          eventType as string,
+          timeWindow as string
+        );
+        baselines = baseline ? [baseline] : [];
+      } else if (area) {
+        // Get baselines for specific area
+        baselines = await storage.getAreaBaselineProfiles(storeId as string, area as string);
+      } else {
+        // Get all baselines for store
+        baselines = await storage.getAreaBaselineProfilesByStore(storeId as string);
+      }
+
+      res.json(baselines);
+    } catch (error: any) {
+      console.error("Get baseline profiles error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get anomaly events for a store
+  app.get("/api/behavioral/anomalies", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, severity, startDate, endDate, limit = 50, offset = 0 } = req.query;
+
+      if (!storeId) {
+        return res.status(400).json({ message: "storeId is required" });
+      }
+
+      const anomalies = await storage.getAnomalyEventsByStore(storeId as string, {
+        severity: severity as any,
+        since: startDate ? new Date(startDate as string) : new Date(Date.now() - 24 * 60 * 60 * 1000),
+        until: endDate ? new Date(endDate as string) : new Date(),
+        limit: parseInt(limit as string),
+        offset: parseInt(offset as string)
+      });
+
+      res.json(anomalies);
+    } catch (error: any) {
+      console.error("Get anomaly events error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Trigger baseline building for a store
+  app.post("/api/behavioral/baselines/build", requireAuth, requireSecurityAgent("admin"), async (req, res) => {
+    try {
+      const { storeId, area } = req.body;
+
+      if (!storeId) {
+        return res.status(400).json({ message: "storeId is required" });
+      }
+
+      // Import baseline builder
+      const { baselineBuilder } = await import("./behavioral/baselineBuilder");
+      
+      // Trigger baseline building (async)
+      baselineBuilder.buildAreaBaselines(storeId, area).catch(error => {
+        console.error("Baseline building failed:", error);
+      });
+
+      res.json({ 
+        success: true, 
+        message: `Baseline building initiated for store ${storeId}${area ? ` area ${area}` : ''}` 
+      });
+    } catch (error: any) {
+      console.error("Baseline building trigger error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get baseline quality validation for a store
+  app.get("/api/behavioral/baselines/quality", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId } = req.query;
+
+      if (!storeId) {
+        return res.status(400).json({ message: "storeId is required" });
+      }
+
+      const { baselineBuilder } = await import("./behavioral/baselineBuilder");
+      const qualityReport = await baselineBuilder.validateBaselineQuality(storeId as string);
+
+      res.json(qualityReport);
+    } catch (error: any) {
+      console.error("Baseline quality validation error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Provide feedback on anomaly detection for adaptive learning
+  app.post("/api/behavioral/anomalies/:anomalyId/feedback", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { anomalyId } = req.params;
+      const { isFalsePositive, confidenceScore = 0.8, notes } = req.body;
+
+      if (typeof isFalsePositive !== 'boolean') {
+        return res.status(400).json({ message: "isFalsePositive must be a boolean" });
+      }
+
+      // Import anomaly detector
+      const { anomalyDetector } = await import("./behavioral/anomalyDetector");
+      
+      // Provide feedback for adaptive learning
+      await anomalyDetector.adaptThresholdsBasedOnFeedback(
+        anomalyId,
+        isFalsePositive,
+        confidenceScore
+      );
+
+      // Update anomaly event with feedback
+      await storage.updateAnomalyEvent(anomalyId, {
+        metadata: {
+          feedback: {
+            isFalsePositive,
+            confidenceScore,
+            notes,
+            providedBy: req.user!.id,
+            providedAt: new Date().toISOString()
+          }
+        }
+      });
+
+      res.json({ 
+        success: true, 
+        message: "Feedback recorded and adaptive learning updated" 
+      });
+    } catch (error: any) {
+      console.error("Anomaly feedback error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // MISSING CRITICAL BEHAVIORAL ENDPOINTS - ADDED TO FIX INTEGRATION GAPS
+
+  // Real-time behavioral data for overlays
+  app.get("/api/behavioral/realtime", requireAuth, requirePermission("security:behavior:read"), async (req, res) => {
+    try {
+      const { storeId, cameraId } = req.query;
+
+      if (!storeId) {
+        return res.status(400).json({ message: "storeId is required" });
+      }
+
+      // Get current active behavioral data
+      const recentEvents = await storage.getBehaviorEventsByStore(storeId as string);
+      const anomalies = await storage.getAnomalyEventsByStore(storeId as string);
+      const baselines = await storage.getAreaBaselineProfilesByStore(storeId as string);
+
+      // Filter by camera if specified
+      const filteredEvents = cameraId 
+        ? recentEvents.filter(event => event.cameraId === cameraId)
+        : recentEvents;
+
+      const filteredAnomalies = cameraId
+        ? anomalies.filter(anomaly => anomaly.cameraId === cameraId)
+        : anomalies;
+
+      // Calculate area status
+      const areaStatus: Record<string, any> = {};
+      const areaGroups = filteredEvents.reduce((acc, event) => {
+        const area = event.area || 'default';
+        if (!acc[area]) acc[area] = [];
+        acc[area].push(event);
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      Object.entries(areaGroups).forEach(([area, events]) => {
+        const areaAnomalies = filteredAnomalies.filter(a => a.area === area);
+        const confidence = events.reduce((sum, e) => sum + e.confidence, 0) / events.length;
+        
+        let riskLevel: 'low' | 'medium' | 'high' | 'critical' = 'low';
+        if (areaAnomalies.some(a => a.severity === 'critical')) riskLevel = 'critical';
+        else if (areaAnomalies.some(a => a.severity === 'high')) riskLevel = 'high';
+        else if (areaAnomalies.some(a => a.severity === 'medium')) riskLevel = 'medium';
+
+        areaStatus[area] = {
+          riskLevel,
+          eventCount: events.length,
+          anomalyCount: areaAnomalies.length,
+          confidence
+        };
+      });
+
+      res.json({
+        baselines: baselines.slice(0, 20), // Limit for real-time performance
+        anomalies: filteredAnomalies.slice(0, 20),
+        recentEvents: filteredEvents.slice(0, 50),
+        areaStatus,
+        timestamp: new Date(),
+        cameraId: cameraId || null,
+        storeId
+      });
+
+    } catch (error: any) {
+      console.error("Behavioral realtime data error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Camera-specific behavioral data
+  app.get("/api/behavioral/camera-data/:cameraId", requireAuth, requirePermission("security:behavior:read"), async (req, res) => {
+    try {
+      const { cameraId } = req.params;
+      const { storeId } = req.query;
+
+      if (!storeId) {
+        return res.status(400).json({ message: "storeId is required" });
+      }
+
+      // Get camera-specific behavioral data
+      const events = await storage.getBehaviorEventsByStore(storeId as string);
+      const anomalies = await storage.getAnomalyEventsByStore(storeId as string);
+      const baselines = await storage.getAreaBaselineProfilesByStore(storeId as string);
+
+      // Filter by camera
+      const cameraEvents = events.filter(event => event.cameraId === cameraId);
+      const cameraAnomalies = anomalies.filter(anomaly => anomaly.cameraId === cameraId);
+
+      // Calculate camera-specific metrics
+      const totalEvents = cameraEvents.length;
+      const anomalyCount = cameraAnomalies.length;
+      const averageConfidence = cameraEvents.length > 0 
+        ? cameraEvents.reduce((sum, e) => sum + e.confidence, 0) / cameraEvents.length
+        : 0;
+
+      // Recent activity summary
+      const recentTimeframe = new Date(Date.now() - 60 * 60 * 1000); // Last hour
+      const recentEvents = cameraEvents.filter(e => new Date(e.timestamp) > recentTimeframe);
+      const recentAnomalies = cameraAnomalies.filter(a => new Date(a.timestamp) > recentTimeframe);
+
+      res.json({
+        cameraId,
+        storeId,
+        summary: {
+          totalEvents,
+          anomalyCount,
+          averageConfidence,
+          recentActivity: recentEvents.length,
+          recentAnomalies: recentAnomalies.length
+        },
+        baselines: baselines.slice(0, 10),
+        anomalies: cameraAnomalies.slice(0, 15),
+        recentEvents: recentEvents.slice(0, 25),
+        eventTypes: [...new Set(cameraEvents.map(e => e.eventType))],
+        areas: [...new Set(cameraEvents.map(e => e.area).filter(Boolean))],
+        timestamp: new Date()
+      });
+
+    } catch (error: any) {
+      console.error("Camera behavioral data error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get behavioral pattern trends and insights
+  app.get("/api/analytics/behavioral/trends", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, eventType, area, period = "weekly", startDate, endDate } = req.query;
+
+      if (!storeId) {
+        return res.status(400).json({ message: "storeId is required" });
+      }
+
+      const context: any = {
+        storeId: storeId as string,
+        eventType: eventType as string,
+        area: area as string,
+        period: period as string,
+        startDate: startDate ? new Date(startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        endDate: endDate ? new Date(endDate as string) : new Date()
+      };
+
+      // Get behavior events and calculate trends
+      const events = await storage.getBehaviorEventsByStore(context.storeId, {
+        eventType: context.eventType,
+        area: context.area,
+        since: context.startDate,
+        until: context.endDate,
+        limit: 1000
+      });
+
+      // Calculate trend data by grouping events by time periods
+      const trendData = events.reduce((acc, event) => {
+        const date = new Date(event.timestamp);
+        let periodKey: string;
+
+        if (context.period === 'hourly') {
+          periodKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
+        } else if (context.period === 'daily') {
+          periodKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+        } else {
+          const weekStart = new Date(date.getFullYear(), date.getMonth(), date.getDate() - date.getDay());
+          periodKey = weekStart.toISOString().split('T')[0];
+        }
+
+        if (!acc[periodKey]) {
+          acc[periodKey] = [];
+        }
+        acc[periodKey].push(event);
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      const trends = Object.entries(trendData).map(([period, periodEvents]) => ({
+        period,
+        eventCount: periodEvents.length,
+        averageConfidence: periodEvents.reduce((sum, e) => sum + e.confidence, 0) / periodEvents.length,
+        eventTypes: [...new Set(periodEvents.map(e => e.eventType))],
+        areas: [...new Set(periodEvents.map(e => e.area))]
+      }));
+
+      res.json({
+        trends,
+        summary: {
+          totalEvents: events.length,
+          periodCount: trends.length,
+          mostCommonEventType: events.length > 0 ? 
+            events.reduce((acc, event) => {
+              acc[event.eventType] = (acc[event.eventType] || 0) + 1;
+              return acc;
+            }, {} as Record<string, number>) : {},
+          averageConfidence: events.length > 0 ? 
+            events.reduce((sum, e) => sum + e.confidence, 0) / events.length : 0
+        }
+      });
+    } catch (error: any) {
+      console.error("Behavioral trends error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Reports management
   app.get("/api/analytics/reports", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
     try {
@@ -4008,6 +4460,15 @@ async function handleWebSocketMessage(ws: WebSocketClient, clientId: string, mes
       await handleBulkAlertAcknowledgment(ws, clientId, message);
       break;
 
+    // BEHAVIORAL REAL-TIME WEBSOCKET SUPPORT - CRITICAL MISSING FUNCTIONALITY
+    case 'subscribe_behavioral':
+      await handleBehavioralSubscription(ws, clientId, message);
+      break;
+
+    case 'unsubscribe_behavioral':
+      await handleBehavioralUnsubscription(ws, clientId, message);
+      break;
+
     case 'ping':
       sendMessage(ws, { type: 'pong', timestamp: new Date().toISOString() });
       break;
@@ -5031,3 +5492,111 @@ app.delete("/api/face-templates/:id", requireAuth, requirePermission("security:f
   }
 });
 */
+
+// BEHAVIORAL WEBSOCKET HANDLERS - CRITICAL MISSING FUNCTIONALITY
+
+// Track behavioral subscriptions
+const behavioralSubscriptions = new Map<string, Set<string>>(); // storeId -> Set of clientIds
+
+async function handleBehavioralSubscription(ws: WebSocketClient, clientId: string, message: any) {
+  // CRITICAL SECURITY: Validate authentication
+  if (!ws.isAuthenticated || !ws.userId || !ws.storeId) {
+    sendErrorMessage(ws, 'Authentication required');
+    return;
+  }
+
+  // CRITICAL SECURITY: Validate behavioral access permission
+  if (!requireWebSocketSecurityAgent(ws.userRole!)) {
+    sendErrorMessage(ws, 'Insufficient permissions for behavioral data');
+    return;
+  }
+
+  const { storeId, cameraId } = message;
+  
+  // CRITICAL SECURITY: Validate store access
+  if (!requireWebSocketStoreAccess(ws.storeId!, storeId || ws.storeId!, ws.userRole!)) {
+    console.warn(`Client ${clientId} denied behavioral access to store ${storeId}`);
+    sendErrorMessage(ws, 'Access denied to requested store');
+    return;
+  }
+
+  // Use server-verified storeId for security
+  const verifiedStoreId = ws.storeId!;
+  
+  // Add to behavioral subscriptions
+  if (!behavioralSubscriptions.has(verifiedStoreId)) {
+    behavioralSubscriptions.set(verifiedStoreId, new Set());
+  }
+  behavioralSubscriptions.get(verifiedStoreId)!.add(clientId);
+
+  console.log(`Client ${clientId} subscribed to behavioral updates for store ${verifiedStoreId}, camera: ${cameraId || 'all'}`);
+  
+  sendMessage(ws, {
+    type: 'behavioral_subscription_confirmed',
+    storeId: verifiedStoreId,
+    cameraId: cameraId || null,
+    timestamp: new Date().toISOString()
+  });
+}
+
+async function handleBehavioralUnsubscription(ws: WebSocketClient, clientId: string, message: any) {
+  if (!ws.isAuthenticated || !ws.storeId) {
+    sendErrorMessage(ws, 'Authentication required');
+    return;
+  }
+
+  const storeId = ws.storeId!;
+  
+  // Remove from behavioral subscriptions
+  if (behavioralSubscriptions.has(storeId)) {
+    behavioralSubscriptions.get(storeId)!.delete(clientId);
+    
+    // Clean up empty sets
+    if (behavioralSubscriptions.get(storeId)!.size === 0) {
+      behavioralSubscriptions.delete(storeId);
+    }
+  }
+
+  console.log(`Client ${clientId} unsubscribed from behavioral updates for store ${storeId}`);
+  
+  sendMessage(ws, {
+    type: 'behavioral_unsubscription_confirmed',
+    storeId,
+    timestamp: new Date().toISOString()
+  });
+}
+
+// Broadcast behavioral updates to subscribed clients
+export function broadcastBehavioralUpdate(storeId: string, cameraId: string, data: {
+  type: 'anomaly' | 'baseline_update' | 'behavior_event';
+  anomaly?: any;
+  baseline?: any;
+  event?: any;
+  area?: string;
+  severity?: string;
+}) {
+  const subscribers = behavioralSubscriptions.get(storeId);
+  if (!subscribers || subscribers.size === 0) {
+    return;
+  }
+
+  const broadcastMessage = {
+    type: 'behavioral_update',
+    storeId,
+    cameraId,
+    data,
+    timestamp: new Date().toISOString()
+  };
+
+  subscribers.forEach(clientId => {
+    const client = connectedClients.get(clientId);
+    if (client && client.readyState === WebSocket.OPEN) {
+      sendMessage(client, broadcastMessage);
+    } else {
+      // Clean up dead connections
+      subscribers.delete(clientId);
+    }
+  });
+
+  console.log(`Broadcasted behavioral update to ${subscribers.size} clients for store ${storeId}`);
+}
