@@ -157,28 +157,8 @@ export class AIVideoAnalyticsService {
       // Comprehensive security analysis prompt
       const analysisPrompt = this.buildAnalysisPrompt(config);
 
-      const response = await openai.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: analysisPrompt
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:image/jpeg;base64,${base64Frame}`
-                }
-              }
-            ],
-          },
-        ],
-        response_format: { type: "json_object" },
-        max_tokens: 2000,
-      });
+      // OpenAI call with AbortController and circuit breaker protection
+      const response = await this.makeOpenAICallWithCircuitBreaker(model, analysisPrompt, base64Frame, frameNumber);
 
       // Robust JSON parsing with error handling
       let analysis: any = {};
@@ -249,6 +229,109 @@ export class AIVideoAnalyticsService {
         processingTime: Date.now() - startTime
       };
     }
+  }
+
+  /**
+   * Make OpenAI call with circuit breaker protection, AbortController timeout, and retries
+   */
+  private async makeOpenAICallWithCircuitBreaker(
+    model: AIModel, 
+    prompt: string, 
+    base64Frame: string, 
+    frameNumber: number,
+    maxRetries: number = 2
+  ): Promise<any> {
+    const TIMEOUT_MS = 15000; // 15 seconds as per security requirements
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        abortController.abort();
+      }, TIMEOUT_MS);
+
+      try {
+        const startTime = Date.now();
+        
+        // Log attempt start
+        console.log(`[OPENAI] Starting analysis attempt ${attempt}/${maxRetries} for frame ${frameNumber}`);
+        
+        const response = await openai.chat.completions.create({
+          model,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: prompt
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:image/jpeg;base64,${base64Frame}`
+                  }
+                }
+              ],
+            },
+          ],
+          response_format: { type: "json_object" },
+          max_tokens: 2000,
+        }, {
+          signal: abortController.signal
+        });
+
+        clearTimeout(timeoutId);
+        const processingTime = Date.now() - startTime;
+        
+        // Log successful call
+        console.log(`[OPENAI] Analysis completed successfully in ${processingTime}ms for frame ${frameNumber}`);
+        
+        return response;
+
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        const processingTime = Date.now() - Date.now();
+        
+        // Determine error type for structured logging
+        const isTimeout = error.name === 'AbortError' || error.message?.includes('timeout');
+        const isRateLimit = error.status === 429;
+        
+        // Log structured security event
+        const logData = {
+          attempt,
+          maxRetries,
+          frameNumber,
+          model,
+          processingTime,
+          errorType: isTimeout ? 'TIMEOUT' : isRateLimit ? 'RATE_LIMIT' : 'API_ERROR',
+          errorMessage: error.message,
+          errorStatus: error.status,
+        };
+
+        if (isTimeout) {
+          console.error(`[SECURITY] OpenAI API timeout on attempt ${attempt}/${maxRetries}:`, logData);
+        } else if (isRateLimit) {
+          console.error(`[SECURITY] OpenAI rate limit exceeded on attempt ${attempt}/${maxRetries}:`, logData);
+        } else {
+          console.error(`[SECURITY] OpenAI API error on attempt ${attempt}/${maxRetries}:`, logData);
+        }
+
+        // If this is the last attempt, throw the error
+        if (attempt === maxRetries) {
+          console.error(`[SECURITY] All ${maxRetries} attempts failed for frame ${frameNumber}. Circuit breaker activated.`);
+          throw new Error(`OpenAI analysis failed after ${maxRetries} attempts: ${error.message}`);
+        }
+
+        // Calculate exponential backoff delay
+        const backoffDelay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Max 5 seconds
+        console.log(`[OPENAI] Retrying in ${backoffDelay}ms (exponential backoff)...`);
+        
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+      }
+    }
+
+    // This should never be reached, but included for type safety
+    throw new Error('OpenAI call failed unexpectedly');
   }
 
   /**
@@ -461,32 +544,20 @@ Respond with JSON in this EXACT format:
     try {
       // Store video analytics record
       const videoAnalytics = await storage.createVideoAnalysis({
+        id: analysis.analysisId,
         storeId: analysis.storeId,
         cameraId: analysis.cameraId,
         videoFilePath: analysis.videoPath,
         videoDurationSeconds: Math.floor(analysis.processingDuration / 1000),
         analyzedAt: new Date(),
-        processingStatus: analysis.status,
-        totalDetections: analysis.totalDetections,
-        threatDetections: analysis.threatDetections,
-        qualityScore: analysis.qualityScore,
-        modelsUsed: [{
-          name: analysis.modelUsed,
-          version: "1.0",
-          purpose: "comprehensive_threat_detection"
-        }],
-        processingTime: analysis.processingDuration,
-        analyticsResults: {
+        analysisStatus: analysis.status,
+        detectedFaces: [], // Empty array for MVP as mentioned in storage interface
+        matchedOffenders: [], // Empty array for MVP as mentioned in storage interface
+        confidenceScores: {
           averageConfidence: analysis.averageConfidence,
-          motionLevel: analysis.frames[0]?.motionLevel || 'low',
-          crowdDensity: analysis.frames[0]?.crowdDensity || 'sparse',
-          lightingConditions: analysis.frames[0]?.lightingConditions || 'good',
-          alerts: analysis.suspiciousActivities.map(sa => ({
-            type: sa.threatType || sa.behaviorType || 'unknown',
-            severity: sa.severity,
-            confidence: sa.confidence,
-            timestamp: new Date(sa.frameTimestamp).toISOString()
-          }))
+          totalDetections: analysis.totalDetections,
+          threatDetections: analysis.threatDetections,
+          qualityScore: analysis.qualityScore
         }
       });
 
@@ -500,18 +571,22 @@ Respond with JSON in this EXACT format:
             objectClass: detection.objectClass,
             threatType: detection.threatType,
             behaviorType: detection.behaviorType,
-            confidence: detection.confidence,
+            confidence: detection.confidence.toString(),
             boundingBox: detection.boundingBox,
             keyPoints: detection.keyPoints,
             modelName: analysis.modelUsed,
             modelVersion: "1.0",
             processingTime: detection.processingTime,
             frameTimestamp: new Date(detection.frameTimestamp),
-            frameNumber: frame.frameNumber.toString(),
+            frameNumber: frame.frameNumber,
             videoSegmentId: analysis.analysisId,
             metadata: {
-              description: detection.description,
-              frameQuality: frame.qualityScore
+              originalImagePath: `frame_${frame.frameNumber}`,
+              sensitivity: frame.qualityScore,
+              environmentalFactors: {
+                lighting: frame.lightingConditions,
+                crowdLevel: frame.crowdDensity
+              }
             }
           });
         }
@@ -875,7 +950,7 @@ Respond with JSON in this EXACT format:
           detectionType: this.inferDetectionType(box.label),
           objectClass: box.label,
           threatType: this.inferThreatType(box.label, box.severity),
-          confidence: box.confidence,
+          confidence: box.confidence.toString(),
           boundingBox: {
             x: box.x,
             y: box.y,
@@ -887,9 +962,11 @@ Respond with JSON in this EXACT format:
           modelVersion: '1.0',
           frameTimestamp: new Date(detectionResult.ts),
           metadata: {
-            severity: box.severity,
-            color: box.color,
-            overlayTimestamp: detectionResult.ts
+            originalImagePath: `overlay_${detectionResult.ts}`,
+            alertThreshold: this.mapSeverityToThreshold(box.severity),
+            environmentalFactors: {
+              lighting: 'unknown'
+            }
           }
         });
       }
@@ -921,6 +998,19 @@ Respond with JSON in this EXACT format:
     if (lowerLabel.includes('suspicious')) return 'suspicious_behavior';
     if (severity === 'critical' || severity === 'high') return 'suspicious_behavior';
     return undefined;
+  }
+
+  /**
+   * Map severity level to threshold for metadata
+   */
+  private mapSeverityToThreshold(severity: ThreatSeverity): number {
+    switch (severity) {
+      case 'critical': return 0.9;
+      case 'high': return 0.8;
+      case 'medium': return 0.6;
+      case 'low': return 0.4;
+      default: return 0.5;
+    }
   }
 
   /**

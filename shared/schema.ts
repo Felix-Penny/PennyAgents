@@ -3507,11 +3507,11 @@ export const frameAnalysisRequestSchema = z.object({
   }).optional(),
 });
 
-// Frame size validation constants
+// Frame size validation constants (Enhanced Security)
 export const FRAME_SIZE_LIMITS = {
-  MAX_SIZE_MB: 4,               // Maximum 4MB for analyze-frame endpoint
-  MAX_SIZE_BYTES: 4 * 1024 * 1024, // 4MB in bytes
-  ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png'] as const,
+  MAX_SIZE_MB: 10,               // Maximum 10MB for analyze-frame endpoint (Production Security Target)
+  MAX_SIZE_BYTES: 10 * 1024 * 1024, // 10MB in bytes
+  ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp'] as const, // Added WebP support
 } as const;
 
 export type AllowedMimeType = typeof FRAME_SIZE_LIMITS.ALLOWED_MIME_TYPES[number];

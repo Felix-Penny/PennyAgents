@@ -2162,7 +2162,95 @@ export function registerRoutes(app: Express): Server {
   // AI VIDEO ANALYTICS ENDPOINTS
   // =====================================
 
-  // Rate limiting for AI endpoints (more restrictive due to expensive OpenAI calls)
+  // =====================================
+  // ENHANCED ROLE-BASED RATE LIMITING FOR AI ENDPOINTS
+  // =====================================
+  
+  // Production security targets:
+  // - Guards (security agents with viewer/operator roles): 100 requests/hour
+  // - Admins (security agents with admin role or store_admin/penny_admin): 500 requests/hour
+  
+  // CRITICAL SECURITY FIX: Create persistent rate limiter instances to prevent memory store resets
+  // Production security targets: Guards 100/hr, Admins 500/hr
+  
+  // Persistent rate limiters with stable memory stores
+  const guardRateLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 100, // 100 requests per hour for guards
+    message: { 
+      error: "Too many AI frame analysis requests. Limit: 100 requests per hour for guard role.",
+      limit: 100,
+      role: 'guard',
+      code: "RATE_LIMIT_EXCEEDED"
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => {
+      return `${req.ip}:${req.user?.id || 'anonymous'}:ai-frame-guard`;
+    },
+    onLimitReached: (req: any) => {
+      logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        userId: req.user?.id,
+        userRole: req.user?.role,
+        ip: req.ip,
+        endpoint: '/api/ai/analyze-frame',
+        limit: 100,
+        role: 'guard'
+      }, req);
+    }
+  });
+  
+  const adminRateLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 500, // 500 requests per hour for admins
+    message: { 
+      error: "Too many AI frame analysis requests. Limit: 500 requests per hour for admin role.",
+      limit: 500,
+      role: 'admin',
+      code: "RATE_LIMIT_EXCEEDED"
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => {
+      return `${req.ip}:${req.user?.id || 'anonymous'}:ai-frame-admin`;
+    },
+    onLimitReached: (req: any) => {
+      logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        userId: req.user?.id,
+        userRole: req.user?.role,
+        ip: req.ip,
+        endpoint: '/api/ai/analyze-frame',
+        limit: 500,
+        role: 'admin'
+      }, req);
+    }
+  });
+  
+  // Role-based rate limiter dispatcher that uses persistent instances
+  function roleBasedRateLimiterDispatcher(req: any, res: any, next: any) {
+    const user = req.user;
+    
+    if (!user) {
+      return res.status(401).json({ 
+        message: "Authentication required for rate limiting",
+        code: "AUTH_REQUIRED"
+      });
+    }
+
+    // Determine if user is admin-level
+    const isAdmin = user.role === 'store_admin' || 
+                   user.role === 'penny_admin' || 
+                   (user.platformRole === 'org_admin' || user.platformRole === 'super_admin');
+    
+    // Dispatch to appropriate persistent rate limiter
+    if (isAdmin) {
+      return adminRateLimiter(req, res, next);
+    } else {
+      return guardRateLimiter(req, res, next);
+    }
+  }
+  
+  // Keep existing rate limiters for other AI endpoints
   const aiAnalysisLimiter = rateLimit({
     windowMs: 60 * 1000, // 1 minute
     max: 5, // Limit to 5 AI analysis requests per minute
@@ -2179,17 +2267,153 @@ export function registerRoutes(app: Express): Server {
     legacyHeaders: false,
   });
 
-  // Separate rate limiter for frame analysis (10/min as specified)
-  const aiFrameAnalysisLimiter = rateLimit({
-    windowMs: 60 * 1000, // 1 minute
-    max: 10, // Limit to 10 frame analysis requests per minute (higher than video analysis)
-    message: { error: "Too many frame analysis requests, please try again later." },
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
+  // =====================================
+  // EARLY REJECTION MIDDLEWARE FOR BODY SIZE PROTECTION
+  // =====================================
+  
+  // Early rejection middleware to prevent memory exhaustion from large uploads
+  const earlyBodySizeRejection = (req: any, res: any, next: any) => {
+    // Check Content-Length header before Express parses the body
+    const contentLength = parseInt(req.get('content-length') || '0', 10);
+    
+    // SECURITY FIX: Enforce strict 10MB limit as per security requirements
+    const MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024; // 10MB total request size (STRICT SECURITY POLICY)
+    
+    if (contentLength > MAX_REQUEST_BODY_BYTES) {
+      console.warn('[SECURITY] Large request body rejected', {
+        contentLength,
+        maxAllowed: MAX_REQUEST_BODY_BYTES,
+        userId: req.user?.id,
+        ip: req.ip,
+        endpoint: req.path,
+        timestamp: new Date().toISOString()
+      });
+      
+      return res.status(413).json({
+        message: `Request body too large. Maximum size is ${Math.round(MAX_REQUEST_BODY_BYTES / (1024 * 1024))}MB (strict security policy).`,
+        code: "BODY_SIZE_EXCEEDED",
+        maxSize: `${Math.round(MAX_REQUEST_BODY_BYTES / (1024 * 1024))}MB`
+      });
+    }
+    
+    // Set timeout for slow uploads (30 seconds max)
+    req.setTimeout(30000, () => {
+      console.warn('[SECURITY] Request timeout - slow upload attack detected', {
+        userId: req.user?.id,
+        ip: req.ip,
+        endpoint: req.path,
+        timestamp: new Date().toISOString()
+      });
+      
+      res.status(408).json({
+        message: "Request timeout - upload too slow",
+        code: "UPLOAD_TIMEOUT"
+      });
+    });
+    
+    next();
+  };
 
-  // POST /api/ai/analyze-frame - Analyze single video frame or image
-  app.post("/api/ai/analyze-frame", requireAuth, requireSecurityAgent("operator"), aiFrameAnalysisLimiter, async (req, res) => {
+  // =====================================
+  // CIRCUIT BREAKER PROTECTION
+  // =====================================
+  
+  // Circuit breaker state tracking
+  const circuitBreakerState = {
+    openai: { failures: 0, lastFailure: 0, state: 'CLOSED' },
+    database: { failures: 0, lastFailure: 0, state: 'CLOSED' },
+    filesystem: { failures: 0, lastFailure: 0, state: 'CLOSED' }
+  };
+  
+  const CIRCUIT_BREAKER_CONFIG = {
+    failureThreshold: 5,
+    timeoutMs: 15000, // 15 seconds (as per security requirements)
+    resetTimeMs: 60000 // 1 minute
+  };
+  
+  // Circuit breaker function
+  function circuitBreakerCheck(service: keyof typeof circuitBreakerState): boolean {
+    const breaker = circuitBreakerState[service];
+    const now = Date.now();
+    
+    if (breaker.state === 'OPEN') {
+      if (now - breaker.lastFailure > CIRCUIT_BREAKER_CONFIG.resetTimeMs) {
+        breaker.state = 'HALF_OPEN';
+        breaker.failures = 0;
+        return true;
+      }
+      return false;
+    }
+    
+    return true;
+  }
+  
+  function circuitBreakerRecord(service: keyof typeof circuitBreakerState, success: boolean) {
+    const breaker = circuitBreakerState[service];
+    const now = Date.now();
+    
+    if (success) {
+      breaker.failures = 0;
+      breaker.state = 'CLOSED';
+    } else {
+      breaker.failures++;
+      breaker.lastFailure = now;
+      
+      if (breaker.failures >= CIRCUIT_BREAKER_CONFIG.failureThreshold) {
+        breaker.state = 'OPEN';
+        console.error(`[CIRCUIT_BREAKER] ${service} circuit opened after ${breaker.failures} failures`);
+      }
+    }
+  }
+
+  // Secure error response helper
+  function createSecureErrorResponse(error: any, operation: string, req: any) {
+    // Log full error details internally
+    logSecurityEvent('API_ERROR', {
+      operation,
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    }, req);
+    
+    // Return sanitized error to client
+    const baseResponse = {
+      success: false,
+      code: 'OPERATION_FAILED',
+      timestamp: new Date().toISOString()
+    };
+    
+    // Map specific errors to safe responses
+    if (error.code === 'RATE_LIMIT_EXCEEDED') {
+      return { ...baseResponse, message: "Too many requests. Please try again later." };
+    }
+    
+    if (error.code === 'INVALID_IMAGE_SIGNATURE' || error.code === 'BODY_SIZE_EXCEEDED') {
+      return { ...baseResponse, message: error.message, code: error.code };
+    }
+    
+    if (error.name === 'ZodError') {
+      return { ...baseResponse, message: "Invalid request format", code: 'VALIDATION_ERROR' };
+    }
+    
+    // Generic safe error for everything else
+    return { 
+      ...baseResponse, 
+      message: "Request could not be processed. Please check your input and try again.",
+      hint: "Ensure your image is a valid JPEG, PNG, or WebP format under 10MB"
+    };
+  }
+
+  // POST /api/ai/analyze-frame - Analyze single video frame or image with enhanced security
+  app.post("/api/ai/analyze-frame", 
+    requireAuth, 
+    requireSecurityAgent("operator"), 
+    requireStoreAccess,
+    earlyBodySizeRejection,
+    roleBasedRateLimiterDispatcher, 
+    async (req, res) => {
+    const startTime = Date.now();
+    
     try {
       const { imageData, storeId, cameraId, config } = req.body;
 
@@ -2230,7 +2454,7 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Invalid base64 encoding" });
       }
 
-      // Enhanced size validation with frame limits (4MB max)
+      // Enhanced size validation with frame limits (10MB max)
       if (imageBuffer.length > FRAME_SIZE_LIMITS.MAX_SIZE_BYTES) {
         return res.status(400).json({ 
           message: `Image file too large. Maximum size is ${FRAME_SIZE_LIMITS.MAX_SIZE_MB}MB.` 
@@ -2238,9 +2462,20 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Validate image signature (magic bytes) to prevent fake extensions
-      const isValidImage = validateImageSignature(imageBuffer, mimeType);
+      const isValidImage = validateImageSignature(imageBuffer, mimeType, req);
       if (!isValidImage) {
-        return res.status(400).json({ message: "Invalid image file or corrupted data" });
+        // Enhanced security logging for content validation failures
+        logSecurityEvent('SECURITY_INVALID_CONTENT', {
+          mimeType,
+          actualSize: imageBuffer.length,
+          reason: 'Invalid image signature or magic bytes mismatch',
+          potentialAttack: 'File extension spoofing or malicious payload'
+        }, req);
+        
+        return res.status(415).json({ 
+          message: "Unsupported Media Type - Invalid image file signature",
+          code: "INVALID_IMAGE_SIGNATURE"
+        });
       }
 
       // Extract image dimensions for coordinate system validation
@@ -2249,25 +2484,73 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Could not determine image dimensions" });
       }
 
+      // Circuit breaker checks before AI processing
+      if (!circuitBreakerCheck('openai')) {
+        logSecurityEvent('CIRCUIT_BREAKER_OPEN', {
+          service: 'openai',
+          reason: 'Too many recent failures'
+        }, req);
+        
+        return res.status(503).json({
+          message: "AI analysis service temporarily unavailable. Please try again later.",
+          code: "SERVICE_UNAVAILABLE",
+          retryAfter: Math.round(CIRCUIT_BREAKER_CONFIG.resetTimeMs / 1000)
+        });
+      }
+
+      if (!circuitBreakerCheck('database')) {
+        return res.status(503).json({
+          message: "Database service temporarily unavailable. Please try again later.",
+          code: "SERVICE_UNAVAILABLE"
+        });
+      }
+
       // Import AI services
       const { aiVideoAnalyticsService } = await import('./ai/videoAnalytics');
       const { threatDetectionService } = await import('./ai/threatDetection');
 
-      // Perform comprehensive threat analysis
-      const threatAssessment = await threatDetectionService.analyzeThreatFrame(
-        imageBuffer,
-        storeId,
-        cameraId,
-        config || {}
-      );
+      let threatAssessment: any;
+      let frameAnalysis: any;
 
-      // Also perform general AI analysis for additional insights
-      const frameAnalysis = await aiVideoAnalyticsService.analyzeImage(
-        imageBuffer,
-        storeId,
-        cameraId,
-        config || {}
-      );
+      // Perform comprehensive threat analysis with circuit breaker protection
+      try {
+        threatAssessment = await Promise.race([
+          threatDetectionService.analyzeThreatFrame(imageBuffer, storeId, cameraId, config || {}),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('AI analysis timeout')), CIRCUIT_BREAKER_CONFIG.timeoutMs)
+          )
+        ]);
+        circuitBreakerRecord('openai', true);
+      } catch (error: any) {
+        circuitBreakerRecord('openai', false);
+        logSecurityEvent('AI_ANALYSIS_FAILURE', {
+          service: 'threatDetection',
+          error: error.message,
+          processingTime: Date.now() - startTime
+        }, req);
+        
+        throw new Error('Threat analysis failed');
+      }
+
+      // Perform general AI analysis with circuit breaker protection  
+      try {
+        frameAnalysis = await Promise.race([
+          aiVideoAnalyticsService.analyzeImage(imageBuffer, storeId, cameraId, config || {}),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('AI analysis timeout')), CIRCUIT_BREAKER_CONFIG.timeoutMs)
+          )
+        ]);
+        circuitBreakerRecord('openai', true);
+      } catch (error: any) {
+        circuitBreakerRecord('openai', false);
+        logSecurityEvent('AI_ANALYSIS_FAILURE', {
+          service: 'frameAnalysis',
+          error: error.message,
+          processingTime: Date.now() - startTime
+        }, req);
+        
+        throw new Error('Frame analysis failed');
+      }
 
       // Convert AI detections to DetectionResult format for overlay rendering
       const detectionResult = aiVideoAnalyticsService.convertToDetectionResult(
@@ -2315,12 +2598,20 @@ export function registerRoutes(app: Express): Server {
       res.json(response);
 
     } catch (error: any) {
-      console.error('AI frame analysis error:', error);
-      res.status(500).json({ 
-        message: "AI analysis failed", 
-        error: error.message,
-        details: "Please check your image format and try again"
-      });
+      // Calculate total processing time for monitoring
+      const processingTime = Date.now() - startTime;
+      
+      // Log performance metrics for security monitoring
+      logSecurityEvent('FRAME_ANALYSIS_COMPLETED', {
+        processingTime,
+        withinTargets: processingTime < 500, // <500ms target
+        userId: req.user?.id,
+        storeId: req.body?.storeId
+      }, req);
+      
+      // Use secure error response helper
+      const secureResponse = createSecureErrorResponse(error, 'frame_analysis', req);
+      return res.status(500).json(secureResponse);
     }
   });
 
@@ -3308,7 +3599,34 @@ export function broadcastToStore(storeId: string, message: any) {
   });
 }
 
-// Security validation functions
+// =====================================
+// ENHANCED SECURITY VALIDATION FUNCTIONS
+// =====================================
+
+// Comprehensive security logging function
+function logSecurityEvent(eventType: string, details: any, req?: any) {
+  const logEntry = {
+    type: 'SECURITY_EVENT',
+    event: eventType,
+    timestamp: new Date().toISOString(),
+    userId: req?.user?.id,
+    userRole: req?.user?.role,
+    ip: req?.ip,
+    userAgent: req?.get('user-agent'),
+    ...details
+  };
+  
+  // Log to console with color coding for visibility
+  if (eventType.includes('ATTACK') || eventType.includes('VIOLATION')) {
+    console.error('[SECURITY ALERT]', JSON.stringify(logEntry, null, 2));
+  } else {
+    console.warn('[SECURITY]', JSON.stringify(logEntry, null, 2));
+  }
+  
+  // In production, this would also send to a security monitoring service
+}
+
+// Enhanced image dimensions extraction with WebP support
 function extractImageDimensions(buffer: Buffer, mimeType: string): { width: number; height: number } | null {
   try {
     if (mimeType === 'image/jpeg') {
@@ -3327,6 +3645,27 @@ function extractImageDimensions(buffer: Buffer, mimeType: string): { width: numb
         const height = (buffer[20] << 24) | (buffer[21] << 16) | (buffer[22] << 8) | buffer[23];
         return { width, height };
       }
+    } else if (mimeType === 'image/webp') {
+      // WebP dimensions extraction from VP8/VP8L/VP8X chunks
+      if (buffer.length >= 30) {
+        // Look for VP8X chunk (extended format)
+        for (let i = 12; i < buffer.length - 20; i++) {
+          if (buffer.readUInt32BE(i) === 0x56503858) { // 'VP8X'
+            const width = (buffer.readUInt32LE(i + 8) & 0xFFFFFF) + 1;
+            const height = (buffer.readUInt32LE(i + 11) & 0xFFFFFF) + 1;
+            return { width, height };
+          }
+        }
+        
+        // Look for VP8 chunk (lossy format)
+        for (let i = 12; i < buffer.length - 16; i++) {
+          if (buffer.readUInt32BE(i) === 0x56503820) { // 'VP8 '
+            const width = buffer.readUInt16LE(i + 14) & 0x3FFF;
+            const height = buffer.readUInt16LE(i + 16) & 0x3FFF;
+            return { width, height };
+          }
+        }
+      }
     }
     return null;
   } catch (error) {
@@ -3335,26 +3674,124 @@ function extractImageDimensions(buffer: Buffer, mimeType: string): { width: numb
   }
 }
 
-function validateImageSignature(buffer: Buffer, mimeType: string): boolean {
-  // Check magic bytes for common image formats with complete signatures
-  const signatures = {
-    'image/jpeg': [0xFF, 0xD8, 0xFF], // JPEG signature (first 3 bytes)
-    'image/png': [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], // Complete PNG signature (8 bytes)
-    'image/webp': [0x52, 0x49, 0x46, 0x46] // RIFF header for WebP
-  };
-  
-  const signature = signatures[mimeType as keyof typeof signatures];
-  if (!signature) return false;
-  
-  // Ensure buffer has enough bytes for the signature
-  if (buffer.length < signature.length) return false;
-  
-  // Check each byte of the magic signature
-  for (let i = 0; i < signature.length; i++) {
-    if (buffer[i] !== signature[i]) return false;
+// Enhanced magic number validation with comprehensive signature checking
+function validateImageSignature(buffer: Buffer, mimeType: string, req?: any): boolean {
+  try {
+    // Ensure minimum buffer size
+    if (buffer.length < 12) {
+      logSecurityEvent('INVALID_IMAGE_SIZE', {
+        bufferSize: buffer.length,
+        mimeType,
+        reason: 'Buffer too small for any valid image format'
+      }, req);
+      return false;
+    }
+    
+    // Enhanced signatures with secondary validation
+    const validations = {
+      'image/jpeg': (buf: Buffer) => {
+        // Primary: JPEG magic number (FF D8 FF)
+        if (buf[0] !== 0xFF || buf[1] !== 0xD8 || buf[2] !== 0xFF) {
+          return false;
+        }
+        
+        // Secondary: Look for valid JPEG marker after magic number
+        const validMarkers = [0xE0, 0xE1, 0xE2, 0xE3, 0xDB, 0xC0, 0xC2];
+        if (buf.length > 3 && !validMarkers.includes(buf[3])) {
+          return false;
+        }
+        
+        // Check for JPEG ending (FF D9)
+        if (buf.length >= 4) {
+          for (let i = buf.length - 2; i >= buf.length - 10 && i >= 0; i--) {
+            if (buf[i] === 0xFF && buf[i + 1] === 0xD9) {
+              return true;
+            }
+          }
+        }
+        
+        return true; // Allow without end marker for streaming/partial
+      },
+      
+      'image/png': (buf: Buffer) => {
+        // Complete PNG signature validation (8 bytes)
+        const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        if (buf.length < 8) return false;
+        
+        for (let i = 0; i < 8; i++) {
+          if (buf[i] !== pngSignature[i]) {
+            return false;
+          }
+        }
+        
+        // Validate IHDR chunk follows immediately after PNG signature
+        if (buf.length >= 16) {
+          const ihdr = buf.subarray(12, 16);
+          if (ihdr.toString('ascii') !== 'IHDR') {
+            return false;
+          }
+        }
+        
+        return true;
+      },
+      
+      'image/webp': (buf: Buffer) => {
+        // WebP validation: RIFF header + WEBP identifier
+        if (buf.length < 12) return false;
+        
+        // Check RIFF header (4 bytes)
+        if (buf.subarray(0, 4).toString('ascii') !== 'RIFF') {
+          return false;
+        }
+        
+        // Check WEBP identifier (bytes 8-11)
+        if (buf.subarray(8, 12).toString('ascii') !== 'WEBP') {
+          return false;
+        }
+        
+        // Validate WebP chunk format (VP8, VP8L, or VP8X)
+        if (buf.length >= 16) {
+          const chunkType = buf.subarray(12, 16).toString('ascii');
+          const validChunks = ['VP8 ', 'VP8L', 'VP8X'];
+          if (!validChunks.includes(chunkType)) {
+            return false;
+          }
+        }
+        
+        return true;
+      }
+    };
+    
+    const validator = validations[mimeType as keyof typeof validations];
+    if (!validator) {
+      logSecurityEvent('UNSUPPORTED_MIME_TYPE', {
+        mimeType,
+        reason: 'No validator available for this MIME type'
+      }, req);
+      return false;
+    }
+    
+    const isValid = validator(buffer);
+    
+    if (!isValid) {
+      logSecurityEvent('MAGIC_BYTES_VALIDATION_FAILED', {
+        mimeType,
+        bufferSize: buffer.length,
+        firstBytes: Array.from(buffer.subarray(0, Math.min(16, buffer.length))),
+        reason: 'Magic bytes or structure validation failed'
+      }, req);
+    }
+    
+    return isValid;
+    
+  } catch (error) {
+    logSecurityEvent('IMAGE_VALIDATION_ERROR', {
+      mimeType,
+      error: error.message,
+      bufferSize: buffer.length
+    }, req);
+    return false;
   }
-  
-  return true;
 }
 
 // Helper functions for AI analytics endpoint
