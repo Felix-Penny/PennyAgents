@@ -512,7 +512,18 @@ export class PermissionEngine {
       evidence: { upload: false, view: false, download: false, manage: false, audit: false },
       analytics: { executive: false, operational: false, safety: false, public: false, reports: false, export: false },
       users: { view: false, create: false, edit: false, delete: false, assign_roles: false },
-      system: { configure: false, audit: false, backup: false, maintenance: false }
+      system: { configure: false, audit: false, backup: false, maintenance: false },
+      // Add the missing security permissions structure
+      security: {
+        behavior: { read: false, write: false, analyze: false },
+        face: { manage: false, search: false, template_access: false, match: false },
+        privacy: { manage: false, consent_check: false, consent_grant: false, consent_withdraw: false },
+        predict: { read: false, generate: false, model_access: false },
+        audit: { read: false, export: false, manage: false },
+        watchlist: { view: false, add: false, remove: false, manage: false },
+        biometric: { encrypt: false, decrypt: false, access: false, manage: false },
+        advanced: { anomaly_detect: false, baseline_profile: false, risk_score: false }
+      }
     };
 
     // Apply permissions from each role (OR logic - if any role grants permission, user has it)
@@ -538,7 +549,17 @@ export class PermissionEngine {
       evidence: { upload: false, view: false, download: false, manage: false, audit: false },
       analytics: { executive: false, operational: false, safety: false, public: false, reports: false, export: false },
       users: { view: false, create: false, edit: false, delete: false, assign_roles: false },
-      system: { configure: false, audit: false, backup: false, maintenance: false }
+      system: { configure: false, audit: false, backup: false, maintenance: false },
+      security: {
+        behavior: { read: false, write: false, analyze: false },
+        face: { manage: false, search: false, template_access: false, match: false },
+        privacy: { manage: false, consent_check: false, consent_grant: false, consent_withdraw: false },
+        predict: { read: false, generate: false, model_access: false },
+        audit: { read: false, export: false, manage: false },
+        watchlist: { view: false, add: false, remove: false, manage: false },
+        biometric: { encrypt: false, decrypt: false, access: false, manage: false },
+        advanced: { anomaly_detect: false, baseline_profile: false, risk_score: false }
+      }
     };
   }
 
@@ -551,17 +572,28 @@ export class PermissionEngine {
     });
   }
 
-  // Evaluate if user has specific permission
+  // Evaluate if user has specific permission with proper multi-level path traversal
   private evaluatePermission(permissions: UserPermissions, action: string, resourceType?: string): boolean {
-    if (!resourceType) return false;
+    // Handle multi-level permission paths like "security:behavior:read"
+    const permissionParts = action.split(':');
+    let currentLevel: any = permissions;
     
-    const [resource, perm] = action.includes(':') ? action.split(':') : [resourceType, action];
-    
-    if (permissions[resource] && typeof permissions[resource][perm] === 'boolean') {
-      return permissions[resource][perm];
+    // Traverse the permission path step by step
+    for (const part of permissionParts) {
+      if (!currentLevel || typeof currentLevel !== 'object' || !currentLevel.hasOwnProperty(part)) {
+        console.warn(`Permission path traversal failed at '${part}' for action '${action}'`);
+        return false;
+      }
+      currentLevel = currentLevel[part];
     }
     
-    return false;
+    // Final value should be a boolean true to grant permission
+    if (currentLevel !== true && currentLevel !== false) {
+      console.warn(`Permission path '${action}' does not resolve to a boolean value:`, currentLevel);
+      return false;
+    }
+    
+    return currentLevel === true;
   }
 
   // Check resource-specific permissions
@@ -708,6 +740,28 @@ export const requireSecurityPersonnel = requireSecurityRole(['admin', 'security_
 export const requireSafetyCoordinator = requireSecurityRole(['admin', 'security_personnel', 'safety_coordinator']);
 export const requireSecurityAccess = requireSecurityRole(['admin', 'security_personnel', 'safety_coordinator', 'guest']);
 
+// Enhanced RBAC permissions interface with advanced AI features
+interface UserPermissions {
+  cameras: { view: boolean; control: boolean; configure: boolean; history: boolean };
+  alerts: { receive: boolean; acknowledge: boolean; dismiss: boolean; escalate: boolean; manage: boolean; configure: boolean };
+  incidents: { create: boolean; investigate: boolean; assign: boolean; resolve: boolean; close: boolean };
+  evidence: { upload: boolean; view: boolean; download: boolean; manage: boolean; audit: boolean };
+  analytics: { executive: boolean; operational: boolean; safety: boolean; public: boolean; reports: boolean; export: boolean };
+  users: { view: boolean; create: boolean; edit: boolean; delete: boolean; assign_roles: boolean };
+  system: { configure: boolean; audit: boolean; backup: boolean; maintenance: boolean };
+  // Advanced AI Features - Privacy-Compliant Permissions
+  security: {
+    behavior: { read: boolean; write: boolean; analyze: boolean };
+    face: { manage: boolean; search: boolean; template_access: boolean; match: boolean };
+    privacy: { manage: boolean; consent_check: boolean; consent_grant: boolean; consent_withdraw: boolean };
+    predict: { read: boolean; generate: boolean; model_access: boolean };
+    audit: { read: boolean; export: boolean; manage: boolean };
+    watchlist: { view: boolean; add: boolean; remove: boolean; manage: boolean };
+    biometric: { encrypt: boolean; decrypt: boolean; access: boolean; manage: boolean };
+    advanced: { anomaly_detect: boolean; baseline_profile: boolean; risk_score: boolean };
+  };
+}
+
 // Fallback permissions based on legacy role system
 export function getDefaultPermissions(userRole?: string): UserPermissions {
   const basePermissions: UserPermissions = {
@@ -717,10 +771,21 @@ export function getDefaultPermissions(userRole?: string): UserPermissions {
     evidence: { upload: false, view: false, download: false, manage: false, audit: false },
     analytics: { executive: false, operational: false, safety: false, public: true, reports: false, export: false },
     users: { view: false, create: false, edit: false, delete: false, assign_roles: false },
-    system: { configure: false, audit: false, backup: false, maintenance: false }
+    system: { configure: false, audit: false, backup: false, maintenance: false },
+    // Advanced AI Features - Default to false for privacy protection
+    security: {
+      behavior: { read: false, write: false, analyze: false },
+      face: { manage: false, search: false, template_access: false, match: false },
+      privacy: { manage: false, consent_check: true, consent_grant: false, consent_withdraw: true }, // Allow consent checks/withdrawal by default
+      predict: { read: false, generate: false, model_access: false },
+      audit: { read: false, export: false, manage: false },
+      watchlist: { view: false, add: false, remove: false, manage: false },
+      biometric: { encrypt: false, decrypt: false, access: false, manage: false },
+      advanced: { anomaly_detect: false, baseline_profile: false, risk_score: false }
+    }
   };
 
-  // Map legacy roles to security permissions
+  // Map legacy roles to security permissions with advanced AI features
   switch (userRole) {
     case 'penny_admin':
       return {
@@ -730,7 +795,18 @@ export function getDefaultPermissions(userRole?: string): UserPermissions {
         evidence: { upload: true, view: true, download: true, manage: true, audit: true },
         analytics: { executive: true, operational: true, safety: true, public: true, reports: true, export: true },
         users: { view: true, create: true, edit: true, delete: true, assign_roles: true },
-        system: { configure: true, audit: true, backup: true, maintenance: true }
+        system: { configure: true, audit: true, backup: true, maintenance: true },
+        // Full access to advanced AI features for penny_admin
+        security: {
+          behavior: { read: true, write: true, analyze: true },
+          face: { manage: true, search: true, template_access: true, match: true },
+          privacy: { manage: true, consent_check: true, consent_grant: true, consent_withdraw: true },
+          predict: { read: true, generate: true, model_access: true },
+          audit: { read: true, export: true, manage: true },
+          watchlist: { view: true, add: true, remove: true, manage: true },
+          biometric: { encrypt: true, decrypt: true, access: true, manage: true },
+          advanced: { anomaly_detect: true, baseline_profile: true, risk_score: true }
+        }
       };
     
     case 'store_admin':
@@ -741,7 +817,18 @@ export function getDefaultPermissions(userRole?: string): UserPermissions {
         evidence: { upload: true, view: true, download: true, manage: false, audit: false },
         analytics: { executive: false, operational: true, safety: true, public: true, reports: true, export: false },
         users: { view: true, create: false, edit: false, delete: false, assign_roles: false },
-        system: { configure: false, audit: true, backup: false, maintenance: false }
+        system: { configure: false, audit: true, backup: false, maintenance: false },
+        // Limited access to advanced AI features for store_admin
+        security: {
+          behavior: { read: true, write: false, analyze: true },
+          face: { manage: false, search: true, template_access: false, match: true },
+          privacy: { manage: false, consent_check: true, consent_grant: false, consent_withdraw: true },
+          predict: { read: true, generate: false, model_access: false },
+          audit: { read: true, export: false, manage: false },
+          watchlist: { view: true, add: false, remove: false, manage: false },
+          biometric: { encrypt: false, decrypt: false, access: false, manage: false },
+          advanced: { anomaly_detect: true, baseline_profile: false, risk_score: true }
+        }
       };
     
     case 'store_staff':
@@ -752,7 +839,18 @@ export function getDefaultPermissions(userRole?: string): UserPermissions {
         evidence: { upload: false, view: true, download: false, manage: false, audit: false },
         analytics: { executive: false, operational: false, safety: true, public: true, reports: false, export: false },
         users: { view: true, edit: false, delete: false, create: false, assign_roles: false },
-        system: { configure: false, audit: false, backup: false, maintenance: false }
+        system: { configure: false, audit: false, backup: false, maintenance: false },
+        // Very limited access to advanced AI features for store_staff
+        security: {
+          behavior: { read: true, write: false, analyze: false },
+          face: { manage: false, search: false, template_access: false, match: false },
+          privacy: { manage: false, consent_check: true, consent_grant: false, consent_withdraw: true },
+          predict: { read: false, generate: false, model_access: false },
+          audit: { read: false, export: false, manage: false },
+          watchlist: { view: false, add: false, remove: false, manage: false },
+          biometric: { encrypt: false, decrypt: false, access: false, manage: false },
+          advanced: { anomaly_detect: false, baseline_profile: false, risk_score: false }
+        }
       };
 
     default:

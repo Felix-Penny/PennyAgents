@@ -12,7 +12,7 @@ import { storage } from "./storage";
 import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess, requireSecurityAgent, requireFinanceAgent, requireSalesAgent, requireOperationsAgent, requireHRAgent, requirePlatformRole, requireOrganizationAccess, requirePermission, PermissionEngine, PermissionContext, getDefaultPermissions, getDefaultSecurityRoles } from "./auth";
 import { ObjectStorageService, SecurityFileCategory, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
-import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema, offenders, frameAnalysisRequestSchema, FRAME_SIZE_LIMITS, detectionResultSchema } from "../shared/schema";
+import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema, offenders, frameAnalysisRequestSchema, FRAME_SIZE_LIMITS, detectionResultSchema, insertBehaviorEventSchema, insertAreaBaselineProfileSchema, insertAnomalyEventSchema, insertFaceTemplateSchema, insertWatchlistEntrySchema, insertConsentPreferenceSchema, insertPredictiveModelSnapshotSchema, insertRiskScoreSchema, insertAdvancedFeatureAuditLogSchema } from "../shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 import { 
@@ -26,6 +26,7 @@ import {
   cleanupAlertClient 
 } from "./routes-alert-handlers";
 import { z } from "zod";
+import { registerAdvancedRoutes } from "./advanced-routes";
 
 // Initialize Stripe if keys are available
 let stripe: Stripe | null = null;
@@ -3749,6 +3750,13 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // =====================================
+  // REGISTER ADVANCED AI FEATURES ROUTES  
+  // =====================================
+  
+  // Register all privacy-compliant advanced AI features routes
+  registerAdvancedRoutes(app);
+  
   const httpServer = createServer(app);
   
   // Setup WebSocket server for real-time camera status updates
@@ -4525,3 +4533,501 @@ function calculateRecall(detections: any[]): number {
   if (totalDetections === 0) return 0;
   return (verifiedDetections / totalDetections) * 100;
 }
+
+// =====================================
+// ADVANCED AI FEATURES API ENDPOINTS
+// =====================================
+
+// =====================================
+// LEGACY ENDPOINTS DISABLED - SECURITY COMPLIANCE
+// =====================================
+// 
+// CRITICAL SECURITY NOTICE:
+// These legacy endpoints have been DISABLED because they bypass the requireConsent middleware,
+// creating serious privacy compliance violations. ALL advanced AI features MUST go through
+// server/advanced-routes.ts with proper consent verification.
+//
+// DO NOT RE-ENABLE THESE ENDPOINTS - They allow biometric processing without consent!
+// =====================================
+
+/*
+// BEHAVIORAL PATTERN LEARNING ENDPOINTS - DISABLED FOR SECURITY
+app.get("/api/behavioral-patterns", requireAuth, requirePermission("security:behavior:read"), async (req, res) => {
+  try {
+    const { storeId, eventType, cameraId } = req.query;
+    
+    if (!storeId) {
+      return res.status(400).json({ message: "Store ID is required" });
+    }
+
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const events = cameraId 
+      ? await storage.getBehaviorEventsByCamera(cameraId as string, eventType as string)
+      : await storage.getBehaviorEventsByStore(storeId as string, eventType as string);
+    
+    res.json(events);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+*/
+
+// ALL REMAINING LEGACY ENDPOINTS DISABLED FOR SECURITY
+/*
+app.post("/api/behavioral-patterns", requireAuth, requirePermission("security:behavior:write"), async (req, res) => {
+  try {
+    const eventData = insertBehaviorEventSchema.parse(req.body);
+    
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== eventData.storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const event = await storage.createBehaviorEvent(eventData);
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId: eventData.storeId,
+      featureType: 'behavior_analysis',
+      action: 'create_event',
+      resourceType: 'behavior_event',
+      resourceId: event.id,
+      outcome: 'success',
+      details: { eventType: eventData.eventType, confidence: eventData.confidence }
+    });
+    
+    res.json(event);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.get("/api/anomaly-events", requireAuth, requirePermission("security:behavior:read"), async (req, res) => {
+  try {
+    const { storeId, severity, cameraId } = req.query;
+    
+    if (!storeId) {
+      return res.status(400).json({ message: "Store ID is required" });
+    }
+
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const anomalies = cameraId 
+      ? await storage.getAnomalyEventsByCamera(cameraId as string)
+      : await storage.getAnomalyEventsByStore(storeId as string, severity as string);
+    
+    res.json(anomalies);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// FACIAL RECOGNITION & WATCHLIST ENDPOINTS
+app.get("/api/watchlist", requireAuth, requirePermission("security:face:manage"), async (req, res) => {
+  try {
+    const { storeId, riskLevel, active } = req.query;
+    
+    if (!storeId) {
+      return res.status(400).json({ message: "Store ID is required" });
+    }
+
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const entries = active === 'true' 
+      ? await storage.getActiveWatchlistEntriesByStore(storeId as string)
+      : await storage.getWatchlistEntriesByStore(storeId as string, riskLevel as string);
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId: storeId as string,
+      featureType: 'facial_recognition',
+      action: 'view_watchlist',
+      resourceType: 'watchlist_entry',
+      outcome: 'success',
+      details: { count: entries.length }
+    });
+    
+    res.json(entries);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post("/api/watchlist", requireAuth, requirePermission("security:face:manage"), async (req, res) => {
+  try {
+    const entryData = insertWatchlistEntrySchema.parse(req.body);
+    
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== entryData.storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const entry = await storage.createWatchlistEntry({
+      ...entryData,
+      addedBy: (req as any).user.id
+    });
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId: entryData.storeId,
+      featureType: 'facial_recognition',
+      action: 'create_watchlist_entry',
+      resourceType: 'watchlist_entry',
+      resourceId: entry.id,
+      outcome: 'success',
+      details: { name: entryData.name, riskLevel: entryData.riskLevel }
+    });
+    
+    res.json(entry);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.put("/api/watchlist/:id", requireAuth, requirePermission("security:face:manage"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = insertWatchlistEntrySchema.partial().parse(req.body);
+    
+    const entry = await storage.updateWatchlistEntry(id, updates);
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId: entry.storeId,
+      featureType: 'facial_recognition',
+      action: 'update_watchlist_entry',
+      resourceType: 'watchlist_entry',
+      resourceId: id,
+      outcome: 'success',
+      details: updates
+    });
+    
+    res.json(entry);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.delete("/api/watchlist/:id", requireAuth, requirePermission("security:face:manage"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const entry = await storage.deactivateWatchlistEntry(id);
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId: entry.storeId,
+      featureType: 'facial_recognition',
+      action: 'deactivate_watchlist_entry',
+      resourceType: 'watchlist_entry',
+      resourceId: id,
+      outcome: 'success',
+      details: { name: entry.name }
+    });
+    
+    res.json({ message: "Watchlist entry deactivated successfully" });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post("/api/facial-recognition/search", requireAuth, requirePermission("security:face:search"), async (req, res) => {
+  try {
+    const { storeId, templateData, threshold = 0.8 } = req.body;
+    
+    if (!storeId || !templateData) {
+      return res.status(400).json({ message: "Store ID and template data are required" });
+    }
+
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    // Check consent for facial recognition searches
+    const hasConsent = await storage.checkConsent(storeId, 'system', 'facial_recognition');
+    if (!hasConsent) {
+      await storage.createAdvancedFeatureAuditLog({
+        userId: (req as any).user.id,
+        storeId,
+        featureType: 'facial_recognition',
+        action: 'search_attempt',
+        outcome: 'denied',
+        details: { reason: 'No consent for facial recognition' }
+      });
+      return res.status(403).json({ message: "Facial recognition search requires consent" });
+    }
+
+    // Get active watchlist entries for comparison
+    const watchlistEntries = await storage.getActiveWatchlistEntriesByStore(storeId);
+    
+    // In a real implementation, this would perform biometric template matching
+    // For now, return a mock response
+    const mockMatches = watchlistEntries.slice(0, Math.floor(Math.random() * 3));
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId,
+      featureType: 'facial_recognition',
+      action: 'search',
+      outcome: 'success',
+      details: { 
+        threshold, 
+        matches: mockMatches.length,
+        searchTime: Date.now()
+      }
+    });
+    
+    res.json({
+      matches: mockMatches.map(entry => ({
+        id: entry.id,
+        name: entry.name,
+        riskLevel: entry.riskLevel,
+        confidence: 0.85 + Math.random() * 0.1, // Mock confidence score
+        matchedAt: new Date().toISOString()
+      }))
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// CONSENT PREFERENCES ENDPOINTS
+app.get("/api/consent-preferences", requireAuth, requirePermission("security:privacy:manage"), async (req, res) => {
+  try {
+    const { storeId, consentType } = req.query;
+    
+    if (!storeId) {
+      return res.status(400).json({ message: "Store ID is required" });
+    }
+
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const preferences = await storage.getConsentPreferencesByStore(storeId as string, consentType as string);
+    
+    res.json(preferences);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post("/api/consent-preferences", requireAuth, requirePermission("security:privacy:manage"), async (req, res) => {
+  try {
+    const preferenceData = insertConsentPreferenceSchema.parse(req.body);
+    
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== preferenceData.storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const preference = await storage.createConsentPreference(preferenceData);
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId: preferenceData.storeId,
+      featureType: 'privacy',
+      action: 'create_consent',
+      resourceType: 'consent_preference',
+      resourceId: preference.id,
+      outcome: 'success',
+      details: { 
+        subjectType: preferenceData.subjectType,
+        consentType: preferenceData.consentType,
+        consentGiven: preferenceData.consentGiven
+      }
+    });
+    
+    res.json(preference);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// RISK SCORES ENDPOINTS
+app.get("/api/risk-scores", requireAuth, requirePermission("security:predict:read"), async (req, res) => {
+  try {
+    const { storeId, scoreType, current } = req.query;
+    
+    if (!storeId) {
+      return res.status(400).json({ message: "Store ID is required" });
+    }
+
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const scores = current === 'true' 
+      ? await storage.getCurrentRiskScores(storeId as string, scoreType as string)
+      : await storage.getRiskScoresByStore(storeId as string, scoreType as string);
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId: storeId as string,
+      featureType: 'predictive',
+      action: 'view_risk_scores',
+      outcome: 'success',
+      details: { scoreType, count: scores.length, current: current === 'true' }
+    });
+    
+    res.json(scores);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// AUDIT TRAIL ENDPOINTS
+app.get("/api/audit-trail/advanced-features", requireAuth, requirePermission("security:audit:read"), async (req, res) => {
+  try {
+    const { storeId, featureType, userId, limit = 100 } = req.query;
+    
+    if (!storeId) {
+      return res.status(400).json({ message: "Store ID is required" });
+    }
+
+    // Verify store access or admin role
+    if (!(req as any).user.storeId || (req as any).user.storeId !== storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const logs = userId 
+      ? await storage.getAdvancedFeatureAuditLogsByUser(userId as string, featureType as string)
+      : await storage.getAdvancedFeatureAuditLogsByStore(storeId as string, featureType as string);
+    
+    // Limit results for performance
+    const limitedLogs = logs.slice(0, parseInt(limit as string));
+    
+    res.json({
+      logs: limitedLogs,
+      totalCount: logs.length,
+      hasMore: logs.length > parseInt(limit as string)
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// FACE TEMPLATES ENDPOINTS (For template management)
+app.get("/api/face-templates", requireAuth, requirePermission("security:face:manage"), async (req, res) => {
+  try {
+    const { storeId, personType } = req.query;
+    
+    if (!storeId) {
+      return res.status(400).json({ message: "Store ID is required" });
+    }
+
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const templates = await storage.getFaceTemplatesByStore(storeId as string, personType as string);
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId: storeId as string,
+      featureType: 'facial_recognition',
+      action: 'view_templates',
+      resourceType: 'face_template',
+      outcome: 'success',
+      details: { count: templates.length, personType }
+    });
+    
+    res.json(templates);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post("/api/face-templates", requireAuth, requirePermission("security:face:manage"), async (req, res) => {
+  try {
+    const templateData = insertFaceTemplateSchema.parse(req.body);
+    
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== templateData.storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    const template = await storage.createFaceTemplate({
+      ...templateData,
+      createdBy: (req as any).user.id
+    });
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId: templateData.storeId,
+      featureType: 'facial_recognition',
+      action: 'create_template',
+      resourceType: 'face_template',
+      resourceId: template.id,
+      outcome: 'success',
+      details: { 
+        personType: templateData.personType,
+        justification: templateData.justification
+      }
+    });
+    
+    res.json(template);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.delete("/api/face-templates/:id", requireAuth, requirePermission("security:face:manage"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get template details before deletion for audit log
+    const template = await storage.getFaceTemplate(id);
+    if (!template) {
+      return res.status(404).json({ message: "Face template not found" });
+    }
+
+    // Verify store access
+    if (!(req as any).user.storeId || (req as any).user.storeId !== template.storeId) {
+      return res.status(403).json({ message: "Access denied to this store" });
+    }
+
+    await storage.deleteFaceTemplate(id);
+    
+    // Create audit log
+    await storage.createAdvancedFeatureAuditLog({
+      userId: (req as any).user.id,
+      storeId: template.storeId,
+      featureType: 'facial_recognition',
+      action: 'delete_template',
+      resourceType: 'face_template',
+      resourceId: id,
+      outcome: 'success',
+      details: { personType: template.personType }
+    });
+    
+    res.json({ message: "Face template deleted successfully" });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+*/

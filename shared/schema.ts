@@ -1,6 +1,6 @@
 // Penny Multi-Agent Platform Schema
 // Referenced from javascript_auth_all_persistance integration
-import { pgTable, varchar, text, timestamp, boolean, decimal, integer, jsonb, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, timestamp, boolean, decimal, integer, jsonb, foreignKey, real } from "drizzle-orm/pg-core";
 import { sql, relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -651,6 +651,155 @@ export const facialRecognition = pgTable("facial_recognition", {
   dataSource: varchar("data_source", { length: 100 }).default("live_detection"), // live_detection, manual_upload, batch_import
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
+// Advanced AI Features - Behavioral Pattern Learning, Facial Recognition, & Predictive Analytics
+// =====================================
+
+// Behavioral Pattern Learning Tables
+export const behaviorEvents = pgTable("behavior_events", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  cameraId: varchar("camera_id", { length: 255 }).notNull().references(() => cameras.id),
+  eventType: varchar("event_type", { length: 100 }).notNull(), // 'loitering', 'crowd_density', 'motion_spike', 'dwell_time'
+  area: varchar("area", { length: 255 }), // zone/area identifier
+  confidence: real("confidence").notNull(),
+  metadata: jsonb("metadata").$type<{
+    duration?: number;
+    peopleCount?: number;
+    motionIntensity?: number;
+    zoneCoordinates?: { x: number; y: number; width: number; height: number; };
+    triggers?: string[];
+    [key: string]: any;
+  }>(), // event-specific data
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  processedAt: timestamp("processed_at").defaultNow().notNull()
+});
+
+export const areaBaselineProfiles = pgTable("area_baseline_profiles", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  area: varchar("area", { length: 255 }).notNull(),
+  timeWindow: varchar("time_window", { length: 100 }).notNull(), // 'hour_0', 'hour_1', etc. or 'weekday', 'weekend'
+  eventType: varchar("event_type", { length: 100 }).notNull(),
+  meanValue: real("mean_value").notNull(),
+  standardDeviation: real("standard_deviation").notNull(),
+  sampleCount: integer("sample_count").notNull(),
+  lastUpdated: timestamp("last_updated").defaultNow().notNull()
+});
+
+export const anomalyEvents = pgTable("anomaly_events", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  cameraId: varchar("camera_id", { length: 255 }).notNull().references(() => cameras.id),
+  behaviorEventId: varchar("behavior_event_id", { length: 255 }).references(() => behaviorEvents.id),
+  anomalyType: varchar("anomaly_type", { length: 100 }).notNull(), // 'statistical_outlier', 'pattern_deviation', 'threshold_breach'
+  severity: varchar("severity", { length: 20 }).notNull(), // 'low', 'medium', 'high', 'critical'
+  deviationScore: real("deviation_score").notNull(), // Z-score or similar
+  baselineProfileId: varchar("baseline_profile_id", { length: 255 }).references(() => areaBaselineProfiles.id),
+  alertGenerated: boolean("alert_generated").default(false),
+  timestamp: timestamp("timestamp").defaultNow().notNull()
+});
+
+// Facial Recognition Tables (Privacy-Compliant)
+export const faceTemplates = pgTable("face_templates", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  encryptedTemplate: text("encrypted_template").notNull(), // Encrypted biometric data
+  keyId: varchar("key_id", { length: 255 }).notNull(), // Reference to encryption key
+  personType: varchar("person_type", { length: 100 }).notNull(), // 'known_offender', 'employee', 'vip', 'banned_individual'
+  createdBy: varchar("created_by", { length: 255 }).notNull().references(() => users.id),
+  justification: text("justification").notNull(), // Legal basis for processing
+  retentionExpiry: timestamp("retention_expiry").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+});
+
+export const watchlistEntries = pgTable("watchlist_entries", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  faceTemplateId: varchar("face_template_id", { length: 255 }).notNull().references(() => faceTemplates.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  riskLevel: varchar("risk_level", { length: 20 }).notNull(), // 'low', 'medium', 'high', 'critical'
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true),
+  addedBy: varchar("added_by", { length: 255 }).notNull().references(() => users.id),
+  approvedBy: varchar("approved_by", { length: 255 }).references(() => users.id), // For dual authorization
+  lastSeen: timestamp("last_seen"),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+});
+
+export const consentPreferences = pgTable("consent_preferences", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  subjectType: varchar("subject_type", { length: 100 }).notNull(), // 'customer', 'employee', 'visitor'
+  subjectId: varchar("subject_id", { length: 255 }), // External ID if applicable
+  consentType: varchar("consent_type", { length: 100 }).notNull(), // 'facial_recognition', 'behavior_analysis'
+  consentGiven: boolean("consent_given").notNull(),
+  consentDate: timestamp("consent_date").defaultNow().notNull(),
+  withdrawnDate: timestamp("withdrawn_date"),
+  legalBasis: varchar("legal_basis", { length: 100 }).notNull(), // 'consent', 'legitimate_interest', 'vital_interest'
+  retentionPeriod: integer("retention_period"), // Days
+  notes: text("notes")
+});
+
+// Predictive Analytics Tables
+export const predictiveModelSnapshots = pgTable("predictive_model_snapshots", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  modelType: varchar("model_type", { length: 100 }).notNull(), // 'incident_risk', 'seasonal_patterns', 'staffing_optimization'
+  modelVersion: varchar("model_version", { length: 100 }).notNull(),
+  trainingDataPeriod: varchar("training_data_period", { length: 255 }).notNull(),
+  hyperparameters: jsonb("hyperparameters").$type<{
+    [key: string]: any;
+  }>(),
+  performance: jsonb("performance").$type<{
+    accuracy?: number;
+    precision?: number;
+    recall?: number;
+    f1Score?: number;
+    [key: string]: any;
+  }>(), // accuracy, precision, recall metrics
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  isActive: boolean("is_active").default(true)
+});
+
+export const riskScores = pgTable("risk_scores", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  scoreType: varchar("score_type", { length: 100 }).notNull(), // 'incident_likelihood', 'theft_risk', 'crowd_risk'
+  area: varchar("area", { length: 255 }), // Specific zone or 'store_wide'
+  timeWindow: varchar("time_window", { length: 100 }).notNull(), // 'next_hour', 'next_4_hours', 'today', 'this_week'
+  riskScore: real("risk_score").notNull(), // 0.0 to 1.0
+  confidence: real("confidence").notNull(),
+  contributingFactors: jsonb("contributing_factors").$type<{
+    factors: Array<{
+      name: string;
+      weight: number;
+      value: any;
+    }>;
+    [key: string]: any;
+  }>(), // What drove the score
+  modelSnapshotId: varchar("model_snapshot_id", { length: 255 }).notNull().references(() => predictiveModelSnapshots.id),
+  validFrom: timestamp("valid_from").defaultNow().notNull(),
+  validTo: timestamp("valid_to").notNull()
+});
+
+// Privacy Primitives and Audit Trails
+export const advancedFeatureAuditLog = pgTable("advanced_feature_audit_log", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  featureType: varchar("feature_type", { length: 100 }).notNull(), // 'facial_recognition', 'behavior_analysis', 'predictive'
+  action: varchar("action", { length: 100 }).notNull(), // 'search', 'match', 'consent_check', 'template_access'
+  resourceType: varchar("resource_type", { length: 100 }), // 'face_template', 'watchlist_entry', 'behavior_profile'
+  resourceId: varchar("resource_id", { length: 255 }),
+  outcome: varchar("outcome", { length: 50 }).notNull(), // 'success', 'denied', 'error'
+  details: jsonb("details").$type<{
+    [key: string]: any;
+  }>(),
+  ipAddress: varchar("ip_address", { length: 50 }),
+  userAgent: text("user_agent"),
+  timestamp: timestamp("timestamp").defaultNow().notNull()
 });
 
 // =====================================
@@ -3176,6 +3325,80 @@ export const insertFacialRecognitionSchema = createInsertSchema(facialRecognitio
 export const selectFacialRecognitionSchema = createSelectSchema(facialRecognition);
 export type InsertFacialRecognition = z.infer<typeof insertFacialRecognitionSchema>;
 export type FacialRecognition = typeof facialRecognition.$inferSelect;
+
+// Advanced AI Features schemas
+export const insertBehaviorEventSchema = createInsertSchema(behaviorEvents).omit({
+  id: true,
+  timestamp: true,
+  processedAt: true,
+});
+export const selectBehaviorEventSchema = createSelectSchema(behaviorEvents);
+export type InsertBehaviorEvent = z.infer<typeof insertBehaviorEventSchema>;
+export type BehaviorEvent = typeof behaviorEvents.$inferSelect;
+
+export const insertAreaBaselineProfileSchema = createInsertSchema(areaBaselineProfiles).omit({
+  id: true,
+  lastUpdated: true,
+});
+export const selectAreaBaselineProfileSchema = createSelectSchema(areaBaselineProfiles);
+export type InsertAreaBaselineProfile = z.infer<typeof insertAreaBaselineProfileSchema>;
+export type AreaBaselineProfile = typeof areaBaselineProfiles.$inferSelect;
+
+export const insertAnomalyEventSchema = createInsertSchema(anomalyEvents).omit({
+  id: true,
+  timestamp: true,
+});
+export const selectAnomalyEventSchema = createSelectSchema(anomalyEvents);
+export type InsertAnomalyEvent = z.infer<typeof insertAnomalyEventSchema>;
+export type AnomalyEvent = typeof anomalyEvents.$inferSelect;
+
+export const insertFaceTemplateSchema = createInsertSchema(faceTemplates).omit({
+  id: true,
+  createdAt: true,
+});
+export const selectFaceTemplateSchema = createSelectSchema(faceTemplates);
+export type InsertFaceTemplate = z.infer<typeof insertFaceTemplateSchema>;
+export type FaceTemplate = typeof faceTemplates.$inferSelect;
+
+export const insertWatchlistEntrySchema = createInsertSchema(watchlistEntries).omit({
+  id: true,
+  createdAt: true,
+});
+export const selectWatchlistEntrySchema = createSelectSchema(watchlistEntries);
+export type InsertWatchlistEntry = z.infer<typeof insertWatchlistEntrySchema>;
+export type WatchlistEntry = typeof watchlistEntries.$inferSelect;
+
+export const insertConsentPreferenceSchema = createInsertSchema(consentPreferences).omit({
+  id: true,
+  consentDate: true,
+});
+export const selectConsentPreferenceSchema = createSelectSchema(consentPreferences);
+export type InsertConsentPreference = z.infer<typeof insertConsentPreferenceSchema>;
+export type ConsentPreference = typeof consentPreferences.$inferSelect;
+
+export const insertPredictiveModelSnapshotSchema = createInsertSchema(predictiveModelSnapshots).omit({
+  id: true,
+  createdAt: true,
+});
+export const selectPredictiveModelSnapshotSchema = createSelectSchema(predictiveModelSnapshots);
+export type InsertPredictiveModelSnapshot = z.infer<typeof insertPredictiveModelSnapshotSchema>;
+export type PredictiveModelSnapshot = typeof predictiveModelSnapshots.$inferSelect;
+
+export const insertRiskScoreSchema = createInsertSchema(riskScores).omit({
+  id: true,
+  validFrom: true,
+});
+export const selectRiskScoreSchema = createSelectSchema(riskScores);
+export type InsertRiskScore = z.infer<typeof insertRiskScoreSchema>;
+export type RiskScore = typeof riskScores.$inferSelect;
+
+export const insertAdvancedFeatureAuditLogSchema = createInsertSchema(advancedFeatureAuditLog).omit({
+  id: true,
+  timestamp: true,
+});
+export const selectAdvancedFeatureAuditLogSchema = createSelectSchema(advancedFeatureAuditLog);
+export type InsertAdvancedFeatureAuditLog = z.infer<typeof insertAdvancedFeatureAuditLogSchema>;
+export type AdvancedFeatureAuditLog = typeof advancedFeatureAuditLog.$inferSelect;
 
 // Enhanced Camera Management schemas
 export const insertCameraZoneSchema = createInsertSchema(cameraZones).omit({

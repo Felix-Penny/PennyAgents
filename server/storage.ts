@@ -161,6 +161,34 @@ import {
   type SecurityRole,
   type InsertAccessPermission,
   type AccessPermission,
+  // Advanced AI Features types
+  behaviorEvents,
+  areaBaselineProfiles,
+  anomalyEvents,
+  faceTemplates,
+  watchlistEntries,
+  consentPreferences,
+  predictiveModelSnapshots,
+  riskScores,
+  advancedFeatureAuditLog,
+  type InsertBehaviorEvent,
+  type BehaviorEvent,
+  type InsertAreaBaselineProfile,
+  type AreaBaselineProfile,
+  type InsertAnomalyEvent,
+  type AnomalyEvent,
+  type InsertFaceTemplate,
+  type FaceTemplate,
+  type InsertWatchlistEntry,
+  type WatchlistEntry,
+  type InsertConsentPreference,
+  type ConsentPreference,
+  type InsertPredictiveModelSnapshot,
+  type PredictiveModelSnapshot,
+  type InsertRiskScore,
+  type RiskScore,
+  type InsertAdvancedFeatureAuditLog,
+  type AdvancedFeatureAuditLog,
 } from "@shared/schema";
 
 const PostgresSessionStore = connectPg(session);
@@ -246,6 +274,63 @@ export interface IStorage {
   getVideoAnalysis(id: string): Promise<any | null>;
   updateVideoAnalysis(id: string, updates: any): Promise<any>;
 
+  // Advanced AI Features - Privacy-Compliant Methods
+  // Behavior Events
+  createBehaviorEvent(event: InsertBehaviorEvent): Promise<BehaviorEvent>;
+  getBehaviorEvent(id: string): Promise<BehaviorEvent | null>;
+  getBehaviorEventsByStore(storeId: string): Promise<BehaviorEvent[]>;
+  
+  // Area Baseline Profiles  
+  createAreaBaselineProfile(profile: InsertAreaBaselineProfile): Promise<AreaBaselineProfile>;
+  getAreaBaselineProfile(id: string): Promise<AreaBaselineProfile | null>;
+  getAreaBaselineProfilesByStore(storeId: string): Promise<AreaBaselineProfile[]>;
+  
+  // Anomaly Events
+  createAnomalyEvent(event: InsertAnomalyEvent): Promise<AnomalyEvent>;
+  getAnomalyEvent(id: string): Promise<AnomalyEvent | null>;
+  getAnomalyEventsByStore(storeId: string): Promise<AnomalyEvent[]>;
+  
+  // Face Templates (Encrypted)
+  createFaceTemplate(template: InsertFaceTemplate): Promise<FaceTemplate>;
+  getFaceTemplate(id: string): Promise<FaceTemplate | null>;
+  getFaceTemplatesByStore(storeId: string): Promise<FaceTemplate[]>;
+  deleteFaceTemplate(id: string): Promise<void>;
+  
+  // Watchlist Entries
+  createWatchlistEntry(entry: InsertWatchlistEntry): Promise<WatchlistEntry>;
+  getWatchlistEntry(id: string): Promise<WatchlistEntry | null>;
+  getWatchlistEntriesByStore(storeId: string): Promise<WatchlistEntry[]>;
+  updateWatchlistEntry(id: string, updates: Partial<InsertWatchlistEntry>): Promise<WatchlistEntry>;
+  deleteWatchlistEntry(id: string): Promise<void>;
+  
+  // Consent Management - CRITICAL PRIVACY COMPLIANCE
+  createConsentPreference(consent: InsertConsentPreference): Promise<ConsentPreference>;
+  getConsentPreference(storeId: string, consentType: string, subjectType?: string): Promise<ConsentPreference | null>;
+  updateConsentPreference(id: string, updates: Partial<InsertConsentPreference>): Promise<ConsentPreference>;
+  withdrawConsent(storeId: string, consentType: string, userId: string): Promise<void>;
+  checkEmployeeConsent(storeId: string, userId: string, consentType: string): Promise<boolean>;
+  
+  // Predictive Model Snapshots
+  createPredictiveModelSnapshot(snapshot: InsertPredictiveModelSnapshot): Promise<PredictiveModelSnapshot>;
+  getPredictiveModelSnapshot(id: string): Promise<PredictiveModelSnapshot | null>;
+  getActivePredictiveModels(): Promise<PredictiveModelSnapshot[]>;
+  
+  // Risk Scores
+  createRiskScore(score: InsertRiskScore): Promise<RiskScore>;
+  getRiskScore(id: string): Promise<RiskScore | null>;
+  getRiskScoresByStore(storeId: string): Promise<RiskScore[]>;
+  
+  // Advanced Feature Audit Log - CRITICAL COMPLIANCE FUNCTION
+  createAdvancedFeatureAuditLog(log: InsertAdvancedFeatureAuditLog): Promise<AdvancedFeatureAuditLog>;
+  getAdvancedFeatureAuditLogs(filters: {
+    userId?: string;
+    storeId?: string;
+    featureType?: string;
+    outcome?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<AdvancedFeatureAuditLog[]>;
+
   // Organization Management
   createOrganization(org: InsertOrganization): Promise<Organization>;
   getOrganization(id: string): Promise<Organization | null>;
@@ -269,9 +354,71 @@ export interface IStorage {
   getOrganizationAgentConfigurations(organizationId: string): Promise<AgentConfiguration[]>;
   updateAgentConfiguration(id: string, updates: Partial<InsertAgentConfiguration>): Promise<AgentConfiguration>;
 
+  // Advanced AI Features - Behavioral Pattern Learning
+  createBehaviorEvent(event: InsertBehaviorEvent): Promise<BehaviorEvent>;
+  getBehaviorEvent(id: string): Promise<BehaviorEvent | null>;
+  getBehaviorEventsByStore(storeId: string, eventType?: string): Promise<BehaviorEvent[]>;
+  getBehaviorEventsByCamera(cameraId: string, eventType?: string): Promise<BehaviorEvent[]>;
+  updateBehaviorEvent(id: string, updates: Partial<InsertBehaviorEvent>): Promise<BehaviorEvent>;
+
+  createAreaBaselineProfile(profile: InsertAreaBaselineProfile): Promise<AreaBaselineProfile>;
+  getAreaBaselineProfile(id: string): Promise<AreaBaselineProfile | null>;
+  getAreaBaselineProfilesByStore(storeId: string): Promise<AreaBaselineProfile[]>;
+  getAreaBaselineProfileByKey(storeId: string, area: string, timeWindow: string, eventType: string): Promise<AreaBaselineProfile | null>;
+  updateAreaBaselineProfile(id: string, updates: Partial<InsertAreaBaselineProfile>): Promise<AreaBaselineProfile>;
+
+  createAnomalyEvent(anomaly: InsertAnomalyEvent): Promise<AnomalyEvent>;
+  getAnomalyEvent(id: string): Promise<AnomalyEvent | null>;
+  getAnomalyEventsByStore(storeId: string, severity?: string): Promise<AnomalyEvent[]>;
+  getAnomalyEventsByCamera(cameraId: string): Promise<AnomalyEvent[]>;
+  updateAnomalyEvent(id: string, updates: Partial<InsertAnomalyEvent>): Promise<AnomalyEvent>;
+
+  // Advanced AI Features - Facial Recognition (Privacy-Compliant)
+  createFaceTemplate(template: InsertFaceTemplate): Promise<FaceTemplate>;
+  getFaceTemplate(id: string): Promise<FaceTemplate | null>;
+  getFaceTemplatesByStore(storeId: string, personType?: string): Promise<FaceTemplate[]>;
+  updateFaceTemplate(id: string, updates: Partial<InsertFaceTemplate>): Promise<FaceTemplate>;
+  deleteFaceTemplate(id: string): Promise<void>;
+
+  createWatchlistEntry(entry: InsertWatchlistEntry): Promise<WatchlistEntry>;
+  getWatchlistEntry(id: string): Promise<WatchlistEntry | null>;
+  getWatchlistEntriesByStore(storeId: string, riskLevel?: string): Promise<WatchlistEntry[]>;
+  getActiveWatchlistEntriesByStore(storeId: string): Promise<WatchlistEntry[]>;
+  updateWatchlistEntry(id: string, updates: Partial<InsertWatchlistEntry>): Promise<WatchlistEntry>;
+  deactivateWatchlistEntry(id: string): Promise<WatchlistEntry>;
+
+  createConsentPreference(preference: InsertConsentPreference): Promise<ConsentPreference>;
+  getConsentPreference(id: string): Promise<ConsentPreference | null>;
+  getConsentPreferencesByStore(storeId: string, consentType?: string): Promise<ConsentPreference[]>;
+  checkConsent(storeId: string, subjectType: string, consentType: string, subjectId?: string): Promise<boolean>;
+  updateConsentPreference(id: string, updates: Partial<InsertConsentPreference>): Promise<ConsentPreference>;
+  withdrawConsent(id: string): Promise<ConsentPreference>;
+
+  // Advanced AI Features - Predictive Analytics
+  createPredictiveModelSnapshot(snapshot: InsertPredictiveModelSnapshot): Promise<PredictiveModelSnapshot>;
+  getPredictiveModelSnapshot(id: string): Promise<PredictiveModelSnapshot | null>;
+  getPredictiveModelSnapshotsByType(modelType: string): Promise<PredictiveModelSnapshot[]>;
+  getActivePredictiveModelSnapshot(modelType: string): Promise<PredictiveModelSnapshot | null>;
+  updatePredictiveModelSnapshot(id: string, updates: Partial<InsertPredictiveModelSnapshot>): Promise<PredictiveModelSnapshot>;
+
+  createRiskScore(score: InsertRiskScore): Promise<RiskScore>;
+  getRiskScore(id: string): Promise<RiskScore | null>;
+  getRiskScoresByStore(storeId: string, scoreType?: string): Promise<RiskScore[]>;
+  getCurrentRiskScores(storeId: string, scoreType?: string): Promise<RiskScore[]>;
+  updateRiskScore(id: string, updates: Partial<InsertRiskScore>): Promise<RiskScore>;
+
+  // Advanced AI Features - Privacy Audit Trail
+  createAdvancedFeatureAuditLog(log: InsertAdvancedFeatureAuditLog): Promise<AdvancedFeatureAuditLog>;
+  getAdvancedFeatureAuditLog(id: string): Promise<AdvancedFeatureAuditLog | null>;
+  getAdvancedFeatureAuditLogsByUser(userId: string, featureType?: string): Promise<AdvancedFeatureAuditLog[]>;
+  getAdvancedFeatureAuditLogsByStore(storeId: string, featureType?: string): Promise<AdvancedFeatureAuditLog[]>;
+  getAdvancedFeatureAuditLogsByResource(resourceType: string, resourceId: string): Promise<AdvancedFeatureAuditLog[]>;
+
   // Session store
   sessionStore: any;
-}export class DatabaseStorage implements IStorage {
+}
+
+export class DatabaseStorage implements IStorage {
   sessionStore: any;
 
   constructor() {
@@ -2637,6 +2784,459 @@ export interface IStorage {
       .where(eq(incidentResponse.id, id))
       .returning();
     return updated;
+  }
+
+  // =====================================
+  // Advanced AI Features - Behavioral Pattern Learning
+  // =====================================
+
+  async createBehaviorEvent(event: InsertBehaviorEvent): Promise<BehaviorEvent> {
+    const eventData = {
+      ...event,
+      metadata: event.metadata as any
+    };
+    const [newEvent] = await db.insert(behaviorEvents).values([eventData]).returning();
+    return newEvent;
+  }
+
+  async getBehaviorEvent(id: string): Promise<BehaviorEvent | null> {
+    const result = await db.select().from(behaviorEvents).where(eq(behaviorEvents.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getBehaviorEventsByStore(storeId: string, eventType?: string): Promise<BehaviorEvent[]> {
+    const conditions = [eq(behaviorEvents.storeId, storeId)];
+    if (eventType) {
+      conditions.push(eq(behaviorEvents.eventType, eventType));
+    }
+    return await db
+      .select()
+      .from(behaviorEvents)
+      .where(and(...conditions))
+      .orderBy(desc(behaviorEvents.timestamp));
+  }
+
+  async getBehaviorEventsByCamera(cameraId: string, eventType?: string): Promise<BehaviorEvent[]> {
+    const conditions = [eq(behaviorEvents.cameraId, cameraId)];
+    if (eventType) {
+      conditions.push(eq(behaviorEvents.eventType, eventType));
+    }
+    return await db
+      .select()
+      .from(behaviorEvents)
+      .where(and(...conditions))
+      .orderBy(desc(behaviorEvents.timestamp));
+  }
+
+  async updateBehaviorEvent(id: string, updates: Partial<InsertBehaviorEvent>): Promise<BehaviorEvent> {
+    const updateData = {
+      ...updates,
+      metadata: updates.metadata as any
+    };
+    const [updated] = await db
+      .update(behaviorEvents)
+      .set(updateData)
+      .where(eq(behaviorEvents.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createAreaBaselineProfile(profile: InsertAreaBaselineProfile): Promise<AreaBaselineProfile> {
+    const [newProfile] = await db.insert(areaBaselineProfiles).values([profile]).returning();
+    return newProfile;
+  }
+
+  async getAreaBaselineProfile(id: string): Promise<AreaBaselineProfile | null> {
+    const result = await db.select().from(areaBaselineProfiles).where(eq(areaBaselineProfiles.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getAreaBaselineProfilesByStore(storeId: string): Promise<AreaBaselineProfile[]> {
+    return await db
+      .select()
+      .from(areaBaselineProfiles)
+      .where(eq(areaBaselineProfiles.storeId, storeId))
+      .orderBy(areaBaselineProfiles.area, areaBaselineProfiles.timeWindow);
+  }
+
+  async getAreaBaselineProfileByKey(storeId: string, area: string, timeWindow: string, eventType: string): Promise<AreaBaselineProfile | null> {
+    const result = await db
+      .select()
+      .from(areaBaselineProfiles)
+      .where(and(
+        eq(areaBaselineProfiles.storeId, storeId),
+        eq(areaBaselineProfiles.area, area),
+        eq(areaBaselineProfiles.timeWindow, timeWindow),
+        eq(areaBaselineProfiles.eventType, eventType)
+      ))
+      .limit(1);
+    return result[0] || null;
+  }
+
+  async updateAreaBaselineProfile(id: string, updates: Partial<InsertAreaBaselineProfile>): Promise<AreaBaselineProfile> {
+    const [updated] = await db
+      .update(areaBaselineProfiles)
+      .set(updates)
+      .where(eq(areaBaselineProfiles.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createAnomalyEvent(anomaly: InsertAnomalyEvent): Promise<AnomalyEvent> {
+    const [newAnomaly] = await db.insert(anomalyEvents).values([anomaly]).returning();
+    return newAnomaly;
+  }
+
+  async getAnomalyEvent(id: string): Promise<AnomalyEvent | null> {
+    const result = await db.select().from(anomalyEvents).where(eq(anomalyEvents.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getAnomalyEventsByStore(storeId: string, severity?: string): Promise<AnomalyEvent[]> {
+    const conditions = [eq(anomalyEvents.storeId, storeId)];
+    if (severity) {
+      conditions.push(eq(anomalyEvents.severity, severity));
+    }
+    return await db
+      .select()
+      .from(anomalyEvents)
+      .where(and(...conditions))
+      .orderBy(desc(anomalyEvents.timestamp));
+  }
+
+  async getAnomalyEventsByCamera(cameraId: string): Promise<AnomalyEvent[]> {
+    return await db
+      .select()
+      .from(anomalyEvents)
+      .where(eq(anomalyEvents.cameraId, cameraId))
+      .orderBy(desc(anomalyEvents.timestamp));
+  }
+
+  async updateAnomalyEvent(id: string, updates: Partial<InsertAnomalyEvent>): Promise<AnomalyEvent> {
+    const [updated] = await db
+      .update(anomalyEvents)
+      .set(updates)
+      .where(eq(anomalyEvents.id, id))
+      .returning();
+    return updated;
+  }
+
+  // =====================================
+  // Advanced AI Features - Facial Recognition (Privacy-Compliant)
+  // =====================================
+
+  async createFaceTemplate(template: InsertFaceTemplate): Promise<FaceTemplate> {
+    const [newTemplate] = await db.insert(faceTemplates).values([template]).returning();
+    return newTemplate;
+  }
+
+  async getFaceTemplate(id: string): Promise<FaceTemplate | null> {
+    const result = await db.select().from(faceTemplates).where(eq(faceTemplates.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getFaceTemplatesByStore(storeId: string, personType?: string): Promise<FaceTemplate[]> {
+    const conditions = [eq(faceTemplates.storeId, storeId)];
+    if (personType) {
+      conditions.push(eq(faceTemplates.personType, personType));
+    }
+    return await db
+      .select()
+      .from(faceTemplates)
+      .where(and(...conditions))
+      .orderBy(desc(faceTemplates.createdAt));
+  }
+
+  async updateFaceTemplate(id: string, updates: Partial<InsertFaceTemplate>): Promise<FaceTemplate> {
+    const [updated] = await db
+      .update(faceTemplates)
+      .set(updates)
+      .where(eq(faceTemplates.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteFaceTemplate(id: string): Promise<void> {
+    await db.delete(faceTemplates).where(eq(faceTemplates.id, id));
+  }
+
+  async createWatchlistEntry(entry: InsertWatchlistEntry): Promise<WatchlistEntry> {
+    const [newEntry] = await db.insert(watchlistEntries).values([entry]).returning();
+    return newEntry;
+  }
+
+  async getWatchlistEntry(id: string): Promise<WatchlistEntry | null> {
+    const result = await db.select().from(watchlistEntries).where(eq(watchlistEntries.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getWatchlistEntriesByStore(storeId: string, riskLevel?: string): Promise<WatchlistEntry[]> {
+    const conditions = [eq(watchlistEntries.storeId, storeId)];
+    if (riskLevel) {
+      conditions.push(eq(watchlistEntries.riskLevel, riskLevel));
+    }
+    return await db
+      .select()
+      .from(watchlistEntries)
+      .where(and(...conditions))
+      .orderBy(desc(watchlistEntries.createdAt));
+  }
+
+  async getActiveWatchlistEntriesByStore(storeId: string): Promise<WatchlistEntry[]> {
+    return await db
+      .select()
+      .from(watchlistEntries)
+      .where(and(
+        eq(watchlistEntries.storeId, storeId),
+        eq(watchlistEntries.isActive, true)
+      ))
+      .orderBy(desc(watchlistEntries.createdAt));
+  }
+
+  async updateWatchlistEntry(id: string, updates: Partial<InsertWatchlistEntry>): Promise<WatchlistEntry> {
+    const [updated] = await db
+      .update(watchlistEntries)
+      .set(updates)
+      .where(eq(watchlistEntries.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deactivateWatchlistEntry(id: string): Promise<WatchlistEntry> {
+    const [updated] = await db
+      .update(watchlistEntries)
+      .set({ isActive: false })
+      .where(eq(watchlistEntries.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createConsentPreference(preference: InsertConsentPreference): Promise<ConsentPreference> {
+    const [newPreference] = await db.insert(consentPreferences).values([preference]).returning();
+    return newPreference;
+  }
+
+  async getConsentPreference(id: string): Promise<ConsentPreference | null> {
+    const result = await db.select().from(consentPreferences).where(eq(consentPreferences.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getConsentPreferencesByStore(storeId: string, consentType?: string): Promise<ConsentPreference[]> {
+    const conditions = [eq(consentPreferences.storeId, storeId)];
+    if (consentType) {
+      conditions.push(eq(consentPreferences.consentType, consentType));
+    }
+    return await db
+      .select()
+      .from(consentPreferences)
+      .where(and(...conditions))
+      .orderBy(desc(consentPreferences.consentDate));
+  }
+
+  async checkConsent(storeId: string, subjectType: string, consentType: string, subjectId?: string): Promise<boolean> {
+    const conditions = [
+      eq(consentPreferences.storeId, storeId),
+      eq(consentPreferences.subjectType, subjectType),
+      eq(consentPreferences.consentType, consentType),
+      eq(consentPreferences.consentGiven, true),
+      isNull(consentPreferences.withdrawnDate)
+    ];
+    
+    if (subjectId) {
+      conditions.push(eq(consentPreferences.subjectId, subjectId));
+    }
+
+    const result = await db
+      .select()
+      .from(consentPreferences)
+      .where(and(...conditions))
+      .limit(1);
+    
+    return result.length > 0;
+  }
+
+  async updateConsentPreference(id: string, updates: Partial<InsertConsentPreference>): Promise<ConsentPreference> {
+    const [updated] = await db
+      .update(consentPreferences)
+      .set(updates)
+      .where(eq(consentPreferences.id, id))
+      .returning();
+    return updated;
+  }
+
+  async withdrawConsent(id: string): Promise<ConsentPreference> {
+    const [updated] = await db
+      .update(consentPreferences)
+      .set({ 
+        consentGiven: false, 
+        withdrawnDate: new Date() 
+      })
+      .where(eq(consentPreferences.id, id))
+      .returning();
+    return updated;
+  }
+
+  // =====================================
+  // Advanced AI Features - Predictive Analytics
+  // =====================================
+
+  async createPredictiveModelSnapshot(snapshot: InsertPredictiveModelSnapshot): Promise<PredictiveModelSnapshot> {
+    const snapshotData = {
+      ...snapshot,
+      hyperparameters: snapshot.hyperparameters as any,
+      performance: snapshot.performance as any
+    };
+    const [newSnapshot] = await db.insert(predictiveModelSnapshots).values([snapshotData]).returning();
+    return newSnapshot;
+  }
+
+  async getPredictiveModelSnapshot(id: string): Promise<PredictiveModelSnapshot | null> {
+    const result = await db.select().from(predictiveModelSnapshots).where(eq(predictiveModelSnapshots.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getPredictiveModelSnapshotsByType(modelType: string): Promise<PredictiveModelSnapshot[]> {
+    return await db
+      .select()
+      .from(predictiveModelSnapshots)
+      .where(eq(predictiveModelSnapshots.modelType, modelType))
+      .orderBy(desc(predictiveModelSnapshots.createdAt));
+  }
+
+  async getActivePredictiveModelSnapshot(modelType: string): Promise<PredictiveModelSnapshot | null> {
+    const result = await db
+      .select()
+      .from(predictiveModelSnapshots)
+      .where(and(
+        eq(predictiveModelSnapshots.modelType, modelType),
+        eq(predictiveModelSnapshots.isActive, true)
+      ))
+      .orderBy(desc(predictiveModelSnapshots.createdAt))
+      .limit(1);
+    return result[0] || null;
+  }
+
+  async updatePredictiveModelSnapshot(id: string, updates: Partial<InsertPredictiveModelSnapshot>): Promise<PredictiveModelSnapshot> {
+    const updateData = {
+      ...updates,
+      hyperparameters: updates.hyperparameters as any,
+      performance: updates.performance as any
+    };
+    const [updated] = await db
+      .update(predictiveModelSnapshots)
+      .set(updateData)
+      .where(eq(predictiveModelSnapshots.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createRiskScore(score: InsertRiskScore): Promise<RiskScore> {
+    const scoreData = {
+      ...score,
+      contributingFactors: score.contributingFactors as any
+    };
+    const [newScore] = await db.insert(riskScores).values([scoreData]).returning();
+    return newScore;
+  }
+
+  async getRiskScore(id: string): Promise<RiskScore | null> {
+    const result = await db.select().from(riskScores).where(eq(riskScores.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getRiskScoresByStore(storeId: string, scoreType?: string): Promise<RiskScore[]> {
+    const conditions = [eq(riskScores.storeId, storeId)];
+    if (scoreType) {
+      conditions.push(eq(riskScores.scoreType, scoreType));
+    }
+    return await db
+      .select()
+      .from(riskScores)
+      .where(and(...conditions))
+      .orderBy(desc(riskScores.validFrom));
+  }
+
+  async getCurrentRiskScores(storeId: string, scoreType?: string): Promise<RiskScore[]> {
+    const now = new Date();
+    const conditions = [
+      eq(riskScores.storeId, storeId),
+      sql`${riskScores.validFrom} <= ${now}`,
+      sql`${riskScores.validTo} > ${now}`
+    ];
+    if (scoreType) {
+      conditions.push(eq(riskScores.scoreType, scoreType));
+    }
+    return await db
+      .select()
+      .from(riskScores)
+      .where(and(...conditions))
+      .orderBy(desc(riskScores.riskScore));
+  }
+
+  async updateRiskScore(id: string, updates: Partial<InsertRiskScore>): Promise<RiskScore> {
+    const updateData = {
+      ...updates,
+      contributingFactors: updates.contributingFactors as any
+    };
+    const [updated] = await db
+      .update(riskScores)
+      .set(updateData)
+      .where(eq(riskScores.id, id))
+      .returning();
+    return updated;
+  }
+
+  // =====================================
+  // Advanced AI Features - Privacy Audit Trail
+  // =====================================
+
+  async createAdvancedFeatureAuditLog(log: InsertAdvancedFeatureAuditLog): Promise<AdvancedFeatureAuditLog> {
+    const logData = {
+      ...log,
+      details: log.details as any
+    };
+    const [newLog] = await db.insert(advancedFeatureAuditLog).values([logData]).returning();
+    return newLog;
+  }
+
+  async getAdvancedFeatureAuditLog(id: string): Promise<AdvancedFeatureAuditLog | null> {
+    const result = await db.select().from(advancedFeatureAuditLog).where(eq(advancedFeatureAuditLog.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getAdvancedFeatureAuditLogsByUser(userId: string, featureType?: string): Promise<AdvancedFeatureAuditLog[]> {
+    const conditions = [eq(advancedFeatureAuditLog.userId, userId)];
+    if (featureType) {
+      conditions.push(eq(advancedFeatureAuditLog.featureType, featureType));
+    }
+    return await db
+      .select()
+      .from(advancedFeatureAuditLog)
+      .where(and(...conditions))
+      .orderBy(desc(advancedFeatureAuditLog.timestamp));
+  }
+
+  async getAdvancedFeatureAuditLogsByStore(storeId: string, featureType?: string): Promise<AdvancedFeatureAuditLog[]> {
+    const conditions = [eq(advancedFeatureAuditLog.storeId, storeId)];
+    if (featureType) {
+      conditions.push(eq(advancedFeatureAuditLog.featureType, featureType));
+    }
+    return await db
+      .select()
+      .from(advancedFeatureAuditLog)
+      .where(and(...conditions))
+      .orderBy(desc(advancedFeatureAuditLog.timestamp));
+  }
+
+  async getAdvancedFeatureAuditLogsByResource(resourceType: string, resourceId: string): Promise<AdvancedFeatureAuditLog[]> {
+    return await db
+      .select()
+      .from(advancedFeatureAuditLog)
+      .where(and(
+        eq(advancedFeatureAuditLog.resourceType, resourceType),
+        eq(advancedFeatureAuditLog.resourceId, resourceId)
+      ))
+      .orderBy(desc(advancedFeatureAuditLog.timestamp));
   }
 }
 
