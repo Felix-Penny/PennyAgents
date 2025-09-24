@@ -876,6 +876,7 @@ export class DatabaseStorage implements IStorage {
         features: agents.features,
         baseRoute: agents.baseRoute,
         isActive: agents.isActive,
+        status: agents.status,
         minimumRole: agents.minimumRole,
         createdAt: agents.createdAt,
         updatedAt: agents.updatedAt

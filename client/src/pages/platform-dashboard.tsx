@@ -10,6 +10,7 @@ type Agent = {
   id: string;
   name: string;
   isActive: boolean;
+  status: string; // active, coming_soon, maintenance
   sector: string;
   description: string;
   baseRoute: string;
@@ -178,14 +179,18 @@ export default function PlatformDashboard() {
         {agents.map((agent) => {
           const userAccess = userAgentMap.get(agent.id);
           const hasAccess = userAccess && userAccess.isActive;
+          const isComingSoon = agent.status === 'coming_soon';
+          const isFullyAccessible = agent.status === 'active' && hasAccess;
           const IconComponent = getAgentIcon(agent.icon);
 
           return (
             <Card 
               key={agent.id} 
               className={`transition-all duration-200 hover:shadow-lg ${
-                hasAccess 
+                isFullyAccessible 
                   ? 'border-green-200 dark:border-green-800' 
+                  : isComingSoon 
+                  ? 'border-amber-200 dark:border-amber-800' 
                   : 'border-gray-200 dark:border-gray-700'
               }`}
               data-testid={`agent-card-${agent.id}`}
@@ -194,8 +199,10 @@ export default function PlatformDashboard() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <div className={`p-2 rounded-lg ${
-                      hasAccess 
+                      isFullyAccessible 
                         ? 'bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-400' 
+                        : isComingSoon 
+                        ? 'bg-amber-100 dark:bg-amber-900 text-amber-600 dark:text-amber-400'
                         : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                     }`}>
                       <IconComponent className="w-6 h-6" />
@@ -205,11 +212,13 @@ export default function PlatformDashboard() {
                         {agent.name}
                       </CardTitle>
                       <Badge 
-                        variant={agent.isActive ? "default" : "secondary"}
-                        className="text-xs"
+                        variant={isComingSoon ? "secondary" : agent.isActive ? "default" : "secondary"}
+                        className={`text-xs ${
+                          isComingSoon ? 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' : ''
+                        }`}
                         data-testid={`agent-status-${agent.id}`}
                       >
-                        {agent.isActive ? "Active" : "Inactive"}
+                        {isComingSoon ? "Coming Soon" : agent.isActive ? "Active" : "Inactive"}
                       </Badge>
                     </div>
                   </div>
@@ -233,7 +242,16 @@ export default function PlatformDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {hasAccess ? (
+                {isComingSoon ? (
+                  <Button 
+                    variant="outline" 
+                    className="w-full bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300" 
+                    disabled
+                    data-testid={`button-coming-soon-${agent.id}`}
+                  >
+                    Coming Soon
+                  </Button>
+                ) : hasAccess ? (
                   <Link href={agent.baseRoute}>
                     <Button className="w-full" data-testid={`button-access-${agent.id}`}>
                       Access {agent.name}

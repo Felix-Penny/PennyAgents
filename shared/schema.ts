@@ -45,6 +45,7 @@ export const agents = pgTable("agents", {
   features: jsonb("features").$type<string[]>().default([]),
   baseRoute: varchar("base_route", { length: 100 }).notNull(), // /security, /finance, etc.
   isActive: boolean("is_active").default(true),
+  status: varchar("status", { length: 50 }).default("active"), // active, coming_soon, maintenance
   minimumRole: varchar("minimum_role", { length: 50 }).default("viewer"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
