@@ -271,25 +271,66 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Incident Management
+  // =====================================
+  // COMPREHENSIVE INCIDENT MANAGEMENT SYSTEM
+  // =====================================
+
+  // Import incident management modules
+  const { incidentEngine, evidenceManager, incidentAssignmentEngine, incidentManagementSystem } = require("./incidents");
+  
+  // Import Zod schemas for validation
+  const { insertIncidentSchema } = require("../shared/schema");
+  const { z } = require("zod");
+  
+  // Validation schema for incident updates
+  const incidentUpdateSchema = z.object({
+    status: z.enum(["OPEN", "INVESTIGATING", "RESOLVED", "CLOSED"]).optional(),
+    priority: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+    notes: z.string().optional(),
+    assignedTo: z.string().optional()
+  }).refine(data => Object.keys(data).length > 0, {
+    message: "At least one field must be provided for update"
+  });
+
+  // **INCIDENT DASHBOARD & LISTING**
   app.get("/api/store/:storeId/incidents", requireAuth, requireSecurityAgent("viewer"), requireStoreAccess, async (req, res) => {
     try {
       const { storeId } = req.params;
-      const incidents = await storage.getIncidentsByStore(storeId);
+      const { status, priority, assignedTo, dateFrom, dateTo } = req.query;
+      
+      const filters: any = {};
+      if (status) filters.status = status as string;
+      if (priority) filters.priority = priority as string;
+      if (assignedTo) filters.assignedTo = assignedTo as string;
+      if (dateFrom) filters.dateFrom = new Date(dateFrom as string);
+      if (dateTo) filters.dateTo = new Date(dateTo as string);
+      
+      const incidents = await storage.getStoreIncidents(storeId, filters);
       res.json(incidents);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
+  app.get("/api/store/:storeId/incidents/dashboard", requireAuth, requireSecurityAgent("viewer"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const dashboardData = await incidentManagementSystem.getIncidentDashboardData(storeId);
+      res.json(dashboardData);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // **INCIDENT DETAILS & CRUD**
   app.get("/api/incidents/:incidentId", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
     try {
       const { incidentId } = req.params;
-      const incident = await storage.getIncidentById(incidentId);
-      if (!incident) {
+      const incidentDetails = await incidentEngine.getIncidentDetails(incidentId);
+      if (!incidentDetails) {
         return res.status(404).json({ message: "Incident not found" });
       }
-      res.json(incident);
+      res.json(incidentDetails);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -299,63 +340,254 @@ export function registerRoutes(app: Express): Server {
     try {
       const { storeId } = req.params;
       
-      // Validate request body with Zod
-      const validatedData = insertIncidentSchema.parse({ 
-        ...req.body, 
-        storeId, 
-        reportedBy: req.user!.id 
+      // CRITICAL SECURITY FIX: Validate request body with Zod
+      const validationResult = insertIncidentSchema.safeParse({
+        ...req.body,
+        storeId,
+        reportedBy: req.user!.id
       });
-      const incident = await storage.createIncident(validatedData);
-      res.status(201).json(incident);
-    } catch (error: any) {
-      if (error.name === 'ZodError') {
-        return res.status(400).json({ message: "Invalid incident data", errors: error.errors });
+      
+      if (!validationResult.success) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: validationResult.error.errors
+        });
       }
+      
+      const incidentData = validationResult.data;
+      const incidentId = await incidentEngine.createIncident(incidentData);
+      
+      // Auto-assign if possible
+      await incidentAssignmentEngine.autoAssignIncident(incidentId);
+      
+      res.status(201).json({ incidentId });
+    } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post("/api/store/:storeId/incidents/:incidentId/assign", requireAuth, requireSecurityAgent("operator"), requireStoreAccess, async (req, res) => {
+  app.patch("/api/incidents/:incidentId", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
     try {
-      const { storeId, incidentId } = req.params;
+      const { incidentId } = req.params;
       
-      // Validate request body
-      const { userId } = req.body;
-      if (userId && typeof userId !== 'string') {
-        return res.status(400).json({ message: "Invalid userId format" });
+      // CRITICAL SECURITY FIX: Validate request body with Zod
+      const validationResult = incidentUpdateSchema.safeParse(req.body);
+      
+      if (!validationResult.success) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: validationResult.error.errors
+        });
       }
       
-      // Verify incident belongs to this store
-      const incident = await storage.getIncidentById(incidentId);
-      if (!incident || incident.storeId !== storeId) {
-        return res.status(404).json({ message: "Incident not found in this store" });
+      const { status, priority, notes, assignedTo } = validationResult.data;
+      
+      if (status) {
+        await incidentEngine.updateIncidentStatus(incidentId, status, req.user!.id, notes);
       }
       
-      const updatedIncident = await storage.assignIncident(incidentId, userId || req.user!.id);
+      if (priority && !status) {
+        await incidentEngine.escalateIncident(incidentId, notes || "Priority updated", req.user!.id, priority);
+      }
+      
+      if (assignedTo) {
+        await incidentAssignmentEngine.manualAssignIncident(incidentId, assignedTo, req.user!.id, notes);
+      }
+      
+      const updatedIncident = await storage.getIncident(incidentId);
       res.json(updatedIncident);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post("/api/store/:storeId/incidents/:incidentId/evidence", requireAuth, requireSecurityAgent("operator"), requireStoreAccess, async (req, res) => {
+  // **ALERT-TO-INCIDENT CONVERSION**
+  app.post("/api/alerts/:alertId/escalate-to-incident", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
     try {
-      const { storeId, incidentId } = req.params;
-      const { evidenceFiles } = req.body;
+      const { alertId } = req.params;
+      const { title, description, priority } = req.body;
       
-      // Validate request body
-      if (!evidenceFiles || !Array.isArray(evidenceFiles)) {
-        return res.status(400).json({ message: "evidenceFiles array is required" });
+      const incidentId = await incidentManagementSystem.escalateAlertToIncident(
+        alertId,
+        req.user!.id,
+        { title, description, priority }
+      );
+      
+      res.status(201).json({ incidentId });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // **INCIDENT ASSIGNMENT & ESCALATION**
+  app.post("/api/incidents/:incidentId/assign", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { incidentId } = req.params;
+      const { assignedTo, reason } = req.body;
+      
+      if (!assignedTo) {
+        return res.status(400).json({ message: "assignedTo is required" });
       }
       
-      // Verify incident belongs to this store
-      const incident = await storage.getIncidentById(incidentId);
-      if (!incident || incident.storeId !== storeId) {
-        return res.status(404).json({ message: "Incident not found in this store" });
+      await incidentAssignmentEngine.manualAssignIncident(incidentId, assignedTo, req.user!.id, reason);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/incidents/:incidentId/auto-assign", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { incidentId } = req.params;
+      
+      const assignedUserId = await incidentAssignmentEngine.autoAssignIncident(incidentId);
+      res.json({ assignedTo: assignedUserId });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/incidents/:incidentId/escalate", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { incidentId } = req.params;
+      const { reason, newPriority } = req.body;
+      
+      await incidentEngine.escalateIncident(incidentId, reason, req.user!.id, newPriority);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // **EVIDENCE MANAGEMENT**
+  app.post("/api/incidents/:incidentId/evidence/upload-url", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { incidentId } = req.params;
+      const { fileName, fileType } = req.body;
+      
+      if (!fileName || !fileType) {
+        return res.status(400).json({ message: "fileName and fileType are required" });
       }
       
-      const updatedIncident = await storage.addEvidenceToIncident(incidentId, evidenceFiles);
-      res.json(updatedIncident);
+      const uploadResult = await evidenceManager.getEvidenceUploadUrl(
+        incidentId, 
+        fileName, 
+        fileType, 
+        req.user!.id
+      );
+      
+      res.json(uploadResult);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/evidence/:evidenceId/confirm-upload", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { evidenceId } = req.params;
+      const fileMetadata = req.body;
+      
+      await evidenceManager.confirmEvidenceUpload(evidenceId, fileMetadata);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/incidents/:incidentId/evidence", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { incidentId } = req.params;
+      const evidence = await evidenceManager.getIncidentEvidence(incidentId);
+      res.json(evidence);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/evidence/:evidenceId/download", downloadLimiter, requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { evidenceId } = req.params;
+      const downloadUrl = await evidenceManager.getEvidenceDownloadUrl(evidenceId, req.user!.id);
+      res.json({ downloadUrl });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/incidents/:incidentId/evidence/statistics", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { incidentId } = req.params;
+      const stats = await evidenceManager.getEvidenceStatistics(incidentId);
+      res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // **INCIDENT TIMELINE & NOTES**
+  app.get("/api/incidents/:incidentId/timeline", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { incidentId } = req.params;
+      const timeline = await storage.getIncidentTimeline(incidentId);
+      res.json(timeline);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/incidents/:incidentId/notes", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { incidentId } = req.params;
+      const { note } = req.body;
+      
+      if (!note) {
+        return res.status(400).json({ message: "note is required" });
+      }
+      
+      await incidentEngine.addNote(incidentId, note, req.user!.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // **WORKLOAD & ASSIGNMENT ANALYTICS**
+  app.get("/api/store/:storeId/incident-workloads", requireAuth, requireSecurityAgent("viewer"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const workloads = await incidentAssignmentEngine.getUserWorkloads(storeId);
+      res.json(workloads);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // **BULK OPERATIONS**
+  app.post("/api/incidents/bulk-assign", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { incidentIds, assignedTo } = req.body;
+      
+      if (!incidentIds || !Array.isArray(incidentIds) || !assignedTo) {
+        return res.status(400).json({ message: "incidentIds array and assignedTo are required" });
+      }
+      
+      await incidentManagementSystem.bulkAssignIncidents(incidentIds, assignedTo, req.user!.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/incidents/bulk-status-update", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { incidentIds, status } = req.body;
+      
+      if (!incidentIds || !Array.isArray(incidentIds) || !status) {
+        return res.status(400).json({ message: "incidentIds array and status are required" });
+      }
+      
+      await incidentManagementSystem.bulkUpdateStatus(incidentIds, status, req.user!.id);
+      res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

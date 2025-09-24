@@ -2432,6 +2432,212 @@ export interface IStorage {
       .orderBy(desc(videoAnalytics.startTime))
       .limit(limit);
   }
+
+  // =====================================
+  // COMPREHENSIVE INCIDENT MANAGEMENT METHODS
+  // =====================================
+
+  // Enhanced Incident CRUD Operations
+  async getIncident(id: string): Promise<Incident | null> {
+    return this.getIncidentById(id); // Use existing method
+  }
+
+  async getStoreIncidents(storeId: string, filters?: {
+    status?: string;
+    priority?: string;
+    assignedTo?: string;
+    dateFrom?: Date;
+    dateTo?: Date;
+  }): Promise<Incident[]> {
+    // Build conditions array properly to avoid overwriting filters
+    const conditions = [eq(incidents.storeId, storeId)];
+    
+    // Add filter conditions dynamically
+    if (filters?.status) {
+      conditions.push(eq(incidents.status, filters.status));
+    }
+    if (filters?.priority) {
+      conditions.push(eq(incidents.priority, filters.priority));
+    }
+    if (filters?.assignedTo) {
+      conditions.push(eq(incidents.assignedTo, filters.assignedTo));
+    }
+    if (filters?.dateFrom) {
+      conditions.push(sql`${incidents.createdAt} >= ${filters.dateFrom}`);
+    }
+    if (filters?.dateTo) {
+      conditions.push(sql`${incidents.createdAt} <= ${filters.dateTo}`);
+    }
+    
+    // Combine all conditions with AND
+    return await db
+      .select()
+      .from(incidents)
+      .where(and(...conditions))
+      .orderBy(desc(incidents.createdAt));
+  }
+
+  async getActiveIncidents(): Promise<Incident[]> {
+    return await db
+      .select()
+      .from(incidents)
+      .where(or(
+        eq(incidents.status, "OPEN"),
+        eq(incidents.status, "INVESTIGATING")
+      ))
+      .orderBy(desc(incidents.createdAt));
+  }
+
+  async getUserActiveIncidents(userId: string): Promise<Incident[]> {
+    return await db
+      .select()
+      .from(incidents)
+      .where(and(
+        eq(incidents.assignedTo, userId),
+        or(
+          eq(incidents.status, "OPEN"),
+          eq(incidents.status, "INVESTIGATING")
+        )
+      ))
+      .orderBy(desc(incidents.createdAt));
+  }
+
+  async getUserRecentIncidents(userId: string, days: number = 30): Promise<Incident[]> {
+    const daysAgo = new Date();
+    daysAgo.setDate(daysAgo.getDate() - days);
+    
+    return await db
+      .select()
+      .from(incidents)
+      .where(and(
+        eq(incidents.assignedTo, userId),
+        sql`${incidents.createdAt} >= ${daysAgo}`
+      ))
+      .orderBy(desc(incidents.createdAt));
+  }
+
+  async getRecentIncidentActivity(storeId: string, limit: number = 50): Promise<IncidentTimeline[]> {
+    return await db
+      .select()
+      .from(incidentTimeline)
+      .innerJoin(incidents, eq(incidentTimeline.incidentId, incidents.id))
+      .where(eq(incidents.storeId, storeId))
+      .orderBy(desc(incidentTimeline.timestamp))
+      .limit(limit);
+  }
+
+  // Incident Timeline Management
+  async createIncidentTimelineEvent(event: InsertIncidentTimeline): Promise<IncidentTimeline> {
+    const [newEvent] = await db.insert(incidentTimeline).values([event]).returning();
+    return newEvent;
+  }
+
+  async getIncidentTimeline(incidentId: string): Promise<IncidentTimeline[]> {
+    return await db
+      .select()
+      .from(incidentTimeline)
+      .where(eq(incidentTimeline.incidentId, incidentId))
+      .orderBy(desc(incidentTimeline.timestamp));
+  }
+
+  async updateIncidentTimelineEvent(id: string, updates: Partial<InsertIncidentTimeline>): Promise<IncidentTimeline> {
+    const [updated] = await db
+      .update(incidentTimeline)
+      .set(updates)
+      .where(eq(incidentTimeline.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Evidence Chain Management
+  async createEvidenceChain(evidence: InsertEvidenceChain): Promise<EvidenceChain> {
+    const evidenceData = {
+      ...evidence,
+      chainOfCustody: evidence.chainOfCustody as any,
+      metadata: evidence.metadata as any
+    };
+    const [newEvidence] = await db.insert(evidenceChain).values([evidenceData]).returning();
+    return newEvidence;
+  }
+
+  async getEvidenceChain(id: string): Promise<EvidenceChain | null> {
+    const result = await db.select().from(evidenceChain).where(eq(evidenceChain.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getIncidentEvidence(incidentId: string): Promise<EvidenceChain[]> {
+    return await db
+      .select()
+      .from(evidenceChain)
+      .where(eq(evidenceChain.incidentId, incidentId))
+      .orderBy(desc(evidenceChain.collectedAt));
+  }
+
+  async updateEvidenceChain(id: string, updates: Partial<InsertEvidenceChain>): Promise<EvidenceChain> {
+    const updateData = {
+      ...updates,
+      chainOfCustody: updates.chainOfCustody as any,
+      metadata: updates.metadata as any
+    };
+    const [updated] = await db
+      .update(evidenceChain)
+      .set(updateData)
+      .where(eq(evidenceChain.id, id))
+      .returning();
+    return updated;
+  }
+
+  // User and Store Helper Methods
+  async getStoreUsers(storeId: string): Promise<User[]> {
+    return await db
+      .select()
+      .from(users)
+      .where(eq(users.storeId, storeId))
+      .orderBy(users.username);
+  }
+
+  async getUserById(userId: string): Promise<User | null> {
+    const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    return result[0] || null;
+  }
+
+  // Incident Response Management  
+  async createIncidentResponse(response: InsertIncidentResponse): Promise<IncidentResponse> {
+    const responseData = {
+      ...response,
+      response: response.response as any,
+      metadata: response.metadata as any
+    };
+    const [newResponse] = await db.insert(incidentResponse).values([responseData]).returning();
+    return newResponse;
+  }
+
+  async getIncidentResponse(id: string): Promise<IncidentResponse | null> {
+    const result = await db.select().from(incidentResponse).where(eq(incidentResponse.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getIncidentResponsesByIncident(incidentId: string): Promise<IncidentResponse[]> {
+    return await db
+      .select()
+      .from(incidentResponse)
+      .where(eq(incidentResponse.incidentId, incidentId))
+      .orderBy(desc(incidentResponse.responseAt));
+  }
+
+  async updateIncidentResponse(id: string, updates: Partial<InsertIncidentResponse>): Promise<IncidentResponse> {
+    const updateData = {
+      ...updates,
+      response: updates.response as any,
+      metadata: updates.metadata as any
+    };
+    const [updated] = await db
+      .update(incidentResponse)
+      .set(updateData)
+      .where(eq(incidentResponse.id, id))
+      .returning();
+    return updated;
+  }
 }
 
 export const storage = new DatabaseStorage();

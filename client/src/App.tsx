@@ -15,6 +15,8 @@ import OperationsDashboard from "./pages/operations-dashboard";
 import HRDashboard from "./pages/hr-dashboard";
 import LiveFeeds from "./pages/live-feeds";
 import Alerts from "./pages/alerts";
+import Incidents from "./pages/incidents";
+import IncidentDetails from "./pages/incident-details";
 import Offenders from "./pages/offenders";
 import Analytics from "./pages/analytics";
 import Network from "./pages/network";
@@ -50,6 +52,8 @@ function Router() {
           <ProtectedRoute path="/security/dashboard" component={Dashboard} />
           <ProtectedRoute path="/security/live-feeds" component={LiveFeeds} />
           <ProtectedRoute path="/security/alerts" component={Alerts} />
+          <ProtectedRoute path="/security/incidents" component={Incidents} />
+          <ProtectedRoute path="/security/incidents/:id" component={IncidentDetails} />
           <ProtectedRoute path="/security/offenders" component={Offenders} />
           <ProtectedRoute path="/security/analytics" component={Analytics} />
           <ProtectedRoute path="/security/network" component={Network} />

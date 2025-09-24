@@ -23,10 +23,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
   const connect = () => {
     try {
-      // Get the WebSocket URL from the current location
+      // CRITICAL FIX: Get the WebSocket URL with proper fallback handling
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/ws`;
+      const host = window.location.host || 'localhost:5000'; // Fallback to prevent undefined
+      
+      // Ensure port is included for development
+      const finalHost = host.includes(':') ? host : `${host}:5000`;
+      const wsUrl = `${protocol}//${finalHost}/ws`;
       
       console.log('WebSocket connecting to:', wsUrl);
       
