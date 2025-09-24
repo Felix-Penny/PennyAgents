@@ -384,7 +384,7 @@ interface UserPermissions {
   system: { configure: boolean; audit: boolean; backup: boolean; maintenance: boolean };
 }
 
-interface PermissionContext {
+export interface PermissionContext {
   userId: string;
   roleIds?: string[];
   storeId?: string;
@@ -707,6 +707,123 @@ export const requireSecurityManager = requireSecurityRole(['admin']);
 export const requireSecurityPersonnel = requireSecurityRole(['admin', 'security_personnel']);
 export const requireSafetyCoordinator = requireSecurityRole(['admin', 'security_personnel', 'safety_coordinator']);
 export const requireSecurityAccess = requireSecurityRole(['admin', 'security_personnel', 'safety_coordinator', 'guest']);
+
+// Fallback permissions based on legacy role system
+export function getDefaultPermissions(userRole?: string): UserPermissions {
+  const basePermissions: UserPermissions = {
+    cameras: { view: false, control: false, configure: false, history: false },
+    alerts: { receive: false, acknowledge: false, dismiss: false, escalate: false, manage: false, configure: false },
+    incidents: { create: false, investigate: false, assign: false, resolve: false, close: false },
+    evidence: { upload: false, view: false, download: false, manage: false, audit: false },
+    analytics: { executive: false, operational: false, safety: false, public: true, reports: false, export: false },
+    users: { view: false, create: false, edit: false, delete: false, assign_roles: false },
+    system: { configure: false, audit: false, backup: false, maintenance: false }
+  };
+
+  // Map legacy roles to security permissions
+  switch (userRole) {
+    case 'penny_admin':
+      return {
+        cameras: { view: true, control: true, configure: true, history: true },
+        alerts: { receive: true, acknowledge: true, dismiss: true, escalate: true, manage: true, configure: true },
+        incidents: { create: true, investigate: true, assign: true, resolve: true, close: true },
+        evidence: { upload: true, view: true, download: true, manage: true, audit: true },
+        analytics: { executive: true, operational: true, safety: true, public: true, reports: true, export: true },
+        users: { view: true, create: true, edit: true, delete: true, assign_roles: true },
+        system: { configure: true, audit: true, backup: true, maintenance: true }
+      };
+    
+    case 'store_admin':
+      return {
+        cameras: { view: true, control: true, configure: false, history: true },
+        alerts: { receive: true, acknowledge: true, dismiss: true, escalate: true, manage: false, configure: false },
+        incidents: { create: true, investigate: true, assign: true, resolve: true, close: false },
+        evidence: { upload: true, view: true, download: true, manage: false, audit: false },
+        analytics: { executive: false, operational: true, safety: true, public: true, reports: true, export: false },
+        users: { view: true, create: false, edit: false, delete: false, assign_roles: false },
+        system: { configure: false, audit: true, backup: false, maintenance: false }
+      };
+    
+    case 'store_staff':
+      return {
+        cameras: { view: true, control: false, configure: false, history: false },
+        alerts: { receive: true, acknowledge: true, dismiss: false, escalate: true, manage: false, configure: false },
+        incidents: { create: true, investigate: false, assign: false, resolve: false, close: false },
+        evidence: { upload: false, view: true, download: false, manage: false, audit: false },
+        analytics: { executive: false, operational: false, safety: true, public: true, reports: false, export: false },
+        users: { view: true, edit: false, delete: false, create: false, assign_roles: false },
+        system: { configure: false, audit: false, backup: false, maintenance: false }
+      };
+
+    default:
+      return basePermissions;
+  }
+}
+
+// Fallback security roles based on legacy role system
+export function getDefaultSecurityRoles(userRole?: string): SecurityRole[] {
+  const roles: SecurityRole[] = [];
+
+  switch (userRole) {
+    case 'penny_admin':
+      roles.push({
+        id: 'admin',
+        name: 'admin',
+        displayName: 'Security Manager',
+        description: 'Full administrative access to all security systems',
+        category: 'security',
+        level: 1,
+        clearanceLevel: 'classified',
+        scope: 'global',
+        isActive: true
+      });
+      break;
+    
+    case 'store_admin':
+      roles.push({
+        id: 'security_personnel',
+        name: 'security_personnel',
+        displayName: 'Guard/Officer',
+        description: 'Operational access for field security work',
+        category: 'security',
+        level: 2,
+        clearanceLevel: 'elevated',
+        scope: 'store',
+        isActive: true
+      });
+      break;
+    
+    case 'store_staff':
+      roles.push({
+        id: 'safety_coordinator',
+        name: 'safety_coordinator', 
+        displayName: 'Safety Coordinator',
+        description: 'Safety-focused access with compliance responsibilities',
+        category: 'safety',
+        level: 3,
+        clearanceLevel: 'basic',
+        scope: 'store',
+        isActive: true
+      });
+      break;
+
+    default:
+      roles.push({
+        id: 'guest',
+        name: 'guest',
+        displayName: 'Visitor',
+        description: 'Limited public access',
+        category: 'public',
+        level: 4,
+        clearanceLevel: 'public',
+        scope: 'limited',
+        isActive: true
+      });
+      break;
+  }
+
+  return roles;
+}
 
 // Resource-specific permission middleware
 export const requireCameraAccess = (action: string) => requirePermission(`cameras:${action}`, 'camera');

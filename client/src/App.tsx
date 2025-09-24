@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WebSocketProvider } from "@/lib/websocket";
 import { AuthProvider } from "@/hooks/use-auth";
+import { PermissionsProvider } from "@/hooks/use-permissions";
 import { ProtectedRoute } from "@/lib/protected-route";
 import AlertManager from "@/components/AlertManager";
 import NotFound from "./pages/not-found";
@@ -49,17 +50,17 @@ function Router() {
               console.log(`Alert action: ${action} for alert ${alertId}`, data);
             }}
           />
-          <ProtectedRoute path="/security/dashboard" component={Dashboard} />
-          <ProtectedRoute path="/security/live-feeds" component={LiveFeeds} />
-          <ProtectedRoute path="/security/alerts" component={Alerts} />
-          <ProtectedRoute path="/security/incidents" component={Incidents} />
-          <ProtectedRoute path="/security/incidents/:id" component={IncidentDetails} />
-          <ProtectedRoute path="/security/offenders" component={Offenders} />
-          <ProtectedRoute path="/security/analytics" component={Analytics} />
-          <ProtectedRoute path="/security/network" component={Network} />
-          <ProtectedRoute path="/security/settings" component={Settings} />
-          <ProtectedRoute path="/security/video-upload" component={VideoUpload} />
-          <ProtectedRoute path="/security/video-test" component={VideoTest} />
+          <ProtectedRoute path="/security/dashboard" component={Dashboard} permissions={["analytics:operational"]} />
+          <ProtectedRoute path="/security/live-feeds" component={LiveFeeds} permissions={["cameras:view"]} />
+          <ProtectedRoute path="/security/alerts" component={Alerts} permissions={["alerts:receive"]} />
+          <ProtectedRoute path="/security/incidents" component={Incidents} permissions={["incidents:view", "incidents:create"]} requireAll={false} />
+          <ProtectedRoute path="/security/incidents/:id" component={IncidentDetails} permissions={["incidents:view", "incidents:investigate"]} requireAll={false} />
+          <ProtectedRoute path="/security/offenders" component={Offenders} permissions={["incidents:view", "analytics:operational"]} requireAll={false} />
+          <ProtectedRoute path="/security/analytics" component={Analytics} permissions={["analytics:operational", "analytics:executive"]} requireAll={false} />
+          <ProtectedRoute path="/security/network" component={Network} permissions={["system:configure"]} />
+          <ProtectedRoute path="/security/settings" component={Settings} permissions={["system:configure", "users:edit"]} requireAll={false} />
+          <ProtectedRoute path="/security/video-upload" component={VideoUpload} permissions={["evidence:upload"]} />
+          <ProtectedRoute path="/security/video-test" component={VideoTest} permissions={["cameras:view", "cameras:control"]} requireAll={false} />
         </AgentProtectedRoute>
       </Route>
       
@@ -109,14 +110,16 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <WebSocketProvider>
-          <TooltipProvider>
-            <div className="dark">
-              <Toaster />
-              <Router />
-            </div>
-          </TooltipProvider>
-        </WebSocketProvider>
+        <PermissionsProvider>
+          <WebSocketProvider>
+            <TooltipProvider>
+              <div className="dark">
+                <Toaster />
+                <Router />
+              </div>
+            </TooltipProvider>
+          </WebSocketProvider>
+        </PermissionsProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

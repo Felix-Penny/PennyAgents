@@ -82,8 +82,8 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
         if (response.status === 404) {
           // Fallback to default permissions if endpoint doesn't exist yet
           return {
-            permissions: getDefaultPermissions(user?.role),
-            roles: getDefaultSecurityRoles(user?.role)
+            permissions: getDefaultPermissions(user?.role || undefined),
+            roles: getDefaultSecurityRoles(user?.role || undefined)
           };
         }
         throw new Error(`Failed to fetch permissions: ${response.status}`);
@@ -134,7 +134,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       // Fallback to local permission check on error
       return {
         granted: hasPermission(context.action, context.resourceType, context.resourceId),
-        reason: `Permission check failed: ${error.message}`,
+        reason: `Permission check failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         auditRequired: false
       };
     }

@@ -3,7 +3,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { Redirect, Route } from "wouter";
-import { PermissionsProvider } from "@/hooks/use-permissions";
 
 export function ProtectedRoute({
   path,
@@ -38,11 +37,7 @@ export function ProtectedRoute({
   
   // Enhanced permission component that supports permission checking
   function PermissionProtectedComponent() {
-    return (
-      <PermissionsProvider>
-        <PermissionAwareRoute />
-      </PermissionsProvider>
-    );
+    return <PermissionAwareRoute />;
   }
 
   function PermissionAwareRoute() {
