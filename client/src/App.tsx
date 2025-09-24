@@ -29,6 +29,7 @@ import PennyDashboard from "./pages/penny-dashboard";
 import RepaymentDashboard from "./pages/repayment-dashboard";
 import VideoUpload from "./pages/video-upload";
 import VideoTest from "./pages/video-test";
+import FacialRecognitionDashboard from "./pages/facial-recognition";
 import { AgentProtectedRoute } from "@/lib/agent-protected-route";
 
 function Router() {
@@ -57,6 +58,7 @@ function Router() {
           <ProtectedRoute path="/security/incidents/:id" component={IncidentDetails} permissions={["incidents:view", "incidents:investigate"]} requireAll={false} />
           <ProtectedRoute path="/security/offenders" component={Offenders} permissions={["incidents:view", "analytics:operational"]} requireAll={false} />
           <ProtectedRoute path="/security/analytics" component={Analytics} permissions={["analytics:operational", "analytics:executive"]} requireAll={false} />
+          <ProtectedRoute path="/security/facial-recognition" component={FacialRecognitionDashboard} permissions={["analytics:operational", "facial_recognition:view"]} requireAll={false} />
           <ProtectedRoute path="/security/network" component={Network} permissions={["system:configure"]} />
           <ProtectedRoute path="/security/settings" component={Settings} permissions={["system:configure", "users:edit"]} requireAll={false} />
           <ProtectedRoute path="/security/video-upload" component={VideoUpload} permissions={["evidence:upload"]} />

@@ -292,23 +292,50 @@ export interface IStorage {
   
   // Face Templates (Encrypted)
   createFaceTemplate(template: InsertFaceTemplate): Promise<FaceTemplate>;
+  storeFaceTemplate(template: InsertFaceTemplate): Promise<FaceTemplate>; // Alias for createFaceTemplate
   getFaceTemplate(id: string): Promise<FaceTemplate | null>;
   getFaceTemplatesByStore(storeId: string): Promise<FaceTemplate[]>;
+  getFaceTemplatesByPerson(personId: string, storeId: string): Promise<FaceTemplate[]>;
+  getExpiredFaceTemplates(expiredBefore: Date): Promise<FaceTemplate[]>;
   deleteFaceTemplate(id: string): Promise<void>;
+  deleteFaceTemplatesByPerson(personId: string, storeId: string): Promise<number>;
   
   // Watchlist Entries
   createWatchlistEntry(entry: InsertWatchlistEntry): Promise<WatchlistEntry>;
   getWatchlistEntry(id: string): Promise<WatchlistEntry | null>;
   getWatchlistEntriesByStore(storeId: string): Promise<WatchlistEntry[]>;
+  getActiveWatchlistEntries(storeId: string): Promise<WatchlistEntry[]>; // Active entries only
+  getWatchlistEntriesByPerson(personId: string, storeId: string): Promise<WatchlistEntry[]>;
   updateWatchlistEntry(id: string, updates: Partial<InsertWatchlistEntry>): Promise<WatchlistEntry>;
   deleteWatchlistEntry(id: string): Promise<void>;
+  deleteWatchlistEntriesByPerson(personId: string, storeId: string): Promise<number>;
   
   // Consent Management - CRITICAL PRIVACY COMPLIANCE
   createConsentPreference(consent: InsertConsentPreference): Promise<ConsentPreference>;
   getConsentPreference(storeId: string, consentType: string, subjectType?: string): Promise<ConsentPreference | null>;
-  updateConsentPreference(id: string, updates: Partial<InsertConsentPreference>): Promise<ConsentPreference>;
+  getConsentHistoryByPerson(personId: string, storeId: string): Promise<ConsentPreference[]>;
+  updateConsentPreference(storeId: string, consentType: string, updates: Partial<InsertConsentPreference>): Promise<ConsentPreference>;
   withdrawConsent(storeId: string, consentType: string, userId: string): Promise<void>;
   checkEmployeeConsent(storeId: string, userId: string, consentType: string): Promise<boolean>;
+  
+  // Facial Recognition Events
+  createFacialRecognitionEvent(event: InsertFacialRecognition): Promise<FacialRecognition>;
+  getFacialRecognitionEventsSummary(personId: string, storeId: string): Promise<{
+    count: number;
+    dateRange: { earliest?: Date; latest?: Date };
+  }>;
+  deleteFacialRecognitionEventsByPerson(personId: string, storeId: string): Promise<number>;
+  cleanupOrphanedFacialRecognitionEvents(): Promise<void>;
+  
+  // Privacy Requests Management (GDPR/CCPA)
+  createPrivacyRequest(request: any): Promise<any>; // PrivacyRequest type to be defined
+  updatePrivacyRequest(id: string, request: any): Promise<any>;
+  getPrivacyRequest(id: string): Promise<any | null>;
+  getPrivacyRequestsByPerson(personId: string): Promise<any[]>;
+  
+  // Audit Trail for Facial Recognition
+  logAdvancedFeatureAudit(log: InsertAdvancedFeatureAuditLog): Promise<AdvancedFeatureAuditLog>; // Alias for createAdvancedFeatureAuditLog
+  getFacialRecognitionAuditTrail(personId: string, storeId: string): Promise<AdvancedFeatureAuditLog[]>;
   
   // Predictive Model Snapshots
   createPredictiveModelSnapshot(snapshot: InsertPredictiveModelSnapshot): Promise<PredictiveModelSnapshot>;
@@ -3235,6 +3262,245 @@ export class DatabaseStorage implements IStorage {
       .where(and(
         eq(advancedFeatureAuditLog.resourceType, resourceType),
         eq(advancedFeatureAuditLog.resourceId, resourceId)
+      ))
+      .orderBy(desc(advancedFeatureAuditLog.timestamp));
+  }
+
+  // =====================================
+  // Additional Facial Recognition Storage Methods - GDPR Compliant
+  // =====================================
+
+  // Alias methods for facial recognition service compatibility
+  async storeFaceTemplate(template: InsertFaceTemplate): Promise<FaceTemplate> {
+    return await this.createFaceTemplate(template);
+  }
+
+  async getActiveWatchlistEntries(storeId: string): Promise<WatchlistEntry[]> {
+    return await this.getActiveWatchlistEntriesByStore(storeId);
+  }
+
+  async logAdvancedFeatureAudit(log: InsertAdvancedFeatureAuditLog): Promise<AdvancedFeatureAuditLog> {
+    return await this.createAdvancedFeatureAuditLog(log);
+  }
+
+  // Enhanced facial recognition methods for privacy compliance
+  async getFaceTemplatesByPerson(personId: string, storeId: string): Promise<FaceTemplate[]> {
+    return await db
+      .select()
+      .from(faceTemplates)
+      .where(and(
+        eq(faceTemplates.storeId, storeId),
+        sql`JSON_EXTRACT(${faceTemplates.justification}, '$.personId') = ${personId}`
+      ))
+      .orderBy(desc(faceTemplates.createdAt));
+  }
+
+  async getExpiredFaceTemplates(expiredBefore: Date): Promise<FaceTemplate[]> {
+    return await db
+      .select()
+      .from(faceTemplates)
+      .where(sql`${faceTemplates.retentionExpiry} <= ${expiredBefore}`)
+      .orderBy(desc(faceTemplates.retentionExpiry));
+  }
+
+  async deleteFaceTemplatesByPerson(personId: string, storeId: string): Promise<number> {
+    const result = await db
+      .delete(faceTemplates)
+      .where(and(
+        eq(faceTemplates.storeId, storeId),
+        sql`JSON_EXTRACT(${faceTemplates.justification}, '$.personId') = ${personId}`
+      ));
+    return result.rowCount || 0;
+  }
+
+  async getWatchlistEntriesByPerson(personId: string, storeId: string): Promise<WatchlistEntry[]> {
+    return await db
+      .select()
+      .from(watchlistEntries)
+      .where(and(
+        eq(watchlistEntries.storeId, storeId),
+        eq(watchlistEntries.personId, personId)
+      ))
+      .orderBy(desc(watchlistEntries.createdAt));
+  }
+
+  async deleteWatchlistEntriesByPerson(personId: string, storeId: string): Promise<number> {
+    const result = await db
+      .delete(watchlistEntries)
+      .where(and(
+        eq(watchlistEntries.storeId, storeId),
+        eq(watchlistEntries.personId, personId)
+      ));
+    return result.rowCount || 0;
+  }
+
+  // Enhanced consent management methods for GDPR compliance
+  async getConsentHistoryByPerson(personId: string, storeId: string): Promise<ConsentPreference[]> {
+    return await db
+      .select()
+      .from(consentPreferences)
+      .where(and(
+        eq(consentPreferences.storeId, storeId),
+        eq(consentPreferences.personId, personId)
+      ))
+      .orderBy(desc(consentPreferences.consentDate));
+  }
+
+  // Overloaded updateConsentPreference method for different signature compatibility
+  async updateConsentPreferenceByType(storeId: string, consentType: string, updates: Partial<InsertConsentPreference>): Promise<ConsentPreference> {
+    // Find the most recent consent record for this type
+    const existingConsent = await db
+      .select()
+      .from(consentPreferences)
+      .where(and(
+        eq(consentPreferences.storeId, storeId),
+        eq(consentPreferences.consentType, consentType)
+      ))
+      .orderBy(desc(consentPreferences.consentDate))
+      .limit(1);
+
+    if (existingConsent.length === 0) {
+      throw new Error('No consent record found to update');
+    }
+
+    const [updated] = await db
+      .update(consentPreferences)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(consentPreferences.id, existingConsent[0].id))
+      .returning();
+    return updated;
+  }
+
+  // Facial recognition events management
+  async createFacialRecognitionEvent(event: InsertFacialRecognition): Promise<FacialRecognition> {
+    const [newEvent] = await db.insert(facialRecognition).values([event]).returning();
+    return newEvent;
+  }
+
+  async getFacialRecognitionEventsSummary(personId: string, storeId: string): Promise<{
+    count: number;
+    dateRange: { earliest?: Date; latest?: Date };
+  }> {
+    const result = await db
+      .select({
+        count: sql`count(*)`,
+        earliest: sql`min(${facialRecognition.detectionTimestamp})`,
+        latest: sql`max(${facialRecognition.detectionTimestamp})`
+      })
+      .from(facialRecognition)
+      .where(and(
+        eq(facialRecognition.storeId, storeId),
+        sql`JSON_EXTRACT(${facialRecognition.faceAttributes}, '$.personId') = ${personId}`
+      ));
+
+    const summary = result[0];
+    return {
+      count: Number(summary.count) || 0,
+      dateRange: {
+        earliest: summary.earliest ? new Date(summary.earliest) : undefined,
+        latest: summary.latest ? new Date(summary.latest) : undefined
+      }
+    };
+  }
+
+  async deleteFacialRecognitionEventsByPerson(personId: string, storeId: string): Promise<number> {
+    const result = await db
+      .delete(facialRecognition)
+      .where(and(
+        eq(facialRecognition.storeId, storeId),
+        sql`JSON_EXTRACT(${facialRecognition.faceAttributes}, '$.personId') = ${personId}`
+      ));
+    return result.rowCount || 0;
+  }
+
+  async cleanupOrphanedFacialRecognitionEvents(): Promise<void> {
+    // Delete facial recognition events where the referenced face template no longer exists
+    await db
+      .delete(facialRecognition)
+      .where(sql`NOT EXISTS (
+        SELECT 1 FROM ${faceTemplates} 
+        WHERE ${faceTemplates.id} = ${facialRecognition.id}
+      )`);
+  }
+
+  // Privacy requests management for GDPR compliance
+  async createPrivacyRequest(request: any): Promise<any> {
+    // For now, store in a simple JSON structure in advanced feature audit log
+    // In production, this would be a dedicated privacy_requests table
+    const auditLog = await this.createAdvancedFeatureAuditLog({
+      id: request.id,
+      userId: request.requesterId,
+      storeId: request.storeId,
+      featureType: 'privacy_request',
+      action: request.requestType,
+      resourceType: 'privacy_request',
+      resourceId: request.id,
+      outcome: 'pending',
+      details: request,
+      ipAddress: request.ipAddress,
+      userAgent: request.userAgent,
+      timestamp: request.requestDate
+    });
+    
+    return request;
+  }
+
+  async updatePrivacyRequest(id: string, request: any): Promise<any> {
+    // Update the audit log entry for this privacy request
+    await this.createAdvancedFeatureAuditLog({
+      id: `${id}-update-${Date.now()}`,
+      userId: request.requesterId,
+      storeId: request.storeId,
+      featureType: 'privacy_request',
+      action: 'update_request',
+      resourceType: 'privacy_request',
+      resourceId: id,
+      outcome: request.status === 'completed' ? 'success' : 'pending',
+      details: request,
+      timestamp: new Date()
+    });
+    
+    return request;
+  }
+
+  async getPrivacyRequest(id: string): Promise<any | null> {
+    // Retrieve from audit log
+    const logs = await db
+      .select()
+      .from(advancedFeatureAuditLog)
+      .where(and(
+        eq(advancedFeatureAuditLog.featureType, 'privacy_request'),
+        eq(advancedFeatureAuditLog.resourceId, id)
+      ))
+      .orderBy(desc(advancedFeatureAuditLog.timestamp))
+      .limit(1);
+    
+    return logs.length > 0 ? logs[0].details : null;
+  }
+
+  async getPrivacyRequestsByPerson(personId: string): Promise<any[]> {
+    // Retrieve all privacy requests for a person from audit log
+    const logs = await db
+      .select()
+      .from(advancedFeatureAuditLog)
+      .where(and(
+        eq(advancedFeatureAuditLog.featureType, 'privacy_request'),
+        sql`JSON_EXTRACT(${advancedFeatureAuditLog.details}, '$.personId') = ${personId}`
+      ))
+      .orderBy(desc(advancedFeatureAuditLog.timestamp));
+    
+    return logs.map(log => log.details);
+  }
+
+  // Facial recognition audit trail
+  async getFacialRecognitionAuditTrail(personId: string, storeId: string): Promise<AdvancedFeatureAuditLog[]> {
+    return await db
+      .select()
+      .from(advancedFeatureAuditLog)
+      .where(and(
+        eq(advancedFeatureAuditLog.storeId, storeId),
+        eq(advancedFeatureAuditLog.featureType, 'facial_recognition'),
+        sql`JSON_EXTRACT(${advancedFeatureAuditLog.details}, '$.personId') = ${personId}`
       ))
       .orderBy(desc(advancedFeatureAuditLog.timestamp));
   }

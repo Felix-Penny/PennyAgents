@@ -23,7 +23,7 @@ interface AlertWebSocketClient extends WebSocket {
   alertCount?: number;
 }
 
-// Alert message types for WebSocket protocol - FIXED: Using consistent underscore notation
+// Alert message types for WebSocket protocol - EXTENDED: Including facial recognition notifications
 export type AlertMessage = 
   | { type: "alert_notification"; alert: Alert; snapshot?: string }
   | { type: "alert_acknowledgment"; alertId: string; userId: string; action: string }
@@ -31,7 +31,73 @@ export type AlertMessage =
   | { type: "alert_resolution"; alertId: string; userId: string; resolution: string }
   | { type: "alert_update"; alertId: string; updates: Partial<Alert> }
   | { type: "alert_bulk_acknowledgment"; alertIds: string[]; userId: string }
-  | { type: "alert_status_change"; alertId: string; oldStatus: string; newStatus: string };
+  | { type: "alert_status_change"; alertId: string; oldStatus: string; newStatus: string }
+  // FACIAL RECOGNITION REAL-TIME NOTIFICATIONS
+  | { type: "facial_recognition_match"; event: FacialRecognitionEventData; confidence: number; timestamp: Date }
+  | { type: "watchlist_match_alert"; match: WatchlistMatchData; alert: Alert; urgency: "high" | "critical" }
+  | { type: "consent_status_change"; personId: string; consentGiven: boolean; legalBasis: string; timestamp: Date }
+  | { type: "privacy_request_notification"; requestType: string; personId: string; requestId: string; urgency: "normal" | "high" }
+  | { type: "watchlist_update"; action: "added" | "removed" | "updated"; entry: WatchlistUpdateData; timestamp: Date }
+  | { type: "facial_recognition_event"; eventId: string; cameraId: string; detectionData: FaceDetectionData; timestamp: Date }
+  | { type: "biometric_template_expires"; personId: string; templateId: string; expiryDate: Date }
+  | { type: "consent_verification_failed"; personId: string; cameraId: string; reason: string; timestamp: Date };
+
+// Facial Recognition specific data types for WebSocket messages
+export interface FacialRecognitionEventData {
+  eventId: string;
+  storeId: string;
+  cameraId: string;
+  personId?: string;
+  templateId?: string;
+  confidence: number;
+  watchlistMatch: boolean;
+  consentVerified: boolean;
+  processingTimeMs: number;
+  boundingBox?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
+export interface WatchlistMatchData {
+  personId: string;
+  watchlistEntryId: string;
+  watchlistType: 'security_threat' | 'banned_individual' | 'person_of_interest';
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  matchConfidence: number;
+  cameraId: string;
+  reason: string;
+  legalAuthorization?: string;
+}
+
+export interface WatchlistUpdateData {
+  entryId: string;
+  personId: string;
+  watchlistType: string;
+  riskLevel: string;
+  addedBy: string;
+  reason: string;
+  legalAuthorization?: string;
+}
+
+export interface FaceDetectionData {
+  faceId: string;
+  confidence: number;
+  boundingBox?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  demographicEstimates?: {
+    ageRange?: string;
+    gender?: string;
+    ethnicity?: string;
+  };
+  consentStatus: boolean;
+}
 
 export type AlertSubscription = {
   userId: string;
@@ -149,7 +215,7 @@ export class AlertBroadcaster {
     let deliveredCount = 0;
     const deliveryPromises: Promise<void>[] = [];
 
-    for (const clientId of storeSubscriptions) {
+    for (const clientId of Array.from(storeSubscriptions)) {
       const client = this.connectedClients.get(clientId);
       const subscription = this.clientSubscriptions.get(clientId);
 
@@ -288,6 +354,171 @@ export class AlertBroadcaster {
     };
   }
 
+  // ==============================================
+  // FACIAL RECOGNITION REAL-TIME NOTIFICATIONS
+  // ==============================================
+
+  /**
+   * Broadcast facial recognition match event
+   */
+  async broadcastFacialRecognitionMatch(eventData: FacialRecognitionEventData): Promise<void> {
+    const message: AlertMessage = {
+      type: "facial_recognition_match",
+      event: eventData,
+      confidence: eventData.confidence,
+      timestamp: new Date()
+    };
+
+    console.log(`Broadcasting facial recognition match for store ${eventData.storeId}`);
+    await this.broadcastToStoreSubscribers(eventData.storeId, message);
+  }
+
+  /**
+   * Broadcast watchlist match alert (high priority security notification)
+   */
+  async broadcastWatchlistMatchAlert(matchData: WatchlistMatchData, alert: Alert): Promise<void> {
+    const urgency = matchData.riskLevel === 'critical' ? 'critical' : 'high';
+    
+    const message: AlertMessage = {
+      type: "watchlist_match_alert",
+      match: matchData,
+      alert,
+      urgency
+    };
+
+    console.log(`Broadcasting CRITICAL watchlist match alert for person ${matchData.personId} on camera ${matchData.cameraId}`);
+    
+    // Send to all store subscribers immediately (high priority)
+    await this.broadcastToStoreSubscribers(alert.storeId, message);
+    
+    // Also broadcast as regular alert for integration with existing alert systems
+    await this.broadcastNewAlert(alert);
+  }
+
+  /**
+   * Broadcast consent status change notification
+   */
+  async broadcastConsentStatusChange(
+    personId: string, 
+    consentGiven: boolean, 
+    legalBasis: string, 
+    storeId: string
+  ): Promise<void> {
+    const message: AlertMessage = {
+      type: "consent_status_change",
+      personId,
+      consentGiven,
+      legalBasis,
+      timestamp: new Date()
+    };
+
+    console.log(`Broadcasting consent status change for person ${personId}: ${consentGiven ? 'granted' : 'withdrawn'}`);
+    await this.broadcastToStoreSubscribers(storeId, message);
+  }
+
+  /**
+   * Broadcast privacy request notification (GDPR data subject rights)
+   */
+  async broadcastPrivacyRequestNotification(
+    requestType: string,
+    personId: string,
+    requestId: string,
+    storeId: string,
+    isUrgent: boolean = false
+  ): Promise<void> {
+    const message: AlertMessage = {
+      type: "privacy_request_notification",
+      requestType,
+      personId,
+      requestId,
+      urgency: isUrgent ? "high" : "normal"
+    };
+
+    console.log(`Broadcasting privacy request notification: ${requestType} for person ${personId}`);
+    await this.broadcastToStoreSubscribers(storeId, message);
+  }
+
+  /**
+   * Broadcast watchlist update notification
+   */
+  async broadcastWatchlistUpdate(
+    action: "added" | "removed" | "updated",
+    entryData: WatchlistUpdateData,
+    storeId: string
+  ): Promise<void> {
+    const message: AlertMessage = {
+      type: "watchlist_update",
+      action,
+      entry: entryData,
+      timestamp: new Date()
+    };
+
+    console.log(`Broadcasting watchlist ${action} for person ${entryData.personId}`);
+    await this.broadcastToStoreSubscribers(storeId, message);
+  }
+
+  /**
+   * Broadcast general facial recognition event
+   */
+  async broadcastFacialRecognitionEvent(
+    eventId: string,
+    cameraId: string,
+    detectionData: FaceDetectionData,
+    storeId: string
+  ): Promise<void> {
+    const message: AlertMessage = {
+      type: "facial_recognition_event",
+      eventId,
+      cameraId,
+      detectionData,
+      timestamp: new Date()
+    };
+
+    console.log(`Broadcasting facial recognition event ${eventId} on camera ${cameraId}`);
+    await this.broadcastToStoreSubscribers(storeId, message);
+  }
+
+  /**
+   * Broadcast biometric template expiration warning
+   */
+  async broadcastBiometricTemplateExpires(
+    personId: string,
+    templateId: string,
+    expiryDate: Date,
+    storeId: string
+  ): Promise<void> {
+    const message: AlertMessage = {
+      type: "biometric_template_expires",
+      personId,
+      templateId,
+      expiryDate
+    };
+
+    console.log(`Broadcasting biometric template expiration warning for person ${personId}`);
+    await this.broadcastToStoreSubscribers(storeId, message);
+  }
+
+  /**
+   * Broadcast consent verification failure
+   */
+  async broadcastConsentVerificationFailed(
+    personId: string,
+    cameraId: string,
+    reason: string,
+    storeId: string
+  ): Promise<void> {
+    const message: AlertMessage = {
+      type: "consent_verification_failed",
+      personId,
+      cameraId,
+      reason,
+      timestamp: new Date()
+    };
+
+    console.log(`Broadcasting consent verification failure for person ${personId} on camera ${cameraId}: ${reason}`);
+    await this.broadcastToStoreSubscribers(storeId, message);
+  }
+
   /**
    * Private: Check if alert should be delivered to client based on filters
    */
@@ -404,7 +635,7 @@ export class AlertBroadcaster {
   private async broadcastToAllSubscribers(message: AlertMessage): Promise<void> {
     const broadcastPromises: Promise<void>[] = [];
 
-    for (const [clientId, client] of this.connectedClients) {
+    for (const [clientId, client] of Array.from(this.connectedClients.entries())) {
       if (client.readyState === WebSocket.OPEN) {
         const promise = new Promise<void>((resolve) => {
           try {
@@ -420,6 +651,42 @@ export class AlertBroadcaster {
     }
 
     await Promise.allSettled(broadcastPromises);
+  }
+
+  /**
+   * Private: Broadcast message to subscribers of a specific store
+   */
+  private async broadcastToStoreSubscribers(storeId: string, message: AlertMessage): Promise<void> {
+    const storeSubscriptions = this.alertSubscriptions.get(storeId);
+    
+    if (!storeSubscriptions || storeSubscriptions.size === 0) {
+      console.log(`No subscribers for store ${storeId}`);
+      return;
+    }
+
+    const broadcastPromises: Promise<void>[] = [];
+
+    for (const clientId of Array.from(storeSubscriptions)) {
+      const client = this.connectedClients.get(clientId);
+      
+      if (!client || client.readyState !== WebSocket.OPEN) {
+        continue;
+      }
+
+      const promise = new Promise<void>((resolve) => {
+        try {
+          this.sendMessage(client, message);
+          resolve();
+        } catch (error) {
+          console.error(`Failed to broadcast to store client ${clientId}:`, error);
+          resolve();
+        }
+      });
+      broadcastPromises.push(promise);
+    }
+
+    await Promise.allSettled(broadcastPromises);
+    console.log(`Broadcast message to ${broadcastPromises.length} subscribers in store ${storeId}`);
   }
 
   /**

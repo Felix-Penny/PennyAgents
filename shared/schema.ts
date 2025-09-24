@@ -719,28 +719,55 @@ export const watchlistEntries = pgTable("watchlist_entries", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   faceTemplateId: varchar("face_template_id", { length: 255 }).notNull().references(() => faceTemplates.id),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  personId: varchar("person_id", { length: 255 }), // Link to person/employee record
   name: varchar("name", { length: 255 }).notNull(),
+  watchlistType: varchar("watchlist_type", { length: 100 }).notNull(), // 'security_threat', 'banned_individual', 'person_of_interest'
   riskLevel: varchar("risk_level", { length: 20 }).notNull(), // 'low', 'medium', 'high', 'critical'
+  reason: text("reason").notNull(),
   notes: text("notes"),
+  evidenceFiles: jsonb("evidence_files").$type<string[]>().default([]), // Object Storage references
+  legalAuthorization: text("legal_authorization"),
+  autoExpiry: timestamp("auto_expiry"),
+  notifications: jsonb("notifications").$type<{
+    email: boolean;
+    sms: boolean;
+    realtime: boolean;
+  }>().default({ email: true, sms: false, realtime: true }),
   isActive: boolean("is_active").default(true),
   addedBy: varchar("added_by", { length: 255 }).notNull().references(() => users.id),
   approvedBy: varchar("approved_by", { length: 255 }).references(() => users.id), // For dual authorization
   lastSeen: timestamp("last_seen"),
-  createdAt: timestamp("created_at").defaultNow().notNull()
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
 
 export const consentPreferences = pgTable("consent_preferences", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  personId: varchar("person_id", { length: 255 }), // Link to person/employee record
   subjectType: varchar("subject_type", { length: 100 }).notNull(), // 'customer', 'employee', 'visitor'
   subjectId: varchar("subject_id", { length: 255 }), // External ID if applicable
-  consentType: varchar("consent_type", { length: 100 }).notNull(), // 'facial_recognition', 'behavior_analysis'
+  consentType: varchar("consent_type", { length: 100 }).notNull(), // 'facial_recognition', 'behavior_analysis', 'biometric_processing'
   consentGiven: boolean("consent_given").notNull(),
   consentDate: timestamp("consent_date").defaultNow().notNull(),
+  expiryDate: timestamp("expiry_date"), // For automatic consent expiration
   withdrawnDate: timestamp("withdrawn_date"),
-  legalBasis: varchar("legal_basis", { length: 100 }).notNull(), // 'consent', 'legitimate_interest', 'vital_interest'
+  revokedAt: timestamp("revoked_at"),
+  legalBasis: varchar("legal_basis", { length: 100 }).notNull(), // 'consent', 'legitimate_interest', 'vital_interest', 'legal_obligation', 'contract', 'public_task'
   retentionPeriod: integer("retention_period"), // Days
-  notes: text("notes")
+  ipAddress: varchar("ip_address", { length: 50 }),
+  userAgent: text("user_agent"),
+  notes: text("notes"),
+  // GDPR Article 7 compliance fields
+  consentEvidence: jsonb("consent_evidence").$type<{
+    method: string; // 'click_consent', 'signature', 'verbal', 'implied'
+    evidenceType: string;
+    timestamp: string;
+    witnessId?: string;
+  }>(),
+  withdrawalMethod: varchar("withdrawal_method", { length: 100 }), // 'email', 'phone', 'in_person', 'web_form'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
 
 // Predictive Analytics Tables

@@ -12,6 +12,8 @@ import { DetectionResult, DetectionBoundingBox, ThreatSeverity, InsertBehaviorEv
 import { baselineBuilder } from "../behavioral/baselineBuilder";
 import { anomalyDetector } from "../behavioral/anomalyDetector";
 import { behavioralAlertEngine } from "../behavioral/behavioralAlerts";
+import { FacialRecognitionService } from "./facialRecognition";
+import { CONSENT_TYPES } from "../consent-middleware";
 
 // Initialize OpenAI client
 const openai = new OpenAI({ 
@@ -30,7 +32,7 @@ export type AIModel = typeof AI_MODELS[keyof typeof AI_MODELS];
 // AI Detection types
 export interface AIDetectionResult {
   id: string;
-  detectionType: 'person' | 'object' | 'behavior' | 'threat' | 'anomaly';
+  detectionType: 'person' | 'object' | 'behavior' | 'threat' | 'anomaly' | 'face';
   objectClass?: string;
   threatType?: 'theft' | 'violence' | 'unauthorized_access' | 'weapons' | 'suspicious_behavior';
   behaviorType?: 'suspicious' | 'aggressive' | 'normal' | 'panic' | 'loitering';
@@ -52,6 +54,20 @@ export interface AIDetectionResult {
   severity: 'low' | 'medium' | 'high' | 'critical';
   frameTimestamp: number;
   processingTime: number;
+  // Facial recognition specific fields
+  faceData?: {
+    personId?: string;
+    templateId?: string;
+    watchlistMatch?: boolean;
+    matchConfidence?: number;
+    facialFeatures?: string; // Encrypted template data
+    consentVerified?: boolean;
+    demographicEstimates?: {
+      ageRange?: string;
+      gender?: string;
+      ethnicity?: string;
+    };
+  };
 }
 
 export interface FrameAnalysisResult {
@@ -74,7 +90,17 @@ export interface VideoAnalysisConfig {
   enableThreatDetection?: boolean;
   enableBehaviorAnalysis?: boolean;
   enableObjectDetection?: boolean;
+  enableFacialRecognition?: boolean; // NEW: Facial recognition analysis
   customPrompt?: string;
+  // Facial recognition specific config
+  facialRecognition?: {
+    enableWatchlistMatching?: boolean;
+    requireExplicitConsent?: boolean;
+    faceConfidenceThreshold?: number;
+    matchConfidenceThreshold?: number;
+    enableDemographicEstimates?: boolean;
+    privacyMode?: 'strict' | 'balanced' | 'minimal'; // Privacy compliance level
+  };
 }
 
 export interface ComprehensiveVideoAnalysis {
@@ -111,9 +137,11 @@ export class AIVideoAnalyticsService {
   private uploadDir = path.join(process.cwd(), 'uploads');
   private frameCache = new Map<string, string>(); // frame ID -> base64 cache
   private analysisCache = new Map<string, FrameAnalysisResult>(); // frame hash -> analysis cache
+  private facialRecognitionService: FacialRecognitionService;
 
   constructor() {
     this.ensureDirectories();
+    this.facialRecognitionService = new FacialRecognitionService();
   }
 
   private async ensureDirectories() {
@@ -199,11 +227,34 @@ export class AIVideoAnalyticsService {
       // Parse AI response into structured detections with validation
       const detections = this.parseDetections(analysis, timestamp, processingTime);
 
+      // FACIAL RECOGNITION INTEGRATION - Privacy-Compliant Processing
+      // Add facial recognition analysis alongside existing threat detection
+      let facialDetections: AIDetectionResult[] = [];
+      if (config.enableFacialRecognition) {
+        try {
+          console.log(`[FACIAL_RECOGNITION] Processing frame ${frameNumber} for facial recognition`);
+          facialDetections = await this.analyzeFacialRecognition(
+            base64Frame,
+            storeId,
+            cameraId,
+            timestamp,
+            config
+          );
+          console.log(`[FACIAL_RECOGNITION] Frame ${frameNumber}: ${facialDetections.length} faces detected`);
+        } catch (facialError) {
+          console.error(`[FACIAL_RECOGNITION] Frame ${frameNumber} failed:`, facialError);
+          // Don't fail entire analysis due to facial recognition errors
+        }
+      }
+
+      // Combine all detections (threat detection + facial recognition)
+      const allDetections = [...detections, ...facialDetections];
+
       const result: FrameAnalysisResult = {
         frameId,
         frameNumber,
         timestamp,
-        detections,
+        detections: allDetections, // Combined detections including facial recognition
         qualityScore: analysis.qualityScore || 0.8,
         lightingConditions: analysis.lightingConditions || 'good',
         motionLevel: analysis.motionLevel || 'low',
@@ -416,6 +467,237 @@ Respond with JSON in this EXACT format:
     }
 
     return prompt;
+  }
+
+  /**
+   * Analyze facial recognition in a frame with privacy controls
+   */
+  private async analyzeFacialRecognition(
+    frameBase64: string,
+    storeId: string,
+    cameraId: string,
+    frameTimestamp: number,
+    config: VideoAnalysisConfig,
+    userId?: string
+  ): Promise<AIDetectionResult[]> {
+    const facialDetections: AIDetectionResult[] = [];
+
+    // Check if facial recognition is enabled
+    if (!config.enableFacialRecognition) {
+      return facialDetections;
+    }
+
+    const facialConfig = config.facialRecognition || {};
+    const startTime = Date.now();
+
+    try {
+      // Verify consent for facial recognition processing
+      const consentVerified = await this.verifyFacialRecognitionConsent(
+        storeId, 
+        facialConfig.requireExplicitConsent !== false
+      );
+
+      if (!consentVerified && facialConfig.privacyMode === 'strict') {
+        console.log('Facial recognition skipped - no consent verified');
+        return facialDetections;
+      }
+
+      // Analyze image for faces using facial recognition service
+      const faceAnalysisResult = await this.facialRecognitionService.analyzeImageForFaces(frameBase64, {
+        storeId,
+        cameraId,
+        userId: userId || 'video-analytics',
+        enableWatchlistMatching: facialConfig.enableWatchlistMatching !== false,
+        confidenceThreshold: facialConfig.faceConfidenceThreshold || 0.8,
+        enableDemographicEstimates: facialConfig.enableDemographicEstimates === true
+      });
+
+      const processingTime = Date.now() - startTime;
+
+      // Process detected faces
+      for (const detectedFace of faceAnalysisResult.detectedFaces || []) {
+        const detection: AIDetectionResult = {
+          id: randomUUID(),
+          detectionType: 'face',
+          objectClass: 'person',
+          confidence: detectedFace.confidence || 0.0,
+          boundingBox: detectedFace.boundingBox,
+          keyPoints: detectedFace.keyPoints || [],
+          description: `Face detected ${detectedFace.watchlistMatch ? '(WATCHLIST MATCH)' : ''}`,
+          severity: detectedFace.watchlistMatch ? 'high' : 'low',
+          frameTimestamp,
+          processingTime,
+          faceData: {
+            personId: detectedFace.personId,
+            templateId: detectedFace.templateId,
+            watchlistMatch: detectedFace.watchlistMatch || false,
+            matchConfidence: detectedFace.matchConfidence,
+            facialFeatures: '[ENCRYPTED]', // Never expose raw template data
+            consentVerified,
+            demographicEstimates: detectedFace.demographicEstimates
+          }
+        };
+
+        facialDetections.push(detection);
+
+        // Generate facial recognition event for audit trail
+        if (detectedFace.watchlistMatch || facialConfig.privacyMode !== 'minimal') {
+          await this.createFacialRecognitionEvent({
+            storeId,
+            cameraId,
+            frameTimestamp,
+            detection,
+            processingTimeMs: processingTime
+          });
+        }
+      }
+
+      // Process watchlist matches for real-time alerts
+      const watchlistMatches = faceAnalysisResult.watchlistMatches || [];
+      for (const match of watchlistMatches) {
+        await this.handleWatchlistMatch(match, storeId, cameraId, frameTimestamp);
+      }
+
+      console.log(`Facial recognition analysis: ${facialDetections.length} faces detected, ${watchlistMatches.length} watchlist matches`);
+
+    } catch (error) {
+      console.error('Facial recognition analysis failed:', error);
+      
+      // Create audit log for failed analysis
+      await storage.logAdvancedFeatureAudit({
+        userId: userId || 'video-analytics',
+        storeId,
+        featureType: 'facial_recognition',
+        action: 'analyze_frame',
+        outcome: 'error',
+        resourceType: 'video_frame',
+        details: {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          frameTimestamp,
+          cameraId
+        },
+        timestamp: new Date()
+      });
+    }
+
+    return facialDetections;
+  }
+
+  /**
+   * Verify facial recognition consent for the store
+   */
+  private async verifyFacialRecognitionConsent(
+    storeId: string, 
+    requireExplicit: boolean = true
+  ): Promise<boolean> {
+    try {
+      // Check if there's a valid consent for facial recognition
+      const consent = await storage.getConsentPreference(
+        storeId, 
+        CONSENT_TYPES.FACIAL_RECOGNITION,
+        'employee' // Default to employee consent for video analytics
+      );
+
+      if (!consent) {
+        return !requireExplicit; // Allow if not requiring explicit consent
+      }
+
+      // Check if consent is active and not withdrawn
+      const isValid = consent.consentGiven && 
+                     !consent.withdrawnDate && 
+                     (!consent.expiryDate || consent.expiryDate > new Date());
+
+      return isValid;
+    } catch (error) {
+      console.error('Consent verification failed:', error);
+      return false; // Fail secure - deny if cannot verify
+    }
+  }
+
+  /**
+   * Create facial recognition event for audit trail
+   */
+  private async createFacialRecognitionEvent(eventData: {
+    storeId: string;
+    cameraId: string;
+    frameTimestamp: number;
+    detection: AIDetectionResult;
+    processingTimeMs: number;
+  }): Promise<void> {
+    try {
+      await storage.createFacialRecognitionEvent({
+        storeId: eventData.storeId,
+        cameraId: eventData.cameraId,
+        detectionTimestamp: new Date(eventData.frameTimestamp),
+        faceAttributes: {
+          confidence: eventData.detection.confidence,
+          boundingBox: eventData.detection.boundingBox,
+          watchlistMatch: eventData.detection.faceData?.watchlistMatch || false,
+          personId: eventData.detection.faceData?.personId,
+          templateId: eventData.detection.faceData?.templateId
+        },
+        matchConfidence: eventData.detection.faceData?.matchConfidence || 0,
+        processingTimeMs: eventData.processingTimeMs,
+        consentVerified: eventData.detection.faceData?.consentVerified || false
+      });
+    } catch (error) {
+      console.error('Failed to create facial recognition event:', error);
+    }
+  }
+
+  /**
+   * Handle watchlist match for real-time alerts
+   */
+  private async handleWatchlistMatch(
+    match: any, 
+    storeId: string, 
+    cameraId: string, 
+    frameTimestamp: number
+  ): Promise<void> {
+    try {
+      // Create high-priority alert for watchlist match
+      const alert = await storage.createAlert({
+        storeId,
+        type: 'WATCHLIST_MATCH',
+        severity: 'HIGH',
+        title: 'Watchlist Individual Detected',
+        description: `Person of interest detected on camera ${cameraId}. Match confidence: ${match.confidence?.toFixed(2) || 'N/A'}`,
+        cameraId,
+        timestamp: new Date(frameTimestamp),
+        acknowledgedBy: null,
+        acknowledgedAt: null,
+        actionRequired: true,
+        metadata: {
+          personId: match.personId,
+          matchConfidence: match.confidence,
+          watchlistType: match.watchlistType,
+          riskLevel: match.riskLevel
+        }
+      });
+
+      // Log the watchlist match event
+      await storage.logAdvancedFeatureAudit({
+        userId: 'video-analytics',
+        storeId,
+        featureType: 'facial_recognition',
+        action: 'watchlist_match',
+        outcome: 'success',
+        resourceType: 'watchlist_entry',
+        resourceId: match.watchlistEntryId,
+        details: {
+          alertId: alert.id,
+          personId: match.personId,
+          matchConfidence: match.confidence,
+          cameraId,
+          frameTimestamp
+        },
+        timestamp: new Date()
+      });
+
+      console.log(`Watchlist match alert created: ${alert.id} for person ${match.personId}`);
+    } catch (error) {
+      console.error('Failed to handle watchlist match:', error);
+    }
   }
 
   /**
