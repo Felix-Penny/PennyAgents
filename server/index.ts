@@ -2,6 +2,37 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
+// Environment validation for Object Storage
+function validateEnvironment() {
+  const requiredEnvVars = ['DATABASE_URL'];
+  const objectStorageEnvVars = ['PUBLIC_OBJECT_SEARCH_PATHS', 'PRIVATE_OBJECT_DIR'];
+  
+  // Check required environment variables
+  for (const envVar of requiredEnvVars) {
+    if (!process.env[envVar]) {
+      throw new Error(`Required environment variable ${envVar} is not set`);
+    }
+  }
+
+  // Check object storage environment variables
+  let objectStorageConfigured = true;
+  const missingObjectStorageVars = [];
+  
+  for (const envVar of objectStorageEnvVars) {
+    if (!process.env[envVar]) {
+      objectStorageConfigured = false;
+      missingObjectStorageVars.push(envVar);
+    }
+  }
+
+  if (!objectStorageConfigured) {
+    log(`Warning: Object Storage not fully configured. Missing: ${missingObjectStorageVars.join(', ')}`);
+    log('Create a bucket in Object Storage tool and set the required environment variables');
+  } else {
+    log('Object Storage environment validation passed');
+  }
+}
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -37,6 +68,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Validate environment variables at startup
+  validateEnvironment();
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

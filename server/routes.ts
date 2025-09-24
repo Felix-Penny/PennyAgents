@@ -2,9 +2,12 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import Stripe from "stripe";
+import rateLimit from "express-rate-limit";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess, requireSecurityAgent, requireFinanceAgent, requireSalesAgent, requireOperationsAgent, requireHRAgent, requirePlatformRole, requireOrganizationAccess } from "./auth";
+import { ObjectStorageService, SecurityFileCategory, ObjectNotFoundError } from "./objectStorage";
+import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema, offenders } from "../shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
@@ -20,6 +23,31 @@ if (process.env.STRIPE_SECRET_KEY) {
 export function registerRoutes(app: Express): Server {
   // Setup authentication first
   setupAuth(app);
+
+  // Rate limiting configuration for security
+  const publicAssetLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs for public assets
+    message: { error: "Too many requests from this IP, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  const uploadLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute  
+    max: 10, // Limit each IP to 10 upload requests per minute
+    message: { error: "Too many upload requests, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  const downloadLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 50, // Limit each IP to 50 download requests per minute
+    message: { error: "Too many download requests, please try again later." },
+    standardHeaders: true, 
+    legacyHeaders: false,
+  });
 
   // =====================================
   // STORE UI ENDPOINTS (4 TABS)
@@ -895,6 +923,300 @@ export function registerRoutes(app: Express): Server {
   });
 
   // =====================================
+  // SECURITY OBJECT STORAGE ENDPOINTS
+  // =====================================
+
+  // Serve protected security evidence files
+  app.get("/objects/:objectPath(*)", downloadLimiter, requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      
+      // Get and sanitize the object path from route parameters
+      let objectPath = req.params.objectPath;
+      if (!objectPath) {
+        return res.status(400).json({ message: "Object path is required" });
+      }
+      
+      // URL decode and sanitize the path to prevent directory traversal
+      objectPath = decodeURIComponent(objectPath);
+      
+      // Remove any dangerous path components
+      if (objectPath.includes('..') || objectPath.includes('~') || objectPath.startsWith('/')) {
+        return res.status(400).json({ message: "Invalid object path" });
+      }
+      
+      // Ensure path starts with /objects/
+      const fullObjectPath = `/objects/${objectPath}`;
+      
+      const objectStorageService = new ObjectStorageService();
+      const objectFile = await objectStorageService.getObjectEntityFile(fullObjectPath);
+      const canAccess = await objectStorageService.canAccessObjectEntity({
+        objectFile,
+        userId: userId,
+        requestedPermission: ObjectPermission.READ,
+      });
+      
+      if (!canAccess) {
+        return res.status(401).json({ message: "Access denied to security evidence file" });
+      }
+      
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error accessing security evidence file:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.status(404).json({ message: "Security evidence file not found" });
+      }
+      return res.status(500).json({ message: "Error accessing security evidence file" });
+    }
+  });
+
+  // Serve public security assets (for controlled sharing)
+  app.get("/public-objects/:filePath(*)", publicAssetLimiter, async (req, res) => {
+    try {
+      const filePath = req.params.filePath;
+      const objectStorageService = new ObjectStorageService();
+      
+      const file = await objectStorageService.searchPublicObject(filePath);
+      if (!file) {
+        return res.status(404).json({ error: "Security asset not found" });
+      }
+      
+      objectStorageService.downloadObject(file, res);
+    } catch (error) {
+      console.error("Error serving public security asset:", error);
+      return res.status(500).json({ error: "Error serving security asset" });
+    }
+  });
+
+  // Get upload URL for security evidence files
+  app.post("/api/security/evidence/upload", uploadLimiter, requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { category } = req.body;
+      
+      // Validate security file category
+      const validCategories = Object.values(SecurityFileCategory);
+      if (!category || !validCategories.includes(category)) {
+        return res.status(400).json({ 
+          error: "Valid security file category required", 
+          validCategories 
+        });
+      }
+      
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getSecurityFileUploadURL(category);
+      
+      res.json({ 
+        uploadURL,
+        category,
+        maxFileSize: 104857600, // 100MB
+        expiresInMinutes: 15
+      });
+    } catch (error: any) {
+      console.error("Error generating security file upload URL:", error);
+      res.status(500).json({ error: "Error generating upload URL" });
+    }
+  });
+
+  // =====================================
+  // NEW UPLOAD LIFECYCLE ENDPOINTS (Architect Requirements)
+  // =====================================
+
+  // POST /api/security/uploads - Returns { url, objectPath, category } for upload
+  app.post("/api/security/uploads", uploadLimiter, requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { category } = req.body;
+      
+      // Validate security file category
+      const validCategories = Object.values(SecurityFileCategory);
+      if (!category || !validCategories.includes(category)) {
+        return res.status(400).json({ 
+          error: "Valid security file category required", 
+          validCategories 
+        });
+      }
+
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getSecurityFileUploadURL(category);
+      
+      // Generate the object path that will be created after upload
+      const privateDir = objectStorageService.getPrivateObjectDir();
+      const objectId = randomUUID();
+      const expectedObjectPath = `/objects/security/${category}/${objectId}`;
+      
+      res.json({
+        url: uploadURL,
+        objectPath: expectedObjectPath,
+        category,
+        maxFileSize: 104857600, // 100MB
+        expiresInMinutes: 15
+      });
+    } catch (error: any) {
+      console.error("Error generating security file upload URL:", error);
+      res.status(500).json({ error: "Error generating upload URL" });
+    }
+  });
+
+  // POST /api/security/uploads/commit - Sets ACL policy and persists objectPath atomically
+  app.post("/api/security/uploads/commit", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { objectPath, storeId, incidentId, category, description } = req.body;
+      
+      if (!objectPath) {
+        return res.status(400).json({ error: "objectPath is required" });
+      }
+      
+      if (!storeId) {
+        return res.status(400).json({ error: "storeId is required for ACL enforcement" });
+      }
+
+      // Verify user has access to this store
+      const user = await storage.getUser(req.user!.id);
+      if (user?.storeId !== storeId && user?.role !== "penny_admin") {
+        return res.status(403).json({ error: "Access denied to this store" });
+      }
+
+      const objectStorageService = new ObjectStorageService();
+      
+      // Verify the object exists by getting its file handle
+      const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+      
+      // Set ACL policy for security evidence with store-level access control
+      const aclPolicy = {
+        owner: req.user!.id,
+        visibility: "private" as const,
+        aclRules: [
+          {
+            group: {
+              type: ObjectAccessGroupType.STORE_SECURITY_STAFF,
+              id: storeId
+            },
+            permission: ObjectPermission.READ
+          }
+        ]
+      };
+      
+      await setObjectAclPolicy(objectFile, aclPolicy);
+
+      // Atomically persist objectPath to incident if provided
+      if (incidentId) {
+        const incident = await storage.getIncidentById(incidentId);
+        if (!incident) {
+          return res.status(404).json({ error: "Incident not found" });
+        }
+        
+        // Verify incident belongs to the same store for security
+        if (incident.storeId !== storeId) {
+          return res.status(403).json({ error: "Incident does not belong to specified store" });
+        }
+        
+        const existingEvidence = (incident.evidenceFiles as string[]) || [];
+        await storage.updateIncident(incidentId, {
+          evidenceFiles: [...existingEvidence, objectPath]
+        });
+      }
+
+      res.json({
+        message: "Upload committed successfully with ACL protection",
+        objectPath,
+        storeId,
+        incidentId: incidentId || null,
+        category,
+        description
+      });
+    } catch (error: any) {
+      console.error("Error committing security file upload:", error);
+      if (error.name === "ObjectNotFoundError") {
+        return res.status(404).json({ error: "Uploaded file not found - upload may have failed" });
+      }
+      res.status(500).json({ error: "Error committing upload" });
+    }
+  });
+
+  // Update evidence bundle after security file upload
+  app.put("/api/security/evidence", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { evidenceFileURL, storeId, incidentId, category, description } = req.body;
+      
+      if (!evidenceFileURL) {
+        return res.status(400).json({ error: "evidenceFileURL is required" });
+      }
+      
+      if (!storeId) {
+        return res.status(400).json({ error: "storeId is required" });
+      }
+
+      // Verify user has access to this store
+      const user = await storage.getUser(req.user!.id);
+      if (user?.storeId !== storeId && user?.role !== "penny_admin") {
+        return res.status(403).json({ error: "Access denied to this store" });
+      }
+
+      const objectStorageService = new ObjectStorageService();
+      
+      // Set ACL policy for security evidence with store-level access control
+      const objectPath = await objectStorageService.setSecurityEvidenceAcl(
+        evidenceFileURL,
+        req.user!.id,
+        storeId,
+        "private" // Security evidence should be private by default
+      );
+
+      // Update evidence bundle in database if provided
+      if (incidentId) {
+        const incident = await storage.getIncidentById(incidentId);
+        if (incident && incident.storeId === storeId) {
+          const existingEvidence = (incident.evidenceFiles as string[]) || [];
+          await storage.updateIncident(incidentId, {
+            evidenceFiles: [...existingEvidence, objectPath]
+          });
+        }
+      }
+
+      res.status(200).json({
+        objectPath,
+        storeId,
+        incidentId,
+        category,
+        description,
+        message: "Security evidence file uploaded and secured successfully"
+      });
+    } catch (error: any) {
+      console.error("Error processing security evidence upload:", error);
+      res.status(500).json({ error: "Error processing security evidence upload" });
+    }
+  });
+
+  // Get security evidence files for an incident
+  app.get("/api/security/incidents/:incidentId/evidence", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { incidentId } = req.params;
+      
+      const incident = await storage.getIncidentById(incidentId);
+      if (!incident) {
+        return res.status(404).json({ message: "Incident not found" });
+      }
+      
+      // Verify user has access to this store
+      const user = await storage.getUser(req.user!.id);
+      if (user?.storeId !== incident.storeId && user?.role !== "penny_admin") {
+        return res.status(403).json({ error: "Access denied to this incident" });
+      }
+      
+      const evidenceFiles = (incident.evidenceFiles as string[]) || [];
+      
+      res.json({
+        incidentId,
+        storeId: incident.storeId,
+        evidenceFiles,
+        totalFiles: evidenceFiles.length
+      });
+    } catch (error: any) {
+      console.error("Error fetching incident evidence:", error);
+      res.status(500).json({ error: "Error fetching incident evidence" });
+    }
+  });
+
+  // =====================================
   // MULTI-AGENT PLATFORM ENDPOINTS
   // =====================================
 
@@ -1052,9 +1374,9 @@ export function registerRoutes(app: Express): Server {
       const organizationId = req.user!.organizationId;
       
       // Get real sales metrics from storage with organization scoping
-      const salesMetrics = await storage.getSalesMetrics(organizationId);
-      const recentDeals = await storage.getRecentCompletedPayments(5, organizationId);
-      const paymentsLast30Days = await storage.getPaymentsInLast30Days(organizationId);
+      const salesMetrics = await storage.getSalesMetrics(organizationId ?? undefined);
+      const recentDeals = await storage.getRecentCompletedPayments(5, organizationId ?? undefined);
+      const paymentsLast30Days = await storage.getPaymentsInLast30Days(organizationId ?? undefined);
 
       // Calculate additional metrics
       const monthlyTarget = 500000; // Default target, could come from agent settings
@@ -1103,6 +1425,9 @@ export function registerRoutes(app: Express): Server {
       const organizationId = req.user!.organizationId;
       
       // Get real operations metrics from storage with organization scoping
+      if (!organizationId) {
+        return res.status(400).json({ message: "Organization ID is required" });
+      }
       const operationsMetrics = await storage.getOperationsMetrics(organizationId);
       const activeProcesses = await storage.getActiveProcesses(organizationId);
       const recentIncidents = await storage.getRecentOperationalIncidents(organizationId, 5);
@@ -1130,7 +1455,7 @@ export function registerRoutes(app: Express): Server {
         id: incident.id,
         message: incident.title,
         severity: incident.severity === 'high' ? 'warning' : incident.severity === 'critical' ? 'error' : 'info',
-        time: new Date(incident.detectedAt).toLocaleString()
+        time: incident.detectedAt ? new Date(incident.detectedAt).toLocaleString() : 'Unknown'
       }));
 
       const operationsStats = {
@@ -1170,7 +1495,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Demo Data Seeding (for development) - SECURE WITH PRODUCTION BLOCKING
-  app.post("/api/seed-demo-data", requireAuth, requirePlatformRole("admin"), async (req, res) => {
+  app.post("/api/seed-demo-data", requireAuth, requirePlatformRole(["admin"]), async (req, res) => {
     try {
       // Block in production environment
       if (process.env.NODE_ENV === 'production') {
@@ -1827,9 +2152,12 @@ export function registerRoutes(app: Express): Server {
       const organizationId = req.user!.organizationId;
       
       // Get comprehensive HR metrics from storage with organization scoping
-      const hrMetrics = await storage.getHRMetrics(organizationId);
+      const hrMetrics = await storage.getHRMetrics(organizationId ?? undefined);
       
       // Get recent hires (last 30 days)
+      if (!organizationId) {
+        return res.status(400).json({ message: "Organization ID is required" });
+      }
       const recentHires = await storage.getEmployeesByOrganization(organizationId);
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
