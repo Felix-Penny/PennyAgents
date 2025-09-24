@@ -349,7 +349,8 @@ export function requireAgentWithOrganization(agentId: string, minimumRole?: stri
 }
 
 // Convenience middleware for specific agents
-export const requireSecurityAgent = (minimumRole?: string) => requireAgentAccess("security", minimumRole);
+export const requireSecurityAgent = (minimumRole?: string) => requireAgentAccess("security-agent", minimumRole);
+export const requireCyberSecurityAgent = (minimumRole?: string) => requireAgentAccess("cyber-security-agent", minimumRole);
 export const requireFinanceAgent = (minimumRole?: string) => requireAgentAccess("finance", minimumRole);
 export const requireSalesAgent = (minimumRole?: string) => requireAgentAccess("sales", minimumRole);
 export const requireOperationsAgent = (minimumRole?: string) => requireAgentAccess("operations", minimumRole);

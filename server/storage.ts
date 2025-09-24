@@ -569,13 +569,9 @@ export class DatabaseStorage implements IStorage {
       ...offender,
       aliases: offender.aliases ? Array.from(offender.aliases as string[]) : [],
       physicalDescription: offender.physicalDescription as any,
-      contactInfo: offender.contactInfo as any,
       behaviorPatterns: offender.behaviorPatterns ? Array.from(offender.behaviorPatterns as string[]) : [],
       thumbnails: offender.thumbnails ? Array.from(offender.thumbnails as string[]) : [],
-      confirmedIncidentIds: offender.confirmedIncidentIds ? Array.from(offender.confirmedIncidentIds as string[]) : [],
-      bannedFromStores: offender.bannedFromStores ? Array.from(offender.bannedFromStores as string[]) : [],
-      biometricData: offender.biometricData as any,
-      lastSeenLocation: offender.lastSeenLocation as any
+      confirmedIncidentIds: offender.confirmedIncidentIds ? Array.from(offender.confirmedIncidentIds as string[]) : []
     };
     const [newOffender] = await db.insert(offenders).values([offenderData]).returning();
     return newOffender;
@@ -610,13 +606,9 @@ export class DatabaseStorage implements IStorage {
       updatedAt: new Date(),
       aliases: updates.aliases ? Array.from(updates.aliases as string[]) : undefined,
       physicalDescription: updates.physicalDescription as any,
-      contactInfo: updates.contactInfo as any,
       behaviorPatterns: updates.behaviorPatterns ? Array.from(updates.behaviorPatterns as string[]) : undefined,
       thumbnails: updates.thumbnails ? Array.from(updates.thumbnails as string[]) : undefined,
-      confirmedIncidentIds: updates.confirmedIncidentIds ? Array.from(updates.confirmedIncidentIds as string[]) : undefined,
-      bannedFromStores: updates.bannedFromStores ? Array.from(updates.bannedFromStores as string[]) : undefined,
-      biometricData: updates.biometricData as any,
-      lastSeenLocation: updates.lastSeenLocation as any
+      confirmedIncidentIds: updates.confirmedIncidentIds ? Array.from(updates.confirmedIncidentIds as string[]) : undefined
     };
     // Remove undefined values
     Object.keys(updateData).forEach(key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]);
@@ -873,8 +865,21 @@ export class DatabaseStorage implements IStorage {
 
   async getAgentsByOrganization(organizationId: string): Promise<Agent[]> {
     // Get enabled agents for this organization based on agent configurations
-    return await db
-      .select(agents)
+    const results = await db
+      .select({
+        id: agents.id,
+        name: agents.name,
+        description: agents.description,
+        sector: agents.sector,
+        icon: agents.icon,
+        colorScheme: agents.colorScheme,
+        features: agents.features,
+        baseRoute: agents.baseRoute,
+        isActive: agents.isActive,
+        minimumRole: agents.minimumRole,
+        createdAt: agents.createdAt,
+        updatedAt: agents.updatedAt
+      })
       .from(agents)
       .innerJoin(agentConfigurations, eq(agentConfigurations.agentId, agents.id))
       .where(
@@ -884,6 +889,7 @@ export class DatabaseStorage implements IStorage {
           eq(agents.isActive, true)
         )
       );
+    return results as Agent[];
   }
 
   // User Agent Access
@@ -912,21 +918,13 @@ export class DatabaseStorage implements IStorage {
         userId: userAgentAccess.userId,
         agentId: userAgentAccess.agentId,
         role: userAgentAccess.role,
+        permissions: userAgentAccess.permissions,
         isActive: userAgentAccess.isActive,
         grantedBy: userAgentAccess.grantedBy,
         grantedAt: userAgentAccess.grantedAt,
-        agent: {
-          id: agents.id,
-          name: agents.name,
-          isActive: agents.isActive,
-          category: agents.sector,
-          description: agents.description,
-          baseRoute: agents.baseRoute,
-          minimumRole: agents.minimumRole
-        }
+        createdAt: userAgentAccess.createdAt
       })
       .from(userAgentAccess)
-      .innerJoin(agents, eq(userAgentAccess.agentId, agents.id))
       .where(and(eq(userAgentAccess.userId, userId), eq(userAgentAccess.isActive, true)))
       .orderBy(userAgentAccess.grantedAt);
       
@@ -934,9 +932,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserAgentAccess(id: string, updates: Partial<InsertUserAgentAccess>): Promise<UserAgentAccess> {
+    const updateData = {
+      ...updates,
+      permissions: updates.permissions ? Array.from(updates.permissions as string[]) : undefined
+    };
+    // Remove undefined values
+    Object.keys(updateData).forEach(key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]);
     const [updatedAccess] = await db
       .update(userAgentAccess)
-      .set(updates)
+      .set(updateData)
       .where(eq(userAgentAccess.id, id))
       .returning();
     return updatedAccess;
@@ -951,7 +955,11 @@ export class DatabaseStorage implements IStorage {
 
   // Agent Configurations
   async createAgentConfiguration(config: InsertAgentConfiguration): Promise<AgentConfiguration> {
-    const [newConfig] = await db.insert(agentConfigurations).values([config]).returning();
+    const configData = {
+      ...config,
+      settings: config.settings as any // Type assertion for JSON field
+    };
+    const [newConfig] = await db.insert(agentConfigurations).values([configData]).returning();
     return newConfig;
   }
 
@@ -978,9 +986,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateAgentConfiguration(id: string, updates: Partial<InsertAgentConfiguration>): Promise<AgentConfiguration> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      settings: updates.settings as any // Type assertion for JSON field
+    };
     const [updatedConfig] = await db
       .update(agentConfigurations)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(agentConfigurations.id, id))
       .returning();
     return updatedConfig;
@@ -1075,7 +1088,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(alerts)
       .where(eq(alerts.id, id));
-    return result.rowCount > 0;
+    return (result.rowCount ?? 0) > 0;
   }
 
   // =====================================
@@ -1108,9 +1121,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCamera(camera: InsertCamera): Promise<Camera> {
+    const cameraData = {
+      ...camera,
+      settings: camera.settings as any // Type assertion for JSON field
+    };
     const [newCamera] = await db
       .insert(cameras)
-      .values([camera])
+      .values([cameraData])
       .returning();
     return newCamera;
   }
@@ -1155,7 +1172,7 @@ export class DatabaseStorage implements IStorage {
       .update(cameras)
       .set({ isActive: false, updatedAt: new Date() })
       .where(eq(cameras.id, id));
-    return result.rowCount > 0;
+    return (result.rowCount ?? 0) > 0;
   }
 
   // =====================================
@@ -1196,9 +1213,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createIncident(incident: InsertIncident): Promise<Incident> {
+    const incidentData = {
+      ...incident,
+      location: incident.location as any, // Type assertion for JSON field
+      evidenceFiles: incident.evidenceFiles as any,
+      witnessAccounts: incident.witnessAccounts as any,
+      metadata: incident.metadata as any // Type assertion for JSON field
+    };
     const [newIncident] = await db
       .insert(incidents)
-      .values([incident])
+      .values([incidentData])
       .returning();
     return newIncident;
   }
@@ -1271,7 +1295,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(incidents)
       .where(eq(incidents.id, id));
-    return result.rowCount > 0;
+    return (result.rowCount ?? 0) > 0;
   }
 
   // =====================================
@@ -1289,21 +1313,24 @@ export class DatabaseStorage implements IStorage {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
-    let completedPaymentsQuery = db
+    const completedPaymentsQuery = db
       .select({
         debtPayment: debtPayments,
         store: stores
       })
       .from(debtPayments)
       .leftJoin(stores, eq(debtPayments.storeId, stores.id))
-      .where(and(
-        eq(debtPayments.status, "COMPLETED"),
-        sql`${debtPayments.paidAt} >= ${thirtyDaysAgo}`
-      ));
-    
-    if (organizationId) {
-      completedPaymentsQuery = completedPaymentsQuery.where(eq(stores.organizationId, organizationId));
-    }
+      .where(organizationId 
+        ? and(
+            eq(debtPayments.status, "COMPLETED"),
+            sql`${debtPayments.paidAt} >= ${thirtyDaysAgo}`,
+            eq(stores.organizationId, organizationId)
+          )
+        : and(
+            eq(debtPayments.status, "COMPLETED"),
+            sql`${debtPayments.paidAt} >= ${thirtyDaysAgo}`
+          )
+      );
     
     const completedPayments = await completedPaymentsQuery;
 
@@ -1314,17 +1341,14 @@ export class DatabaseStorage implements IStorage {
       totalSales / completedPayments.length : 0;
 
     // Get all payments for conversion rate
-    let allPaymentsQuery = db
+    const allPaymentsQuery = db
       .select({
         debtPayment: debtPayments,
         store: stores
       })
       .from(debtPayments)
-      .leftJoin(stores, eq(debtPayments.storeId, stores.id));
-    
-    if (organizationId) {
-      allPaymentsQuery = allPaymentsQuery.where(eq(stores.organizationId, organizationId));
-    }
+      .leftJoin(stores, eq(debtPayments.storeId, stores.id))
+      .where(organizationId ? eq(stores.organizationId, organizationId) : sql`1=1`);
     
     const allPayments = await allPaymentsQuery;
     const completed = allPayments.filter(p => p.debtPayment.status === "COMPLETED").length;
@@ -1332,18 +1356,20 @@ export class DatabaseStorage implements IStorage {
       (completed / allPayments.length) * 100 : 0;
 
     // Get pending payments for pipeline value
-    let pendingPaymentsQuery = db
+    const pendingPaymentsQuery = db
       .select({
         debtPayment: debtPayments,
         store: stores
       })
       .from(debtPayments)
       .leftJoin(stores, eq(debtPayments.storeId, stores.id))
-      .where(eq(debtPayments.status, "PENDING"));
-    
-    if (organizationId) {
-      pendingPaymentsQuery = pendingPaymentsQuery.where(eq(stores.organizationId, organizationId));
-    }
+      .where(organizationId 
+        ? and(
+            eq(debtPayments.status, "PENDING"),
+            eq(stores.organizationId, organizationId)
+          )
+        : eq(debtPayments.status, "PENDING")
+      );
     
     const pendingPayments = await pendingPaymentsQuery;
 
@@ -1374,7 +1400,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRecentCompletedPayments(limit: number = 10, organizationId?: string): Promise<Array<DebtPayment & { offenderName?: string; storeName?: string }>> {
-    let paymentsQuery = db
+    const paymentsQuery = db
       .select({
         debtPayment: debtPayments,
         offenderName: offenders.name,
@@ -1383,13 +1409,15 @@ export class DatabaseStorage implements IStorage {
       .from(debtPayments)
       .leftJoin(offenders, eq(debtPayments.offenderId, offenders.id))
       .leftJoin(stores, eq(debtPayments.storeId, stores.id))
-      .where(eq(debtPayments.status, "COMPLETED"))
+      .where(organizationId 
+        ? and(
+            eq(debtPayments.status, "COMPLETED"),
+            eq(stores.organizationId, organizationId)
+          )
+        : eq(debtPayments.status, "COMPLETED")
+      )
       .orderBy(desc(debtPayments.paidAt))
       .limit(limit);
-    
-    if (organizationId) {
-      paymentsQuery = paymentsQuery.where(eq(stores.organizationId, organizationId));
-    }
     
     const payments = await paymentsQuery;
 
@@ -1404,21 +1432,24 @@ export class DatabaseStorage implements IStorage {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
-    let query = db
+    const query = db
       .select({
         debtPayment: debtPayments
       })
       .from(debtPayments)
       .leftJoin(stores, eq(debtPayments.storeId, stores.id))
-      .where(and(
-        eq(debtPayments.status, "COMPLETED"),
-        sql`${debtPayments.paidAt} >= ${thirtyDaysAgo}`
-      ))
+      .where(organizationId 
+        ? and(
+            eq(debtPayments.status, "COMPLETED"),
+            sql`${debtPayments.paidAt} >= ${thirtyDaysAgo}`,
+            eq(stores.organizationId, organizationId)
+          )
+        : and(
+            eq(debtPayments.status, "COMPLETED"),
+            sql`${debtPayments.paidAt} >= ${thirtyDaysAgo}`
+          )
+      )
       .orderBy(desc(debtPayments.paidAt));
-    
-    if (organizationId) {
-      query = query.where(eq(stores.organizationId, organizationId));
-    }
     
     const result = await query;
     return result.map(r => r.debtPayment);
@@ -1440,33 +1471,31 @@ export class DatabaseStorage implements IStorage {
     efficiencyRate: number;
   }> {
     // Get processes for this organization
-    let processQuery = db.select().from(processes);
-    if (organizationId) {
-      processQuery = processQuery.where(eq(processes.organizationId, organizationId));
-    }
-    const orgProcesses = await processQuery;
+    const orgProcesses = await db
+      .select()
+      .from(processes)
+      .where(organizationId ? eq(processes.organizationId, organizationId) : sql`1=1`);
 
     // Get infrastructure components
-    let infraQuery = db.select().from(infrastructureComponents);
-    if (organizationId) {
-      infraQuery = infraQuery.where(eq(infrastructureComponents.organizationId, organizationId));
-    }
-    const infraComponents = await infraQuery;
+    const infraComponents = await db
+      .select()
+      .from(infrastructureComponents)
+      .where(organizationId ? eq(infrastructureComponents.organizationId, organizationId) : sql`1=1`);
 
     // Get recent incidents (last 7 days)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     
-    let incidentsQuery = db
+    const recentIncidents = await db
       .select()
       .from(operationalIncidents)
-      .where(sql`${operationalIncidents.detectedAt} >= ${sevenDaysAgo}`);
-    
-    if (organizationId) {
-      incidentsQuery = incidentsQuery.where(eq(operationalIncidents.organizationId, organizationId));
-    }
-    
-    const recentIncidents = await incidentsQuery;
+      .where(organizationId 
+        ? and(
+            sql`${operationalIncidents.detectedAt} >= ${sevenDaysAgo}`,
+            eq(operationalIncidents.organizationId, organizationId)
+          )
+        : sql`${operationalIncidents.detectedAt} >= ${sevenDaysAgo}`
+      );
 
     // Calculate metrics
     const totalProcesses = orgProcesses.length;
@@ -1498,18 +1527,27 @@ export class DatabaseStorage implements IStorage {
 
   // System Metrics Management
   async createSystemMetric(metric: InsertSystemMetric): Promise<SystemMetric> {
-    const [newMetric] = await db.insert(systemMetrics).values([metric]).returning();
+    const metricData = {
+      ...metric,
+      metadata: metric.metadata as any, // Type assertion for JSON field
+      threshold: metric.threshold as any // Type assertion for JSON field
+    };
+    const [newMetric] = await db.insert(systemMetrics).values([metricData]).returning();
     return newMetric;
   }
 
   async getSystemMetrics(organizationId: string, metricType?: string): Promise<SystemMetric[]> {
-    let query = db.select().from(systemMetrics).where(eq(systemMetrics.organizationId, organizationId));
-    
-    if (metricType) {
-      query = query.where(eq(systemMetrics.metricType, metricType));
-    }
-    
-    return await query.orderBy(desc(systemMetrics.collectedAt));
+    return await db
+      .select()
+      .from(systemMetrics)
+      .where(metricType 
+        ? and(
+            eq(systemMetrics.organizationId, organizationId),
+            eq(systemMetrics.metricType, metricType)
+          )
+        : eq(systemMetrics.organizationId, organizationId)
+      )
+      .orderBy(desc(systemMetrics.collectedAt));
   }
 
   async getLatestSystemMetrics(organizationId: string): Promise<SystemMetric[]> {
@@ -1522,9 +1560,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateSystemMetric(id: string, updates: Partial<InsertSystemMetric>): Promise<SystemMetric> {
+    const updateData = {
+      ...updates,
+      metadata: updates.metadata as any, // Type assertion for JSON field
+      threshold: updates.threshold as any // Type assertion for JSON field
+    };
     const [updated] = await db
       .update(systemMetrics)
-      .set(updates)
+      .set(updateData)
       .where(eq(systemMetrics.id, id))
       .returning();
     return updated;
@@ -1532,7 +1575,12 @@ export class DatabaseStorage implements IStorage {
 
   // Process Management
   async createProcess(process: InsertProcess): Promise<Process> {
-    const [newProcess] = await db.insert(processes).values([process]).returning();
+    const processData = {
+      ...process,
+      configuration: process.configuration as any, // Type assertion for JSON field
+      results: process.results as any // Type assertion for JSON field
+    };
+    const [newProcess] = await db.insert(processes).values([processData]).returning();
     return newProcess;
   }
 
@@ -1575,9 +1623,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateProcess(id: string, updates: Partial<InsertProcess>): Promise<Process> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      configuration: updates.configuration as any, // Type assertion for JSON field
+      results: updates.results as any // Type assertion for JSON field
+    };
     const [updated] = await db
       .update(processes)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(processes.id, id))
       .returning();
     return updated;

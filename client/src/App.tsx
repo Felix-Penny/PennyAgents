@@ -36,7 +36,7 @@ function Router() {
       
       {/* Security Agent Routes */}
       <Route path="/security/:rest*">
-        <AgentProtectedRoute agentId="security" minimumRole="viewer">
+        <AgentProtectedRoute agentId="security-agent" minimumRole="viewer">
           <ProtectedRoute path="/security/dashboard" component={Dashboard} />
           <ProtectedRoute path="/security/live-feeds" component={LiveFeeds} />
           <ProtectedRoute path="/security/alerts" component={Alerts} />
@@ -74,6 +74,13 @@ function Router() {
       <Route path="/hr">
         <AgentProtectedRoute agentId="hr" minimumRole="viewer">
           <HRDashboard />
+        </AgentProtectedRoute>
+      </Route>
+      
+      {/* Cyber Security Agent Routes */}
+      <Route path="/cyber-security">
+        <AgentProtectedRoute agentId="cyber-security-agent" minimumRole="viewer">
+          <Dashboard />
         </AgentProtectedRoute>
       </Route>
       
