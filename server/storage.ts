@@ -455,12 +455,15 @@ export interface IStorage {
 
   async getOffendersByStore(storeId: string): Promise<Offender[]> {
     // Get offenders who have thefts at this store
-    return await db
-      .select()
+    const results = await db
+      .select({
+        offender: offenders
+      })
       .from(offenders)
       .innerJoin(thefts, eq(thefts.offenderId, offenders.id))
       .where(eq(thefts.storeId, storeId))
       .groupBy(offenders.id);
+    return results.map(r => r.offender);
   }
 
   async getNetworkOffenders(excludeStoreId?: string): Promise<Offender[]> {
@@ -832,10 +835,7 @@ export interface IStorage {
       settings: config.settings as any // Type assertion for JSON field
     };
     const [newConfig] = await db.insert(agentConfigurations).values([configData]).returning();
-    return {
-      ...newConfig,
-      settings: newConfig.settings as Json
-    } as AgentConfiguration;
+    return newConfig;
   }
 
   async getAgentConfiguration(organizationId: string, agentId: string): Promise<AgentConfiguration | null> {
@@ -850,10 +850,7 @@ export interface IStorage {
       )
       .limit(1);
     const result = config[0] || null;
-    return result ? {
-      ...result,
-      settings: result.settings as Json
-    } as AgentConfiguration : null;
+    return result || null;
   }
 
   async getOrganizationAgentConfigurations(organizationId: string): Promise<AgentConfiguration[]> {
@@ -862,10 +859,7 @@ export interface IStorage {
       .from(agentConfigurations)
       .where(eq(agentConfigurations.organizationId, organizationId))
       .orderBy(agentConfigurations.createdAt);
-    return configs.map(config => ({
-      ...config,
-      settings: config.settings as Json
-    })) as AgentConfiguration[];
+    return configs;
   }
 
   async updateAgentConfiguration(id: string, updates: Partial<InsertAgentConfiguration>): Promise<AgentConfiguration> {
@@ -879,10 +873,7 @@ export interface IStorage {
       .set(updateData)
       .where(eq(agentConfigurations.id, id))
       .returning();
-    return {
-      ...updatedConfig,
-      settings: updatedConfig.settings as Json
-    } as AgentConfiguration;
+    return updatedConfig;
   }
 
   // =====================================
@@ -1009,7 +1000,7 @@ export interface IStorage {
   async createCamera(camera: InsertCamera): Promise<Camera> {
     const cameraData = {
       ...camera,
-      settings: camera.settings as any // Type assertion for JSON field
+      capabilities: camera.capabilities ? Array.from(camera.capabilities as string[]) : []
     };
     const [newCamera] = await db
       .insert(cameras)
@@ -1019,9 +1010,15 @@ export interface IStorage {
   }
 
   async updateCamera(id: string, updates: Partial<Camera>): Promise<Camera | null> {
+    const updateData = {
+      ...updates,
+      capabilities: updates.capabilities ? Array.from(updates.capabilities as string[]) : undefined
+    };
+    // Remove undefined values
+    Object.keys(updateData).forEach(key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]);
     const [updated] = await db
       .update(cameras)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(cameras.id, id))
       .returning();
     return updated || null;
@@ -1032,8 +1029,7 @@ export interface IStorage {
       .update(cameras)
       .set({ 
         status, 
-        lastHeartbeat: new Date(),
-        updatedAt: new Date() 
+        lastHeartbeat: new Date()
       })
       .where(eq(cameras.id, id))
       .returning();
@@ -1045,8 +1041,7 @@ export interface IStorage {
       .update(cameras)
       .set({ 
         lastHeartbeat: new Date(),
-        status: "online",
-        updatedAt: new Date() 
+        status: "online"
       })
       .where(eq(cameras.id, id))
       .returning();
@@ -1056,7 +1051,7 @@ export interface IStorage {
   async deleteCamera(id: string): Promise<boolean> {
     const result = await db
       .update(cameras)
-      .set({ isActive: false, updatedAt: new Date() })
+      .set({ isActive: false })
       .where(eq(cameras.id, id));
     return (result.rowCount ?? 0) > 0;
   }
@@ -1555,7 +1550,11 @@ export interface IStorage {
 
   // Infrastructure Monitoring
   async createInfrastructureComponent(component: InsertInfrastructureComponent): Promise<InfrastructureComponent> {
-    const [newComponent] = await db.insert(infrastructureComponents).values([component]).returning();
+    const componentData = {
+      ...component,
+      specifications: component.specifications as any // Type assertion for JSON field
+    };
+    const [newComponent] = await db.insert(infrastructureComponents).values([componentData]).returning();
     return newComponent;
   }
 
@@ -1584,9 +1583,14 @@ export interface IStorage {
   }
 
   async updateInfrastructureComponent(id: string, updates: Partial<InsertInfrastructureComponent>): Promise<InfrastructureComponent> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      specifications: updates.specifications as any // Type assertion for JSON field
+    };
     const [updated] = await db
       .update(infrastructureComponents)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(infrastructureComponents.id, id))
       .returning();
     return updated;
@@ -1594,7 +1598,12 @@ export interface IStorage {
 
   // Operational Incidents Management
   async createOperationalIncident(incident: InsertOperationalIncident): Promise<OperationalIncident> {
-    const [newIncident] = await db.insert(operationalIncidents).values([incident]).returning();
+    const incidentData = {
+      ...incident,
+      affectedComponents: incident.affectedComponents ? Array.from(incident.affectedComponents as string[]) : [],
+      affectedProcesses: incident.affectedProcesses ? Array.from(incident.affectedProcesses as string[]) : []
+    };
+    const [newIncident] = await db.insert(operationalIncidents).values([incidentData]).returning();
     return newIncident;
   }
 
@@ -1632,9 +1641,17 @@ export interface IStorage {
   }
 
   async updateOperationalIncident(id: string, updates: Partial<InsertOperationalIncident>): Promise<OperationalIncident> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      affectedComponents: updates.affectedComponents ? Array.from(updates.affectedComponents as string[]) : undefined,
+      affectedProcesses: updates.affectedProcesses ? Array.from(updates.affectedProcesses as string[]) : undefined
+    };
+    // Remove undefined values
+    Object.keys(updateData).forEach(key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]);
     const [updated] = await db
       .update(operationalIncidents)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(operationalIncidents.id, id))
       .returning();
     return updated;
@@ -1790,7 +1807,12 @@ export interface IStorage {
 
   // Employee Management
   async createEmployee(employee: InsertEmployee): Promise<Employee> {
-    const [newEmployee] = await db.insert(employees).values([employee]).returning();
+    const employeeData = {
+      ...employee,
+      profile: employee.profile as any, // Type assertion for JSON field
+      diversityInfo: employee.diversityInfo as any // Type assertion for JSON field
+    };
+    const [newEmployee] = await db.insert(employees).values([employeeData]).returning();
     return newEmployee;
   }
 
@@ -1836,9 +1858,15 @@ export interface IStorage {
   }
 
   async updateEmployee(id: string, updates: Partial<InsertEmployee>): Promise<Employee> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      profile: updates.profile as any, // Type assertion for JSON field
+      diversityInfo: updates.diversityInfo as any // Type assertion for JSON field
+    };
     const [updated] = await db
       .update(employees)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(employees.id, id))
       .returning();
     return updated;
@@ -1855,7 +1883,19 @@ export interface IStorage {
 
   // Performance Management
   async createPerformanceReview(review: InsertPerformanceReview): Promise<PerformanceReview> {
-    const [newReview] = await db.insert(performanceReviews).values([review]).returning();
+    const reviewData = {
+      ...review,
+      ratings: review.ratings ? {
+        performance: review.ratings.performance as number,
+        communication: review.ratings.communication as number,
+        teamwork: review.ratings.teamwork as number,
+        leadership: review.ratings.leadership as number,
+        innovation: review.ratings.innovation as number,
+        reliability: review.ratings.reliability as number,
+        growthMindset: review.ratings.growthMindset as number
+      } : null
+    };
+    const [newReview] = await db.insert(performanceReviews).values([reviewData]).returning();
     return newReview;
   }
 
@@ -1895,9 +1935,24 @@ export interface IStorage {
   }
 
   async updatePerformanceReview(id: string, updates: Partial<InsertPerformanceReview>): Promise<PerformanceReview> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      ratings: updates.ratings ? {
+        performance: updates.ratings.performance as number,
+        communication: updates.ratings.communication as number,
+        teamwork: updates.ratings.teamwork as number,
+        leadership: updates.ratings.leadership as number,
+        innovation: updates.ratings.innovation as number,
+        reliability: updates.ratings.reliability as number,
+        growthMindset: updates.ratings.growthMindset as number
+      } : undefined
+    };
+    // Remove undefined values
+    Object.keys(updateData).forEach(key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]);
     const [updated] = await db
       .update(performanceReviews)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(performanceReviews.id, id))
       .returning();
     return updated;
@@ -1917,7 +1972,14 @@ export interface IStorage {
   }
 
   async createPerformanceGoal(goal: InsertPerformanceGoal): Promise<PerformanceGoal> {
-    const [newGoal] = await db.insert(performanceGoals).values([goal]).returning();
+    const goalData = {
+      ...goal,
+      metrics: goal.metrics ? {
+        kpis: goal.metrics.kpis as Array<{ name: string; target: number; current: number; unit: string }>,
+        milestones: goal.metrics.milestones as Array<{ name: string; dueDate: string; completed: boolean }>
+      } : null
+    };
+    const [newGoal] = await db.insert(performanceGoals).values([goalData]).returning();
     return newGoal;
   }
 
@@ -1943,9 +2005,19 @@ export interface IStorage {
   }
 
   async updatePerformanceGoal(id: string, updates: Partial<InsertPerformanceGoal>): Promise<PerformanceGoal> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+      metrics: updates.metrics ? {
+        kpis: updates.metrics.kpis as Array<{ name: string; target: number; current: number; unit: string }>,
+        milestones: updates.metrics.milestones as Array<{ name: string; dueDate: string; completed: boolean }>
+      } : undefined
+    };
+    // Remove undefined values
+    Object.keys(updateData).forEach(key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]);
     const [updated] = await db
       .update(performanceGoals)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(performanceGoals.id, id))
       .returning();
     return updated;

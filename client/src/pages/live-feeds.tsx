@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useCameraAnalysis } from "@/hooks/useCameraAnalysis";
+import { useCameraStatusSocket } from "@/hooks/useCameraStatusSocket";
 import { OverlayRenderer, DetectionStats } from "@/components/OverlayRenderer";
 import type { Camera } from "@shared/schema";
 
@@ -142,6 +143,7 @@ function GridSelector({ currentLayout, onLayoutChange, disabled = false }: GridS
 // Camera Controls Component
 interface CameraControlsProps {
   camera: Camera;
+  currentStatus: CameraStatus; // CRITICAL FIX: Use real-time status instead of static camera.status
   tileState: CameraTileState;
   onPlay: () => void;
   onPause: () => void;
@@ -156,8 +158,9 @@ interface CameraControlsProps {
   };
 }
 
-function CameraControls({ camera, tileState, onPlay, onPause, onFullscreen, onToggleOverlay, onToggleAnalysis, analysisState }: CameraControlsProps) {
-  const isOnline = camera.status === "online";
+function CameraControls({ camera, currentStatus, tileState, onPlay, onPause, onFullscreen, onToggleOverlay, onToggleAnalysis, analysisState }: CameraControlsProps) {
+  // CRITICAL FIX: Use real-time status for control states instead of static camera.status
+  const isOnline = currentStatus === "online";
   
   return (
     <TooltipProvider>
@@ -275,18 +278,44 @@ function CameraControls({ camera, tileState, onPlay, onPause, onFullscreen, onTo
 // Camera Tile Component
 interface CameraTileProps {
   camera: Camera;
+  isVisible?: boolean; // Whether this tile is visible in the current grid layout
 }
 
-function CameraTile({ camera }: CameraTileProps) {
+function CameraTile({ camera, isVisible = true }: CameraTileProps) {
   const { user } = useAuth();
+  
+  // Real-time camera status from WebSocket
+  const { getCameraStatus, getLastSeenText, isWebSocketConnected } = useCameraStatusSocket({
+    enabled: isVisible,
+    visibleCameraIds: isVisible ? [camera.id] : [],
+    heartbeatThreshold: 5 * 60_000 // CRITICAL FIX: 5 minutes in explicit milliseconds (300,000ms)
+  });
+  
+  // Get real-time status or fallback to prop status
+  const realTimeStatus = getCameraStatus(camera.id);
+  const currentStatus = realTimeStatus.status || (camera.status as CameraStatus) || "offline";
+  const isConnected = realTimeStatus.isConnected;
+  const lastSeenText = getLastSeenText(camera.id);
+  
   const [tileState, setTileState] = useState<CameraTileState>({
-    isPlaying: camera.status === "online",
+    isPlaying: currentStatus === "online",
     isFullscreen: false,
     hasError: false,
     isLoading: false,
     showOverlay: true, // Show overlay by default when analysis is enabled
     analysisEnabled: false // Start with analysis disabled
   });
+  
+  // Update playing state when camera status changes
+  useEffect(() => {
+    if (currentStatus === "online" && !tileState.isPlaying && !tileState.hasError) {
+      // Auto-start playing when camera comes online
+      setTileState(prev => ({ ...prev, isPlaying: true }));
+    } else if (currentStatus !== "online" && tileState.isPlaying) {
+      // Auto-pause when camera goes offline
+      setTileState(prev => ({ ...prev, isPlaying: false }));
+    }
+  }, [currentStatus, tileState.isPlaying, tileState.hasError]);
 
   // Refs for video container and canvas
   const videoRef = useRef<HTMLDivElement>(null);
@@ -421,12 +450,24 @@ function CameraTile({ camera }: CameraTileProps) {
     return validStatuses.includes(status as CameraStatus) ? (status as CameraStatus) : "offline";
   };
 
-  const getStatusBadge = (status: CameraStatus) => {
+  const getStatusBadge = (status: CameraStatus, isRealTime: boolean = false) => {
     const statusConfig = {
-      online: { color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100", icon: <Wifi className="h-3 w-3" /> },
-      offline: { color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100", icon: <WifiOff className="h-3 w-3" /> },
-      maintenance: { color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100", icon: <Settings className="h-3 w-3" /> },
-      error: { color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100", icon: <AlertTriangle className="h-3 w-3" /> }
+      online: { 
+        color: `bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 ${isRealTime ? 'transition-all duration-500 ease-in-out ring-2 ring-green-400 ring-opacity-50' : ''}`, 
+        icon: <Wifi className="h-3 w-3" /> 
+      },
+      offline: { 
+        color: `bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 ${isRealTime ? 'transition-all duration-500 ease-in-out' : ''}`, 
+        icon: <WifiOff className="h-3 w-3" /> 
+      },
+      maintenance: { 
+        color: `bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100 ${isRealTime ? 'transition-all duration-500 ease-in-out' : ''}`, 
+        icon: <Settings className="h-3 w-3" /> 
+      },
+      error: { 
+        color: `bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 ${isRealTime ? 'transition-all duration-500 ease-in-out ring-2 ring-red-400 ring-opacity-50 animate-pulse' : ''}`, 
+        icon: <AlertTriangle className="h-3 w-3" /> 
+      }
     };
 
     const config = statusConfig[status];
@@ -434,22 +475,30 @@ function CameraTile({ camera }: CameraTileProps) {
       <Badge className={`${config.color} flex items-center gap-1`} data-testid={`badge-status-${camera.id}`}>
         {config.icon}
         <span className="capitalize">{status}</span>
+        {isRealTime && isWebSocketConnected && (
+          <span className="text-xs opacity-75">●</span>
+        )}
       </Badge>
     );
   };
 
-  const getStatusIcon = (status: CameraStatus) => {
+  const getStatusIcon = (status: CameraStatus, isRealTime: boolean = false) => {
     const statusColors = {
-      online: "bg-green-500 animate-pulse",
-      offline: "bg-red-500",
-      maintenance: "bg-yellow-500",
-      error: "bg-red-500 animate-pulse"
+      online: `bg-green-500 animate-pulse ${isRealTime ? 'ring-2 ring-green-400 ring-opacity-30' : ''}`,
+      offline: `bg-red-500 ${isRealTime ? 'transition-all duration-300' : ''}`,
+      maintenance: `bg-yellow-500 ${isRealTime ? 'transition-all duration-300' : ''}`,
+      error: `bg-red-500 animate-pulse ${isRealTime ? 'ring-2 ring-red-400 ring-opacity-30' : ''}`
     };
     
-    return <div className={`w-2 h-2 ${statusColors[status]} rounded-full`} />;
+    return <div className={`w-2 h-2 ${statusColors[status]} rounded-full transition-all duration-300`} />;
   };
 
   const getLastUpdate = () => {
+    // Use real-time last seen if available, fallback to camera.lastHeartbeat
+    if (lastSeenText && lastSeenText !== "Never") {
+      return lastSeenText;
+    }
+    
     if (!camera.lastHeartbeat) return "Never";
     
     const lastHeartbeat = new Date(camera.lastHeartbeat);
@@ -477,12 +526,12 @@ function CameraTile({ camera }: CameraTileProps) {
             <CameraIcon className="h-5 w-5" aria-hidden="true" />
             <span data-testid={`text-camera-name-${camera.id}`}>{camera.name}</span>
           </CardTitle>
-          {getStatusBadge(normalizeStatus(camera.status))}
+          {getStatusBadge(currentStatus, isWebSocketConnected && isVisible)}
         </div>
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span data-testid={`text-camera-location-${camera.id}`}>{camera.location}</span>
           <div className="flex items-center gap-1">
-            {getStatusIcon(normalizeStatus(camera.status))}
+            {getStatusIcon(currentStatus, isWebSocketConnected && isVisible)}
             <span data-testid={`text-camera-update-${camera.id}`}>{getLastUpdate()}</span>
           </div>
         </div>
@@ -519,8 +568,8 @@ function CameraTile({ camera }: CameraTileProps) {
             aria-hidden="true"
           />
           
-          {camera.status === "online" ? (
-            <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
+          {currentStatus === "online" ? (
+            <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center transition-all duration-500">
               {tileState.hasError ? (
                 <div className="text-center text-red-400" data-testid={`error-state-${camera.id}`}>
                   <AlertTriangle className="h-12 w-12 mx-auto mb-2" />
@@ -535,21 +584,33 @@ function CameraTile({ camera }: CameraTileProps) {
                   {tileState.isPlaying && !tileState.isLoading && (
                     <div className="mt-2 w-16 h-1 bg-red-500 mx-auto animate-pulse rounded" aria-hidden="true" />
                   )}
+                  {isWebSocketConnected && isVisible && (
+                    <div className="mt-2 flex items-center justify-center gap-1 text-xs opacity-60">
+                      <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                      <span>Real-time</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           ) : (
-            <div className="absolute inset-0 bg-gray-700 flex items-center justify-center">
+            <div className="absolute inset-0 bg-gray-700 flex items-center justify-center transition-all duration-500">
               <div className="text-center text-gray-400" data-testid={`offline-state-${camera.id}`}>
                 <CameraIcon className="h-12 w-12 mx-auto mb-2" aria-hidden="true" />
                 <p className="text-sm">
-                  {camera.status === "offline" 
+                  {currentStatus === "offline" 
                     ? "Camera Offline" 
-                    : camera.status === "maintenance" 
+                    : currentStatus === "maintenance" 
                     ? "Under Maintenance"
                     : "Camera Error"
                   }
                 </p>
+                {isWebSocketConnected && isVisible && (
+                  <div className="mt-2 flex items-center justify-center gap-1 text-xs opacity-60">
+                    <div className="w-1.5 h-1.5 bg-red-400 rounded-full" />
+                    <span>Real-time</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -557,6 +618,7 @@ function CameraTile({ camera }: CameraTileProps) {
           {/* Camera Controls */}
           <CameraControls 
             camera={camera}
+            currentStatus={currentStatus} // CRITICAL FIX: Pass real-time status to controls
             tileState={tileState}
             onPlay={handlePlay}
             onPause={handlePause}
@@ -571,14 +633,15 @@ function CameraTile({ camera }: CameraTileProps) {
   );
 }
 
-// Camera Grid Component
+// Camera Grid Component  
 interface CameraGridProps {
   cameras: Camera[];
   layout: GridLayout;
   isLoading: boolean;
+  visibleCameraIds?: string[];
 }
 
-function CameraGrid({ cameras, layout, isLoading }: CameraGridProps) {
+function CameraGrid({ cameras, layout, isLoading, visibleCameraIds = [] }: CameraGridProps) {
   const config = GRID_CONFIGS[layout];
   const displayedCameras = cameras.slice(0, config.maxItems);
   
@@ -612,7 +675,10 @@ function CameraGrid({ cameras, layout, isLoading }: CameraGridProps) {
     >
       {displayedCameras.map((camera) => (
         <div key={camera.id} role="gridcell" className={config.minTileSize}>
-          <CameraTile camera={camera} />
+          <CameraTile 
+            camera={camera} 
+            isVisible={visibleCameraIds.includes(camera.id)}
+          />
         </div>
       ))}
       
@@ -654,13 +720,76 @@ export default function LiveFeeds() {
     localStorage.setItem(GRID_LAYOUT_STORAGE_KEY, newLayout);
   }, []);
 
-  // Fetch camera data from API
+  // Calculate visible cameras based on current grid layout
+  const config = GRID_CONFIGS[gridLayout];
+  
+  // Fetch camera data from API - initialize without WebSocket dependency
   const { data: cameras = [], isLoading, error, refetch } = useQuery<Camera[]>({
     queryKey: [`/api/store/${user?.storeId}/cameras`],
     enabled: !!user?.storeId,
-    refetchInterval: 30000, // Refetch every 30 seconds for status updates
+    refetchInterval: 30000, // Will be adjusted based on WebSocket connection
     refetchIntervalInBackground: true,
-    staleTime: 10000, // Consider data fresh for 10 seconds
+    staleTime: 10000, // Will be adjusted based on WebSocket connection
+  });
+
+  const visibleCameras = cameras.slice(0, config.maxItems);
+  const visibleCameraIds = visibleCameras.map(camera => camera.id);
+
+  // Central camera status socket for performance optimization
+  const { 
+    cameraStatusState, 
+    isWebSocketConnected, 
+    initializeCameraStatuses,
+    subscribedCameraCount 
+  } = useCameraStatusSocket({
+    enabled: !!user?.storeId && cameras.length > 0,
+    visibleCameraIds: visibleCameraIds,
+    heartbeatThreshold: 5 * 60_000 // CRITICAL FIX: 5 minutes in explicit milliseconds (300,000ms)
+  });
+
+  // Adjust polling frequency based on WebSocket connection
+  useEffect(() => {
+    if (isWebSocketConnected) {
+      // Slower polling when WebSocket is connected
+      refetch();
+    }
+  }, [isWebSocketConnected, refetch]);
+
+  // Initialize camera statuses when cameras are loaded
+  useEffect(() => {
+    if (cameras.length > 0) {
+      initializeCameraStatuses(cameras);
+    }
+  }, [cameras, initializeCameraStatuses]);
+
+  // Calculate status counts using real-time data when available
+  const getCameraStatusCounts = useCallback(() => {
+    const counts = { online: 0, offline: 0, maintenance: 0, error: 0 };
+    
+    cameras.forEach(camera => {
+      const realTimeStatus = cameraStatusState[camera.id];
+      const status = realTimeStatus?.status || (camera.status as CameraStatus) || "offline";
+      counts[status]++;
+    });
+    
+    return counts;
+  }, [cameras, cameraStatusState]);
+
+  const statusCounts = getCameraStatusCounts();
+  const onlineCameras = cameras.filter(c => {
+    const realTimeStatus = cameraStatusState[c.id];
+    const status = realTimeStatus?.status || (c.status as CameraStatus) || "offline";
+    return status === "online";
+  });
+  const offlineCameras = cameras.filter(c => {
+    const realTimeStatus = cameraStatusState[c.id];
+    const status = realTimeStatus?.status || (c.status as CameraStatus) || "offline";
+    return status === "offline";
+  });
+  const maintenanceCameras = cameras.filter(c => {
+    const realTimeStatus = cameraStatusState[c.id];
+    const status = realTimeStatus?.status || (c.status as CameraStatus) || "offline";
+    return status === "maintenance";
   });
 
   // Handle keyboard navigation
@@ -692,9 +821,6 @@ export default function LiveFeeds() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleLayoutChange]);
 
-  const onlineCameras = cameras.filter(c => c.status === "online");
-  const offlineCameras = cameras.filter(c => c.status === "offline");
-  const maintenanceCameras = cameras.filter(c => c.status === "maintenance");
 
   return (
     <div className="p-6 space-y-6">
@@ -720,12 +846,19 @@ export default function LiveFeeds() {
           {/* Status Summary */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-sm text-muted-foreground">Live</span>
+              <div className={`w-2 h-2 rounded-full ${isWebSocketConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
+              <span className="text-sm text-muted-foreground">
+                {isWebSocketConnected ? 'Live' : 'Polling'}
+              </span>
             </div>
             <Badge variant="outline" data-testid="badge-camera-summary">
               {onlineCameras.length}/{cameras.length} Online
             </Badge>
+            {isWebSocketConnected && subscribedCameraCount > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {subscribedCameraCount} Subscribed
+              </Badge>
+            )}
           </div>
         </div>
       </div>
@@ -776,7 +909,24 @@ export default function LiveFeeds() {
       )}
 
       {/* Camera Grid */}
-      <CameraGrid cameras={cameras} layout={gridLayout} isLoading={isLoading} />
+      <CameraGrid 
+        cameras={cameras} 
+        layout={gridLayout} 
+        isLoading={isLoading}
+        visibleCameraIds={visibleCameraIds}
+      />
+
+      {/* WebSocket Connection Status for Development */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs text-muted-foreground">
+          <div className="grid grid-cols-2 gap-2">
+            <div>WebSocket: {isWebSocketConnected ? '✅ Connected' : '❌ Disconnected'}</div>
+            <div>Subscribed Cameras: {subscribedCameraCount}</div>
+            <div>Total Cameras: {cameras.length}</div>
+            <div>Visible Cameras: {visibleCameraIds.length}</div>
+          </div>
+        </div>
+      )}
 
       {/* Keyboard Shortcuts Help */}
       <div className="mt-8 text-sm text-muted-foreground">

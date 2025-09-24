@@ -1,10 +1,13 @@
 // Penny MVP Routes - Based on javascript_auth_all_persistance & javascript_stripe integrations
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer, WebSocket } from "ws";
 import Stripe from "stripe";
 import rateLimit from "express-rate-limit";
 import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
+import session from "express-session";
+import { IncomingMessage } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess, requireSecurityAgent, requireFinanceAgent, requireSalesAgent, requireOperationsAgent, requireHRAgent, requirePlatformRole, requireOrganizationAccess } from "./auth";
 import { ObjectStorageService, SecurityFileCategory, ObjectNotFoundError } from "./objectStorage";
@@ -2801,7 +2804,508 @@ export function registerRoutes(app: Express): Server {
   });
 
   const httpServer = createServer(app);
+  
+  // Setup WebSocket server for real-time camera status updates
+  setupWebSocketServer(httpServer);
+  
   return httpServer;
+}
+
+// =====================================
+// WEBSOCKET SERVER FOR CAMERA STATUS
+// =====================================
+
+// WebSocket client management with authentication
+interface WebSocketClient extends WebSocket {
+  userId?: string;
+  storeId?: string;
+  userRole?: string;
+  isAuthenticated: boolean;
+  subscribedCameras?: Set<string>;
+  lastPing?: number;
+}
+
+const connectedClients = new Map<string, WebSocketClient>();
+const storeSubscriptions = new Map<string, Set<string>>(); // storeId -> Set of clientIds
+const cameraSubscriptions = new Map<string, Set<string>>(); // cameraId -> Set of clientIds
+
+// WebSocket session parser
+async function parseWebSocketSession(request: IncomingMessage): Promise<{ userId?: string; storeId?: string; role?: string; isAuthenticated: boolean }> {
+  return new Promise((resolve) => {
+    // Parse cookies from WebSocket request
+    const cookieHeader = request.headers.cookie;
+    if (!cookieHeader) {
+      return resolve({ isAuthenticated: false });
+    }
+
+    // Extract session ID from cookies
+    const cookies: { [key: string]: string } = {};
+    cookieHeader.split(';').forEach(cookie => {
+      const [name, value] = cookie.trim().split('=');
+      if (name && value) {
+        cookies[name] = decodeURIComponent(value);
+      }
+    });
+
+    const sessionId = cookies['connect.sid'];
+    if (!sessionId) {
+      return resolve({ isAuthenticated: false });
+    }
+
+    // Parse session ID (remove 's:' prefix and signature)
+    let parsedSessionId;
+    try {
+      if (sessionId.startsWith('s:')) {
+        parsedSessionId = sessionId.slice(2).split('.')[0];
+      } else {
+        parsedSessionId = sessionId.split('.')[0];
+      }
+    } catch (error) {
+      console.error('Failed to parse session ID:', error);
+      return resolve({ isAuthenticated: false });
+    }
+
+    // Get session from store
+    const sessionStore = storage.sessionStore as any;
+    sessionStore.get(parsedSessionId, async (err: any, session: any) => {
+      if (err || !session || !session.passport?.user) {
+        return resolve({ isAuthenticated: false });
+      }
+
+      try {
+        // Get user from session
+        const user = await storage.getUser(session.passport.user);
+        if (!user) {
+          return resolve({ isAuthenticated: false });
+        }
+
+        resolve({
+          userId: user.id,
+          storeId: user.storeId,
+          role: user.role,
+          isAuthenticated: true
+        });
+      } catch (error) {
+        console.error('Error loading user from session:', error);
+        resolve({ isAuthenticated: false });
+      }
+    });
+  });
+}
+
+// WebSocket authorization checks
+function requireWebSocketSecurityAgent(userRole: string): boolean {
+  const allowedRoles = ['security_agent', 'store_admin', 'penny_admin'];
+  return allowedRoles.includes(userRole);
+}
+
+function requireWebSocketStoreAccess(userStoreId: string, requestedStoreId: string, userRole: string): boolean {
+  // Penny admins can access any store
+  if (userRole === 'penny_admin') {
+    return true;
+  }
+  
+  // Store staff can only access their own store
+  return userStoreId === requestedStoreId;
+}
+
+function setupWebSocketServer(httpServer: Server) {
+  const wss = new WebSocketServer({ 
+    server: httpServer,
+    path: '/ws',
+    perMessageDeflate: false
+  });
+
+  console.log('WebSocket server initialized on /ws endpoint');
+
+  wss.on('connection', async (ws: WebSocketClient, request) => {
+    const clientId = randomUUID();
+    const remoteAddress = request.socket.remoteAddress || 'unknown';
+    
+    console.log(`WebSocket client connecting: ${clientId} from ${remoteAddress}`);
+    
+    // CRITICAL SECURITY: Parse session/cookies for authentication
+    const sessionData = await parseWebSocketSession(request);
+    
+    if (!sessionData.isAuthenticated) {
+      console.warn(`Unauthenticated WebSocket connection rejected: ${clientId}`);
+      ws.close(4401, 'Authentication required');
+      return;
+    }
+
+    // CRITICAL SECURITY: Set authenticated user data from verified session
+    ws.userId = sessionData.userId;
+    ws.storeId = sessionData.storeId;
+    ws.userRole = sessionData.role;
+    ws.isAuthenticated = true;
+    ws.subscribedCameras = new Set();
+    ws.lastPing = Date.now();
+    connectedClients.set(clientId, ws);
+    
+    console.log(`WebSocket client authenticated: ${clientId}, user: ${ws.userId}, store: ${ws.storeId}, role: ${ws.userRole}`);
+
+    // Setup ping/pong for connection health
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+        ws.lastPing = Date.now();
+      }
+    }, 30000); // 30 seconds
+
+    ws.on('pong', () => {
+      ws.lastPing = Date.now();
+    });
+
+    ws.on('message', async (data: Buffer) => {
+      try {
+        const message = JSON.parse(data.toString());
+        await handleWebSocketMessage(ws, clientId, message);
+      } catch (error) {
+        console.error(`WebSocket message error for client ${clientId}:`, error);
+        sendErrorMessage(ws, 'Invalid message format');
+      }
+    });
+
+    ws.on('close', (code, reason) => {
+      console.log(`WebSocket client disconnected: ${clientId}, code: ${code}, reason: ${reason}`);
+      cleanupClient(clientId);
+      clearInterval(pingInterval);
+    });
+
+    ws.on('error', (error) => {
+      console.error(`WebSocket error for client ${clientId}:`, error);
+      cleanupClient(clientId);
+      clearInterval(pingInterval);
+    });
+
+    // Send welcome message
+    sendMessage(ws, {
+      type: 'connection_established',
+      clientId,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Cleanup dead connections every 60 seconds
+  setInterval(() => {
+    const now = Date.now();
+    const deadClients: string[] = [];
+
+    connectedClients.forEach((client, clientId) => {
+      if (!client.lastPing || now - client.lastPing > 90000) { // 90 seconds timeout
+        deadClients.push(clientId);
+      }
+    });
+
+    deadClients.forEach(clientId => {
+      console.log(`Removing dead WebSocket client: ${clientId}`);
+      const client = connectedClients.get(clientId);
+      if (client) {
+        client.terminate();
+      }
+      cleanupClient(clientId);
+    });
+  }, 60000);
+
+  return wss;
+}
+
+async function handleWebSocketMessage(ws: WebSocketClient, clientId: string, message: any) {
+  switch (message.type) {
+    case 'subscribe':
+      // Legacy subscription for backward compatibility
+      await handleLegacySubscription(ws, clientId, message);
+      break;
+
+    case 'subscribe_camera_status':
+      await handleCameraStatusSubscription(ws, clientId, message);
+      break;
+
+    case 'unsubscribe_camera_status':
+      await handleCameraStatusUnsubscription(ws, clientId, message);
+      break;
+
+    case 'ping':
+      sendMessage(ws, { type: 'pong', timestamp: new Date().toISOString() });
+      break;
+
+    default:
+      console.warn(`Unknown WebSocket message type: ${message.type} from client ${clientId}`);
+      sendErrorMessage(ws, `Unknown message type: ${message.type}`);
+  }
+}
+
+async function handleLegacySubscription(ws: WebSocketClient, clientId: string, message: any) {
+  // CRITICAL SECURITY: Validate authentication
+  if (!ws.isAuthenticated || !ws.userId || !ws.storeId) {
+    sendErrorMessage(ws, 'Authentication required');
+    return;
+  }
+
+  // CRITICAL SECURITY: Use server-verified storeId, not client-provided
+  const { storeId } = message;
+  
+  // CRITICAL SECURITY: Validate store access
+  if (!requireWebSocketStoreAccess(ws.storeId!, storeId, ws.userRole!)) {
+    console.warn(`Client ${clientId} denied access to store ${storeId}`);
+    sendErrorMessage(ws, 'Access denied to requested store');
+    return;
+  }
+
+  // Add to store subscriptions using server-verified storeId
+  if (!storeSubscriptions.has(ws.storeId!)) {
+    storeSubscriptions.set(ws.storeId!, new Set());
+  }
+  storeSubscriptions.get(ws.storeId!)!.add(clientId);
+
+  console.log(`Client ${clientId} subscribed to store ${ws.storeId}`);
+  
+  sendMessage(ws, {
+    type: 'subscription_confirmed',
+    storeId: ws.storeId, // Use server-verified storeId
+    timestamp: new Date().toISOString()
+  });
+}
+
+async function handleCameraStatusSubscription(ws: WebSocketClient, clientId: string, message: any) {
+  // CRITICAL SECURITY: Validate authentication
+  if (!ws.isAuthenticated || !ws.userId || !ws.storeId) {
+    sendErrorMessage(ws, 'Authentication required');
+    return;
+  }
+
+  // CRITICAL SECURITY: Require security agent role
+  if (!requireWebSocketSecurityAgent(ws.userRole!)) {
+    console.warn(`Client ${clientId} insufficient permissions for camera subscription`);
+    sendErrorMessage(ws, 'Insufficient permissions - security agent role required');
+    return;
+  }
+
+  const { cameraId } = message;
+  
+  if (!cameraId) {
+    sendErrorMessage(ws, 'cameraId required for camera subscription');
+    return;
+  }
+
+  // CRITICAL SECURITY: Verify camera access using server-verified data
+  try {
+    const camera = await storage.getCameraById(cameraId);
+    if (!camera) {
+      sendErrorMessage(ws, 'Camera not found');
+      return;
+    }
+
+    // CRITICAL SECURITY: Validate store access
+    if (!requireWebSocketStoreAccess(ws.storeId!, camera.storeId, ws.userRole!)) {
+      console.warn(`Client ${clientId} denied access to camera ${cameraId} in store ${camera.storeId}`);
+      sendErrorMessage(ws, 'Access denied to camera in requested store');
+      return;
+    }
+  } catch (error) {
+    console.error(`Error verifying camera access for ${clientId}:`, error);
+    sendErrorMessage(ws, 'Error verifying camera access');
+    return;
+  }
+
+  // Add camera to subscriptions using server-verified data
+  ws.subscribedCameras!.add(cameraId);
+
+  // Add to camera subscriptions
+  if (!cameraSubscriptions.has(cameraId)) {
+    cameraSubscriptions.set(cameraId, new Set());
+  }
+  cameraSubscriptions.get(cameraId)!.add(clientId);
+
+  // Add to store subscriptions using server-verified storeId
+  if (!storeSubscriptions.has(ws.storeId!)) {
+    storeSubscriptions.set(ws.storeId!, new Set());
+  }
+  storeSubscriptions.get(ws.storeId!)!.add(clientId);
+
+  console.log(`Client ${clientId} subscribed to camera ${cameraId} in store ${ws.storeId}`);
+  
+  // Send current camera status
+  try {
+    const camera = await storage.getCameraById(cameraId);
+    if (camera) {
+      sendMessage(ws, {
+        type: 'camera_status_update',
+        cameraId,
+        status: camera.status,
+        lastSeen: camera.lastHeartbeat,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error(`Error sending current camera status to ${clientId}:`, error);
+  }
+
+  sendMessage(ws, {
+    type: 'camera_subscription_confirmed',
+    cameraId,
+    storeId: ws.storeId, // Use server-verified storeId
+    timestamp: new Date().toISOString()
+  });
+}
+
+async function handleCameraStatusUnsubscription(ws: WebSocketClient, clientId: string, message: any) {
+  // CRITICAL SECURITY: Validate authentication
+  if (!ws.isAuthenticated || !ws.userId || !ws.storeId) {
+    sendErrorMessage(ws, 'Authentication required');
+    return;
+  }
+
+  const { cameraId } = message;
+  
+  if (!cameraId) {
+    sendErrorMessage(ws, 'cameraId required for unsubscription');
+    return;
+  }
+
+  // CRITICAL SECURITY: Verify client was actually subscribed to this camera
+  if (!ws.subscribedCameras || !ws.subscribedCameras.has(cameraId)) {
+    sendErrorMessage(ws, 'Not subscribed to this camera');
+    return;
+  }
+
+  // Remove from client's subscriptions
+  ws.subscribedCameras.delete(cameraId);
+
+  // Remove from camera subscriptions
+  const cameraSubscriptionSet = cameraSubscriptions.get(cameraId);
+  if (cameraSubscriptionSet) {
+    cameraSubscriptionSet.delete(clientId);
+    
+    // Clean up empty subscription sets
+    if (cameraSubscriptionSet.size === 0) {
+      cameraSubscriptions.delete(cameraId);
+    }
+  }
+
+  console.log(`Client ${clientId} unsubscribed from camera ${cameraId}`);
+  
+  sendMessage(ws, {
+    type: 'camera_unsubscription_confirmed',
+    cameraId,
+    timestamp: new Date().toISOString()
+  });
+}
+
+function cleanupClient(clientId: string) {
+  const client = connectedClients.get(clientId);
+  
+  if (client) {
+    // Remove from store subscriptions
+    if (client.storeId) {
+      const storeSubscriptionSet = storeSubscriptions.get(client.storeId);
+      if (storeSubscriptionSet) {
+        storeSubscriptionSet.delete(clientId);
+        if (storeSubscriptionSet.size === 0) {
+          storeSubscriptions.delete(client.storeId);
+        }
+      }
+    }
+
+    // Remove from camera subscriptions
+    if (client.subscribedCameras) {
+      client.subscribedCameras.forEach(cameraId => {
+        const cameraSubscriptionSet = cameraSubscriptions.get(cameraId);
+        if (cameraSubscriptionSet) {
+          cameraSubscriptionSet.delete(clientId);
+          if (cameraSubscriptionSet.size === 0) {
+            cameraSubscriptions.delete(cameraId);
+          }
+        }
+      });
+    }
+  }
+
+  connectedClients.delete(clientId);
+}
+
+function sendMessage(ws: WebSocket, message: any) {
+  if (ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify(message));
+    } catch (error) {
+      console.error('Error sending WebSocket message:', error);
+    }
+  }
+}
+
+function sendErrorMessage(ws: WebSocket, error: string) {
+  sendMessage(ws, {
+    type: 'error',
+    error,
+    timestamp: new Date().toISOString()
+  });
+}
+
+// =====================================
+// CAMERA STATUS BROADCASTING FUNCTIONS
+// =====================================
+
+export function broadcastCameraStatusUpdate(cameraId: string, status: string, lastSeen?: Date) {
+  const subscribers = cameraSubscriptions.get(cameraId);
+  if (!subscribers || subscribers.size === 0) {
+    return;
+  }
+
+  const message = {
+    type: 'camera_status_update',
+    cameraId,
+    status,
+    lastSeen: lastSeen?.toISOString(),
+    timestamp: new Date().toISOString()
+  };
+
+  console.log(`Broadcasting camera status update for ${cameraId}: ${status} to ${subscribers.size} clients`);
+
+  subscribers.forEach(clientId => {
+    const client = connectedClients.get(clientId);
+    if (client) {
+      sendMessage(client, message);
+    }
+  });
+}
+
+export function broadcastCameraHeartbeat(cameraId: string) {
+  const subscribers = cameraSubscriptions.get(cameraId);
+  if (!subscribers || subscribers.size === 0) {
+    return;
+  }
+
+  const message = {
+    type: 'camera_heartbeat',
+    cameraId,
+    timestamp: new Date().toISOString()
+  };
+
+  subscribers.forEach(clientId => {
+    const client = connectedClients.get(clientId);
+    if (client) {
+      sendMessage(client, message);
+    }
+  });
+}
+
+export function broadcastCameraOffline(cameraId: string, lastSeen?: Date) {
+  broadcastCameraStatusUpdate(cameraId, 'offline', lastSeen);
+}
+
+export function broadcastToStore(storeId: string, message: any) {
+  const subscribers = storeSubscriptions.get(storeId);
+  if (!subscribers || subscribers.size === 0) {
+    return;
+  }
+
+  subscribers.forEach(clientId => {
+    const client = connectedClients.get(clientId);
+    if (client) {
+      sendMessage(client, message);
+    }
+  });
 }
 
 // Security validation functions
