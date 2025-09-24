@@ -8,6 +8,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { storage } from "../storage";
+import { DetectionResult, DetectionBoundingBox, ThreatSeverity } from "../../shared/schema";
 
 // Initialize OpenAI client
 const openai = new OpenAI({ 
@@ -721,6 +722,185 @@ Respond with JSON in this EXACT format:
         createdAt: new Date(),
       };
     }
+  }
+
+  /**
+   * Convert AI detection results to DetectionResult format for overlay rendering
+   */
+  convertToDetectionResult(
+    cameraId: string,
+    frameDetections: AIDetectionResult[] = [],
+    threatDetections: any[] = [],
+    frameWidth?: number,
+    frameHeight?: number
+  ): DetectionResult {
+    const timestamp = Date.now();
+    const boxes: DetectionBoundingBox[] = [];
+    let hasPixelCoordinates = false;
+
+    // Convert frame analysis detections
+    frameDetections.forEach(detection => {
+      if (detection.boundingBox) {
+        const normalized = detection.boundingBox.normalized ?? false;
+        if (!normalized) hasPixelCoordinates = true;
+        
+        const box: DetectionBoundingBox = {
+          x: detection.boundingBox.x,
+          y: detection.boundingBox.y,
+          w: detection.boundingBox.width,
+          h: detection.boundingBox.height,
+          normalized,
+          label: detection.objectClass || detection.detectionType || 'unknown',
+          confidence: detection.confidence,
+          severity: this.mapSeverityLevel(detection.severity),
+          color: this.assignColorBySeverity(detection.severity, detection.threatType)
+        };
+        boxes.push(box);
+      }
+    });
+
+    // Convert threat assessment detections (if they have spatial data)
+    threatDetections.forEach(threat => {
+      if (threat.boundingBox || threat.location) {
+        const normalized = threat.boundingBox?.normalized ?? threat.location?.normalized ?? false;
+        if (!normalized) hasPixelCoordinates = true;
+        
+        const box: DetectionBoundingBox = {
+          x: threat.boundingBox?.x || threat.location?.x || 0,
+          y: threat.boundingBox?.y || threat.location?.y || 0,
+          w: threat.boundingBox?.width || threat.location?.width || 50,
+          h: threat.boundingBox?.height || threat.location?.height || 50,
+          normalized,
+          label: threat.type || threat.threatType || 'threat',
+          confidence: threat.confidence || 0.8,
+          severity: this.mapSeverityLevel(threat.severity || threat.riskLevel),
+          color: this.assignColorBySeverity(threat.severity || threat.riskLevel, threat.type)
+        };
+        boxes.push(box);
+      }
+    });
+
+    const result: DetectionResult = {
+      cameraId,
+      ts: timestamp,
+      boxes
+    };
+
+    // Add frame dimensions if any coordinates are in pixels
+    if (hasPixelCoordinates && frameWidth && frameHeight) {
+      result.frameWidth = frameWidth;
+      result.frameHeight = frameHeight;
+    }
+
+    return result;
+  }
+
+  /**
+   * Map various severity formats to ThreatSeverity enum
+   */
+  private mapSeverityLevel(severity: string | undefined): ThreatSeverity {
+    if (!severity) return 'medium';
+    
+    const severityLower = severity.toLowerCase();
+    
+    // Ordered exact checks - priority: critical → high → medium → low
+    if (severityLower.includes('critical')) return 'critical';
+    if (severityLower.includes('high')) return 'high';
+    if (severityLower.includes('medium') || severityLower.includes('moderate')) return 'medium';
+    if (severityLower.includes('low')) return 'low';
+    
+    return 'medium'; // Default fallback
+  }
+
+  /**
+   * Assign color coding based on threat severity and type
+   */
+  private assignColorBySeverity(severity: string | undefined, threatType: string | undefined): string {
+    // Color mapping for different threat levels
+    const severityColors = {
+      critical: '#DC2626', // Red
+      high: '#EA580C',     // Orange-red
+      medium: '#D97706',   // Orange
+      low: '#059669'       // Green
+    };
+
+    // Special color coding for specific threat types
+    const threatTypeColors = {
+      theft: '#DC2626',
+      violence: '#7C2D12',
+      weapons: '#991B1B',
+      unauthorized_access: '#92400E',
+      suspicious_behavior: '#D97706'
+    };
+
+    // Priority: specific threat type colors, then severity colors
+    if (threatType && threatTypeColors[threatType as keyof typeof threatTypeColors]) {
+      return threatTypeColors[threatType as keyof typeof threatTypeColors];
+    }
+
+    const mappedSeverity = this.mapSeverityLevel(severity);
+    return severityColors[mappedSeverity] || severityColors.medium;
+  }
+
+  /**
+   * Store DetectionResult for real-time overlay tracking
+   */
+  async storeDetectionResult(detectionResult: DetectionResult): Promise<void> {
+    try {
+      // Store each detection box as an individual AI detection record
+      for (const box of detectionResult.boxes) {
+        await storage.createAiDetection({
+          storeId: '', // Will be filled by calling context
+          cameraId: detectionResult.cameraId,
+          detectionType: this.inferDetectionType(box.label),
+          objectClass: box.label,
+          threatType: this.inferThreatType(box.label, box.severity),
+          confidence: box.confidence,
+          boundingBox: {
+            x: box.x,
+            y: box.y,
+            width: box.w,
+            height: box.h,
+            normalized: box.x <= 1 && box.y <= 1 // Detect normalized coordinates
+          },
+          modelName: 'overlay-detection',
+          modelVersion: '1.0',
+          frameTimestamp: new Date(detectionResult.ts),
+          metadata: {
+            severity: box.severity,
+            color: box.color,
+            overlayTimestamp: detectionResult.ts
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Failed to store detection result:', error);
+      // Non-critical error - don't throw
+    }
+  }
+
+  /**
+   * Infer detection type from label
+   */
+  private inferDetectionType(label: string): string {
+    const lowerLabel = label.toLowerCase();
+    if (lowerLabel.includes('person') || lowerLabel.includes('people')) return 'person';
+    if (lowerLabel.includes('weapon') || lowerLabel.includes('gun') || lowerLabel.includes('knife')) return 'threat';
+    if (lowerLabel.includes('suspicious') || lowerLabel.includes('behavior')) return 'behavior';
+    return 'object';
+  }
+
+  /**
+   * Infer threat type from label and severity
+   */
+  private inferThreatType(label: string, severity: ThreatSeverity): string | undefined {
+    const lowerLabel = label.toLowerCase();
+    if (lowerLabel.includes('weapon') || lowerLabel.includes('gun') || lowerLabel.includes('knife')) return 'weapons';
+    if (lowerLabel.includes('theft') || lowerLabel.includes('steal')) return 'theft';
+    if (lowerLabel.includes('violence') || lowerLabel.includes('fight')) return 'violence';
+    if (lowerLabel.includes('suspicious')) return 'suspicious_behavior';
+    if (severity === 'critical' || severity === 'high') return 'suspicious_behavior';
+    return undefined;
   }
 
   /**

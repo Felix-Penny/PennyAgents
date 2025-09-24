@@ -3452,3 +3452,94 @@ export interface HRDashboardResponse {
     };
   };
 }
+
+// =====================================
+// Detection Result Types for Camera Grid Overlays
+// =====================================
+
+// Threat severity levels for color coding
+export const threatSeverityLevels = ['low', 'medium', 'high', 'critical'] as const;
+export type ThreatSeverity = typeof threatSeverityLevels[number];
+
+// Detection bounding box for overlay positioning
+export interface DetectionBoundingBox {
+  x: number;        // X coordinate
+  y: number;        // Y coordinate  
+  w: number;        // Width
+  h: number;        // Height
+  normalized: boolean; // True if coordinates are normalized (0-1), false if pixels
+  label: string;    // Detection label (e.g., "person", "weapon", "suspicious_behavior")
+  confidence: number; // Confidence level (0-1)
+  severity: ThreatSeverity; // Threat severity classification
+  color?: string;   // Optional color coding for different threat types
+}
+
+// Main DetectionResult interface for real-time overlay rendering
+export interface DetectionResult {
+  cameraId: string; // Camera identifier
+  ts: number;       // Timestamp (Unix timestamp in milliseconds)
+  boxes: DetectionBoundingBox[]; // Array of detected objects/threats
+  frameWidth?: number;  // Frame width in pixels (required when normalized=false)
+  frameHeight?: number; // Frame height in pixels (required when normalized=false)
+}
+
+// Zod schemas for validation
+export const detectionBoundingBoxSchema = z.object({
+  x: z.number().min(0),
+  y: z.number().min(0),
+  w: z.number().min(0),
+  h: z.number().min(0),
+  normalized: z.boolean(),
+  label: z.string().min(1).max(100),
+  confidence: z.number().min(0).max(1),
+  severity: z.enum(threatSeverityLevels),
+  color: z.string().optional(),
+});
+
+export const detectionResultSchema = z.object({
+  cameraId: z.string().min(1).max(255),
+  ts: z.number().int().positive(),
+  boxes: z.array(detectionBoundingBoxSchema),
+  frameWidth: z.number().int().positive().optional(),
+  frameHeight: z.number().int().positive().optional(),
+}).refine(
+  (data) => {
+    // If any box is not normalized, frameWidth and frameHeight are required
+    const hasPixelCoordinates = data.boxes.some(box => !box.normalized);
+    return !hasPixelCoordinates || (data.frameWidth && data.frameHeight);
+  },
+  {
+    message: "frameWidth and frameHeight are required when any bounding box uses pixel coordinates (normalized=false)"
+  }
+);
+
+// Frame analysis request validation
+export const frameAnalysisRequestSchema = z.object({
+  imageData: z.string().refine(
+    (data) => data.startsWith('data:image/'),
+    { message: "Image data must be a valid data URL" }
+  ),
+  storeId: z.string().min(1).max(255),
+  cameraId: z.string().min(1).max(255),
+  config: z.object({
+    model: z.string().optional(),
+    confidenceThreshold: z.number().min(0).max(1).optional(),
+    enableThreatDetection: z.boolean().optional(),
+    enableBehaviorAnalysis: z.boolean().optional(),
+    enableObjectDetection: z.boolean().optional(),
+  }).optional(),
+});
+
+// Frame size validation constants
+export const FRAME_SIZE_LIMITS = {
+  MAX_SIZE_MB: 4,               // Maximum 4MB for analyze-frame endpoint
+  MAX_SIZE_BYTES: 4 * 1024 * 1024, // 4MB in bytes
+  ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png'] as const,
+} as const;
+
+export type AllowedMimeType = typeof FRAME_SIZE_LIMITS.ALLOWED_MIME_TYPES[number];
+
+// Types for inference
+export type DetectionBoundingBoxType = z.infer<typeof detectionBoundingBoxSchema>;
+export type DetectionResultType = z.infer<typeof detectionResultSchema>;
+export type FrameAnalysisRequest = z.infer<typeof frameAnalysisRequestSchema>;

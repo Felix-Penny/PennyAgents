@@ -8,7 +8,7 @@ import { storage } from "./storage";
 import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess, requireSecurityAgent, requireFinanceAgent, requireSalesAgent, requireOperationsAgent, requireHRAgent, requirePlatformRole, requireOrganizationAccess } from "./auth";
 import { ObjectStorageService, SecurityFileCategory, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
-import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema, offenders } from "../shared/schema";
+import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema, offenders, frameAnalysisRequestSchema, FRAME_SIZE_LIMITS, detectionResultSchema } from "../shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 
@@ -2189,20 +2189,13 @@ export function registerRoutes(app: Express): Server {
     try {
       const { imageData, storeId, cameraId, config } = req.body;
 
-      // Enhanced validation with security controls
-      if (!imageData) {
-        return res.status(400).json({ message: "Image data is required" });
-      }
-      if (!storeId) {
-        return res.status(400).json({ message: "Store ID is required" });
-      }
-      if (!cameraId) {
-        return res.status(400).json({ message: "Camera ID is required" });
-      }
-
-      // Validate payload structure and prevent injection
-      if (typeof imageData !== 'string' || !imageData.startsWith('data:image/')) {
-        return res.status(400).json({ message: "Invalid image data format. Must be a valid data URL." });
+      // Enhanced validation using Zod schema
+      const validationResult = frameAnalysisRequestSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          message: "Invalid request format", 
+          errors: validationResult.error.errors 
+        });
       }
 
       // Verify store access
@@ -2218,10 +2211,9 @@ export function registerRoutes(app: Express): Server {
       }
       
       const mimeType = mimeMatch[1];
-      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
-      if (!allowedMimeTypes.includes(mimeType)) {
+      if (!FRAME_SIZE_LIMITS.ALLOWED_MIME_TYPES.includes(mimeType as any)) {
         return res.status(400).json({ 
-          message: `Unsupported image type: ${mimeType}. Allowed types: ${allowedMimeTypes.join(', ')}` 
+          message: `Unsupported image type: ${mimeType}. Allowed types: ${FRAME_SIZE_LIMITS.ALLOWED_MIME_TYPES.join(', ')}` 
         });
       }
 
@@ -2234,11 +2226,10 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Invalid base64 encoding" });
       }
 
-      // Enhanced size validation with stricter limits
-      const maxImageSize = 5 * 1024 * 1024; // Reduced to 5MB for security
-      if (imageBuffer.length > maxImageSize) {
+      // Enhanced size validation with frame limits (4MB max)
+      if (imageBuffer.length > FRAME_SIZE_LIMITS.MAX_SIZE_BYTES) {
         return res.status(400).json({ 
-          message: `Image file too large. Maximum size is ${maxImageSize / (1024 * 1024)}MB.` 
+          message: `Image file too large. Maximum size is ${FRAME_SIZE_LIMITS.MAX_SIZE_MB}MB.` 
         });
       }
 
@@ -2268,9 +2259,17 @@ export function registerRoutes(app: Express): Server {
         config || {}
       );
 
-      // Combine results
+      // Convert AI detections to DetectionResult format for overlay rendering
+      const detectionResult = aiVideoAnalyticsService.convertToDetectionResult(
+        cameraId,
+        frameAnalysis.detections,
+        threatAssessment.detectedThreats
+      );
+
+      // Combine results with overlay-ready detection data
       const response = {
         analysisId: threatAssessment.assessmentId,
+        detectionResult, // For real-time overlay rendering
         frameAnalysis: {
           detections: frameAnalysis.detections,
           qualityScore: frameAnalysis.qualityScore,
