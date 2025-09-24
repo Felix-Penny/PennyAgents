@@ -2401,6 +2401,326 @@ export function registerRoutes(app: Express): Server {
   });
 
   // =====================================
+  // SECURITY ANALYTICS DASHBOARD ENDPOINTS  
+  // =====================================
+
+  // Main analytics dashboard - comprehensive security analytics
+  app.get("/api/analytics/dashboard", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, period = "daily", startDate, endDate } = req.query;
+      
+      // Build analytics context
+      const context: any = {
+        storeId: storeId as string,
+        organizationId: req.user?.organizationId,
+        period: period as string,
+        startDate: startDate ? new Date(startDate as string) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        endDate: endDate ? new Date(endDate as string) : new Date(),
+        scope: storeId ? "store" : "organization",
+        userId: req.user!.id
+      };
+
+      // Import analytics engine
+      const { analyticsEngine } = await import("./analytics/analyticsEngine");
+      const dashboard = await analyticsEngine.getSecurityAnalyticsDashboard(context);
+      
+      res.json(dashboard);
+    } catch (error: any) {
+      console.error("Analytics dashboard error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Incident trend analysis
+  app.get("/api/analytics/incidents/trends", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, period = "weekly", startDate, endDate } = req.query;
+      
+      const context: any = {
+        storeId: storeId as string,
+        organizationId: req.user?.organizationId,
+        period: period as string,
+        startDate: startDate ? new Date(startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        endDate: endDate ? new Date(endDate as string) : new Date(),
+        scope: storeId ? "store" : "organization"
+      };
+
+      const { IncidentAnalytics } = await import("./analytics/incidentAnalytics");
+      const incidentAnalytics = new IncidentAnalytics();
+      
+      const [summary, weeklyTrends, monthlyTrends] = await Promise.all([
+        incidentAnalytics.getIncidentSummary(context),
+        incidentAnalytics.getWeeklyTrends(context),
+        incidentAnalytics.getMonthlyTrends(context)
+      ]);
+      
+      res.json({
+        summary,
+        weeklyTrends,
+        monthlyTrends
+      });
+    } catch (error: any) {
+      console.error("Incident trends error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Performance metrics
+  app.get("/api/analytics/performance", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, period = "daily", startDate, endDate } = req.query;
+      
+      const context: any = {
+        storeId: storeId as string,
+        organizationId: req.user?.organizationId,
+        period: period as string,
+        startDate: startDate ? new Date(startDate as string) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        endDate: endDate ? new Date(endDate as string) : new Date(),
+        scope: storeId ? "store" : "organization"
+      };
+
+      const { PerformanceMetrics } = await import("./analytics/performanceMetrics");
+      const performanceMetrics = new PerformanceMetrics();
+      
+      const [metrics, systemHealth] = await Promise.all([
+        performanceMetrics.getPerformanceMetrics(context),
+        performanceMetrics.getSystemHealth(context)
+      ]);
+      
+      res.json({
+        metrics,
+        systemHealth
+      });
+    } catch (error: any) {
+      console.error("Performance metrics error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Spatial analytics and heatmap data
+  app.get("/api/analytics/spatial", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, period = "daily", startDate, endDate } = req.query;
+      
+      if (!storeId) {
+        return res.status(400).json({ message: "storeId is required for spatial analytics" });
+      }
+      
+      const context: any = {
+        storeId: storeId as string,
+        organizationId: req.user?.organizationId,
+        period: period as string,
+        startDate: startDate ? new Date(startDate as string) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        endDate: endDate ? new Date(endDate as string) : new Date(),
+        scope: "store"
+      };
+
+      const { SpatialAnalytics } = await import("./analytics/spatialAnalytics");
+      const spatialAnalytics = new SpatialAnalytics();
+      
+      const spatialData = await spatialAnalytics.getSpatialAnalysis(context);
+      res.json(spatialData);
+    } catch (error: any) {
+      console.error("Spatial analytics error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Predictive analytics and forecasting
+  app.get("/api/analytics/predictions", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, period = "monthly", startDate, endDate } = req.query;
+      
+      const context: any = {
+        storeId: storeId as string,
+        organizationId: req.user?.organizationId,
+        period: period as string,
+        startDate: startDate ? new Date(startDate as string) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+        endDate: endDate ? new Date(endDate as string) : new Date(),
+        scope: storeId ? "store" : "organization"
+      };
+
+      const { PredictiveAnalytics } = await import("./analytics/predictiveAnalytics");
+      const predictiveAnalytics = new PredictiveAnalytics();
+      
+      const predictions = await predictiveAnalytics.getPredictiveInsights(context);
+      res.json(predictions);
+    } catch (error: any) {
+      console.error("Predictive analytics error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Generate analytics summaries (for background processing)
+  app.post("/api/analytics/generate", requireAuth, requireSecurityAgent("admin"), async (req, res) => {
+    try {
+      const { period = "daily", storeId } = req.body;
+      
+      const { analyticsEngine } = await import("./analytics/analyticsEngine");
+      await analyticsEngine.generateAnalyticsSummaries(period);
+      
+      res.json({ success: true, message: `Analytics summaries generated for ${period} period` });
+    } catch (error: any) {
+      console.error("Generate analytics error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Reports management
+  app.get("/api/analytics/reports", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, type, startDate, endDate, limit = 20, offset = 0 } = req.query;
+      
+      const context: any = {
+        storeId: storeId as string,
+        organizationId: req.user?.organizationId,
+        period: "monthly",
+        startDate: startDate ? new Date(startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        endDate: endDate ? new Date(endDate as string) : new Date(),
+        scope: storeId ? "store" : "organization"
+      };
+
+      const filters = {
+        type: type as any,
+        startDate: startDate ? new Date(startDate as string) : undefined,
+        endDate: endDate ? new Date(endDate as string) : undefined,
+        limit: parseInt(limit as string),
+        offset: parseInt(offset as string)
+      };
+
+      const { ReportGenerator } = await import("./analytics/reportGenerator");
+      const reportGenerator = new ReportGenerator();
+      
+      const reports = await reportGenerator.getReports(context, filters);
+      res.json(reports);
+    } catch (error: any) {
+      console.error("Get reports error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Generate new report
+  app.post("/api/analytics/reports/generate", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { 
+        storeId, 
+        type = "operational", 
+        title, 
+        period = "monthly", 
+        format = "json",
+        includeCharts = true,
+        includeRecommendations = true,
+        recipientList = [],
+        startDate,
+        endDate
+      } = req.body;
+      
+      if (!title) {
+        return res.status(400).json({ message: "Report title is required" });
+      }
+      
+      const context: any = {
+        storeId,
+        organizationId: req.user?.organizationId,
+        period,
+        startDate: startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        endDate: endDate ? new Date(endDate) : new Date(),
+        scope: storeId ? "store" : "organization"
+      };
+
+      const config = {
+        type,
+        title,
+        period,
+        format,
+        includeCharts,
+        includeRecommendations,
+        recipientList,
+        isScheduled: false
+      };
+
+      const { ReportGenerator } = await import("./analytics/reportGenerator");
+      const reportGenerator = new ReportGenerator();
+      
+      const report = await reportGenerator.generateReport(context, config, req.user!.id);
+      res.json(report);
+    } catch (error: any) {
+      console.error("Generate report error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Schedule automated reports
+  app.post("/api/analytics/reports/schedule", requireAuth, requireSecurityAgent("admin"), async (req, res) => {
+    try {
+      const { 
+        storeId, 
+        type = "executive", 
+        title, 
+        period = "monthly", 
+        format = "json",
+        scheduleConfig,
+        recipientList = []
+      } = req.body;
+      
+      if (!title || !scheduleConfig) {
+        return res.status(400).json({ message: "Report title and schedule configuration are required" });
+      }
+      
+      const context: any = {
+        storeId,
+        organizationId: req.user?.organizationId,
+        period,
+        startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        endDate: new Date(),
+        scope: storeId ? "store" : "organization"
+      };
+
+      const config = {
+        type,
+        title,
+        period,
+        format,
+        includeCharts: true,
+        includeRecommendations: true,
+        recipientList,
+        isScheduled: true,
+        scheduleConfig
+      };
+
+      const { ReportGenerator } = await import("./analytics/reportGenerator");
+      const reportGenerator = new ReportGenerator();
+      
+      const reportId = await reportGenerator.scheduleReport(context, config, req.user!.id);
+      res.json({ success: true, reportId });
+    } catch (error: any) {
+      console.error("Schedule report error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Real-time analytics WebSocket support
+  app.get("/api/analytics/realtime/status", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId } = req.query;
+      
+      // Get current analytics status and live metrics
+      const status = {
+        lastUpdate: new Date(),
+        activeStores: storeId ? 1 : 5, // Mock data
+        processingStatus: "active",
+        cacheStatus: "healthy",
+        predictionConfidence: 85
+      };
+      
+      res.json(status);
+    } catch (error: any) {
+      console.error("Real-time status error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // =====================================
   // AI VIDEO ANALYTICS ENDPOINTS
   // =====================================
 

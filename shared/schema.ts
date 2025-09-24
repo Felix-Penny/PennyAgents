@@ -3641,7 +3641,304 @@ export type AlertEscalationRuleInsert = z.infer<typeof insertAlertEscalationRule
 export type AlertTemplate = typeof alertTemplates.$inferSelect;
 export type AlertTemplateInsert = z.infer<typeof insertAlertTemplateSchema>;
 
+// =====================================
+// Security Analytics Dashboard - Aggregation Tables
+// =====================================
+
+// Pre-computed incident statistics for performance
+export const analyticsIncidentSummary = pgTable("analytics_incident_summary", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  period: varchar("period", { length: 50 }).notNull(), // hourly, daily, weekly, monthly
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  // Incident counts by type
+  totalIncidents: integer("total_incidents").default(0),
+  activeIncidents: integer("active_incidents").default(0),
+  resolvedIncidents: integer("resolved_incidents").default(0),
+  preventedIncidents: integer("prevented_incidents").default(0),
+  escalatedIncidents: integer("escalated_incidents").default(0),
+  // Severity breakdown
+  criticalIncidents: integer("critical_incidents").default(0),
+  highIncidents: integer("high_incidents").default(0),
+  mediumIncidents: integer("medium_incidents").default(0),
+  lowIncidents: integer("low_incidents").default(0),
+  // Response metrics
+  averageResponseTime: decimal("average_response_time", { precision: 10, scale: 2 }),
+  averageResolutionTime: decimal("average_resolution_time", { precision: 10, scale: 2 }),
+  // Detection metrics
+  aiDetections: integer("ai_detections").default(0),
+  humanReports: integer("human_reports").default(0),
+  falsePositives: integer("false_positives").default(0),
+  falseNegatives: integer("false_negatives").default(0),
+  detectionAccuracy: decimal("detection_accuracy", { precision: 5, scale: 2 }),
+  // Financial impact
+  estimatedLossPrevented: decimal("estimated_loss_prevented", { precision: 15, scale: 2 }),
+  actualLoss: decimal("actual_loss", { precision: 15, scale: 2 }),
+  metadata: jsonb("metadata").$type<{
+    trends?: {
+      incidentTrend: "increasing" | "decreasing" | "stable";
+      accuracyTrend: "improving" | "declining" | "stable";
+      responseTimeTrend: "improving" | "declining" | "stable";
+    };
+    topIncidentTypes?: string[];
+    topCameras?: string[];
+    peakHours?: number[];
+  }>().default({}),
+  calculatedAt: timestamp("calculated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Security performance KPIs and metrics
+export const analyticsPerformanceMetrics = pgTable("analytics_performance_metrics", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  period: varchar("period", { length: 50 }).notNull(), // daily, weekly, monthly
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  // System performance
+  cameraUptime: decimal("camera_uptime", { precision: 5, scale: 2 }),
+  aiProcessingSpeed: decimal("ai_processing_speed", { precision: 8, scale: 3 }),
+  alertResponseTime: decimal("alert_response_time", { precision: 10, scale: 2 }),
+  systemAvailability: decimal("system_availability", { precision: 5, scale: 2 }),
+  // Team performance
+  totalAlerts: integer("total_alerts").default(0),
+  acknowledgedAlerts: integer("acknowledged_alerts").default(0),
+  dismissedAlerts: integer("dismissed_alerts").default(0),
+  escalatedAlerts: integer("escalated_alerts").default(0),
+  avgAcknowledgmentTime: decimal("avg_acknowledgment_time", { precision: 10, scale: 2 }),
+  // Coverage metrics
+  activeCameras: integer("active_cameras").default(0),
+  totalCameras: integer("total_cameras").default(0),
+  coveragePercentage: decimal("coverage_percentage", { precision: 5, scale: 2 }),
+  blindSpots: integer("blind_spots").default(0),
+  // Quality metrics
+  evidenceQualityScore: decimal("evidence_quality_score", { precision: 5, scale: 2 }),
+  successfulProsecutions: integer("successful_prosecutions").default(0),
+  totalCases: integer("total_cases").default(0),
+  prosecutionRate: decimal("prosecution_rate", { precision: 5, scale: 2 }),
+  calculatedAt: timestamp("calculated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Location-based threat analysis and spatial data
+export const analyticsSpatialData = pgTable("analytics_spatial_data", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  cameraId: varchar("camera_id", { length: 255 }).references(() => cameras.id),
+  zone: varchar("zone", { length: 255 }).notNull(), // entrance, electronics, pharmacy, etc.
+  coordinates: jsonb("coordinates").$type<{
+    x: number;
+    y: number;
+    width?: number;
+    height?: number;
+  }>().notNull(),
+  period: varchar("period", { length: 50 }).notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  // Threat data
+  threatLevel: varchar("threat_level", { length: 50 }).default("low"), // low, medium, high, critical
+  incidentCount: integer("incident_count").default(0),
+  alertCount: integer("alert_count").default(0),
+  threatScore: decimal("threat_score", { precision: 5, scale: 2 }), // 0-100 risk score
+  // Activity patterns
+  peakActivityHours: jsonb("peak_activity_hours").$type<number[]>().default([]),
+  commonThreatTypes: jsonb("common_threat_types").$type<string[]>().default([]),
+  averageThreatDuration: decimal("average_threat_duration", { precision: 10, scale: 2 }),
+  // Recommendations
+  riskLevel: varchar("risk_level", { length: 50 }).default("normal"),
+  recommendations: jsonb("recommendations").$type<string[]>().default([]),
+  calculatedAt: timestamp("calculated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Time-based pattern analysis for predictive insights
+export const analyticsTemporalPatterns = pgTable("analytics_temporal_patterns", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  patternType: varchar("pattern_type", { length: 100 }).notNull(), // hourly, daily, weekly, monthly, seasonal
+  timeframe: varchar("timeframe", { length: 100 }).notNull(), // specific time period identifier
+  // Pattern data
+  incidentFrequency: decimal("incident_frequency", { precision: 10, scale: 4 }),
+  threatIntensity: decimal("threat_intensity", { precision: 5, scale: 2 }), // 0-100
+  patterns: jsonb("patterns").$type<{
+    hourlyDistribution?: Record<number, number>; // hour -> incident count
+    dailyDistribution?: Record<number, number>; // day of week -> incident count
+    weeklyTrends?: Record<number, number>; // week -> incident count
+    monthlyTrends?: Record<number, number>; // month -> incident count
+    seasonalPatterns?: Record<string, number>; // season -> incident count
+  }>().notNull(),
+  // Predictions
+  predictedRisk: decimal("predicted_risk", { precision: 5, scale: 2 }),
+  confidenceLevel: decimal("confidence_level", { precision: 5, scale: 2 }),
+  nextHighRiskPeriod: timestamp("next_high_risk_period"),
+  // Anomalies
+  anomalies: jsonb("anomalies").$type<Array<{
+    timestamp: string;
+    severity: string;
+    description: string;
+    deviation: number;
+  }>>().default([]),
+  calculatedAt: timestamp("calculated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Automated report storage and history
+export const analyticsReports = pgTable("analytics_reports", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  reportType: varchar("report_type", { length: 100 }).notNull(), // executive, operational, tactical, compliance
+  title: varchar("title", { length: 500 }).notNull(),
+  period: varchar("period", { length: 100 }).notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  // Report content
+  summary: jsonb("summary").$type<{
+    totalIncidents: number;
+    preventedThefts: number;
+    costSavings: number;
+    systemEfficiency: number;
+    keyInsights: string[];
+    recommendations: string[];
+  }>().notNull(),
+  metrics: jsonb("metrics").$type<{
+    security: Record<string, number>;
+    performance: Record<string, number>;
+    financial: Record<string, number>;
+  }>().default({}),
+  charts: jsonb("charts").$type<Array<{
+    type: string;
+    title: string;
+    data: any;
+    config?: any;
+  }>>().default([]),
+  // Report metadata
+  format: varchar("format", { length: 50 }).default("json"), // json, pdf, excel, csv
+  status: varchar("status", { length: 50 }).default("generated"), // generating, generated, delivered, failed
+  recipientList: jsonb("recipient_list").$type<string[]>().default([]),
+  deliveredAt: timestamp("delivered_at"),
+  fileUrl: text("file_url"), // if exported to file
+  // Scheduling
+  isScheduled: boolean("is_scheduled").default(false),
+  scheduleConfig: jsonb("schedule_config").$type<{
+    frequency: "daily" | "weekly" | "monthly" | "quarterly";
+    dayOfWeek?: number;
+    dayOfMonth?: number;
+    time?: string;
+    timezone?: string;
+  }>(),
+  nextScheduledRun: timestamp("next_scheduled_run"),
+  generatedBy: varchar("generated_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Types for inference
 export type DetectionBoundingBoxType = z.infer<typeof detectionBoundingBoxSchema>;
 export type DetectionResultType = z.infer<typeof detectionResultSchema>;
 export type FrameAnalysisRequest = z.infer<typeof frameAnalysisRequestSchema>;
+
+// Analytics aggregation table types
+export type AnalyticsIncidentSummary = typeof analyticsIncidentSummary.$inferSelect;
+export type AnalyticsPerformanceMetrics = typeof analyticsPerformanceMetrics.$inferSelect;
+export type AnalyticsSpatialData = typeof analyticsSpatialData.$inferSelect;
+export type AnalyticsTemporalPatterns = typeof analyticsTemporalPatterns.$inferSelect;
+export type AnalyticsReports = typeof analyticsReports.$inferSelect;
+
+export type InsertAnalyticsIncidentSummary = typeof analyticsIncidentSummary.$inferInsert;
+export type InsertAnalyticsPerformanceMetrics = typeof analyticsPerformanceMetrics.$inferInsert;
+export type InsertAnalyticsSpatialData = typeof analyticsSpatialData.$inferInsert;
+export type InsertAnalyticsTemporalPatterns = typeof analyticsTemporalPatterns.$inferInsert;
+export type InsertAnalyticsReports = typeof analyticsReports.$inferInsert;
+
+// Analytics dashboard response types
+export interface SecurityAnalyticsDashboard {
+  // Executive Summary
+  summary: {
+    totalIncidents: number;
+    preventedIncidents: number;
+    activeAlerts: number;
+    systemEfficiency: number;
+    costSavings: number;
+    threatLevel: "low" | "medium" | "high" | "critical";
+  };
+  
+  // Performance Metrics
+  performance: {
+    detectionAccuracy: number;
+    averageResponseTime: number;
+    cameraUptime: number;
+    alertResolutionRate: number;
+    falsePositiveRate: number;
+  };
+  
+  // Trend Analysis
+  trends: {
+    incidentTrend: "increasing" | "decreasing" | "stable";
+    responseTrend: "improving" | "declining" | "stable";
+    efficiencyTrend: "improving" | "declining" | "stable";
+    weeklyIncidents: Array<{ day: string; count: number; prevented: number }>;
+    monthlyTrends: Array<{ month: string; incidents: number; alerts: number }>;
+  };
+  
+  // Spatial Analysis
+  heatmap: {
+    zones: Array<{
+      id: string;
+      name: string;
+      threatLevel: "low" | "medium" | "high" | "critical";
+      incidentCount: number;
+      coordinates: { x: number; y: number; width?: number; height?: number };
+      riskScore: number;
+    }>;
+    hotspots: Array<{
+      zone: string;
+      incidentCount: number;
+      severity: string;
+      recommendations: string[];
+    }>;
+  };
+  
+  // Recent Activity
+  recentActivity: {
+    alerts: Array<{
+      id: string;
+      type: string;
+      severity: string;
+      location: string;
+      timestamp: string;
+      status: string;
+    }>;
+    incidents: Array<{
+      id: string;
+      title: string;
+      type: string;
+      severity: string;
+      status: string;
+      assignedTo?: string;
+      createdAt: string;
+    }>;
+  };
+  
+  // Predictive Insights
+  predictions: {
+    nextHighRiskPeriod: string | null;
+    riskLevel: number;
+    recommendations: string[];
+    seasonalTrends: Record<string, number>;
+  };
+  
+  // System Health
+  systemHealth: {
+    cameraStatus: { online: number; offline: number; total: number };
+    processingSpeed: number;
+    storageUsage: number;
+    networkLatency: number;
+    uptime: number;
+  };
+}
