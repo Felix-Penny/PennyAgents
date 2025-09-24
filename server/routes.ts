@@ -1296,10 +1296,507 @@ export function registerRoutes(app: Express): Server {
         }
       }
 
+      // Create HR demo data - REQUIRE valid organization (security fix)
+      if (!req.user?.organizationId) {
+        return res.status(400).json({ message: "Invalid user session - missing organizationId" });
+      }
+      const organizationId = req.user.organizationId;
+      
+      // Create demo departments
+      const demoDepartments = [
+        {
+          organizationId,
+          name: "Engineering",
+          description: "Software development and technical innovation",
+          budget: "2500000.00",
+          headcount: 45,
+          location: "New York",
+          costCenter: "ENG-001",
+          isActive: true
+        },
+        {
+          organizationId,
+          name: "Sales",
+          description: "Revenue generation and customer acquisition",
+          budget: "1800000.00", 
+          headcount: 32,
+          location: "San Francisco",
+          costCenter: "SAL-001",
+          isActive: true
+        },
+        {
+          organizationId,
+          name: "Marketing",
+          description: "Brand awareness and lead generation",
+          budget: "1200000.00",
+          headcount: 18,
+          location: "Los Angeles", 
+          costCenter: "MKT-001",
+          isActive: true
+        },
+        {
+          organizationId,
+          name: "Operations",
+          description: "Business operations and process optimization",
+          budget: "800000.00",
+          headcount: 23,
+          location: "Chicago",
+          costCenter: "OPS-001", 
+          isActive: true
+        },
+        {
+          organizationId,
+          name: "Human Resources",
+          description: "People operations and organizational development",
+          budget: "600000.00",
+          headcount: 12,
+          location: "Austin",
+          costCenter: "HR-001",
+          isActive: true
+        },
+        {
+          organizationId,
+          name: "Finance",
+          description: "Financial planning and accounting",
+          budget: "900000.00",
+          headcount: 14,
+          location: "Boston",
+          costCenter: "FIN-001",
+          isActive: true
+        }
+      ];
+
+      // Create departments if they don't exist, get existing ones if they do (IDEMPOTENT)
+      const createdDepartments = [];
+      for (const dept of demoDepartments) {
+        try {
+          // Try to create the department
+          const created = await storage.createDepartment(dept);
+          createdDepartments.push(created);
+        } catch (e) {
+          // Department likely exists, get it from database
+          console.log("Department exists, fetching from database:", dept.name);
+          const existingDepartments = await storage.getDepartmentsByOrganization(organizationId);
+          const existingDept = existingDepartments.find(d => d.name === dept.name);
+          if (existingDept) {
+            createdDepartments.push(existingDept);
+          } else {
+            console.error("Failed to create or find department:", dept.name, e);
+          }
+        }
+      }
+      
+      // Ensure we have all required departments before creating employees
+      if (createdDepartments.length === 0) {
+        console.error("No departments available for employee creation");
+        return res.status(500).json({ message: "Failed to create or find required departments" });
+      }
+
+      // Create demo employees  
+      const demoEmployees = [
+        {
+          organizationId,
+          employeeId: "EMP-001",
+          departmentId: createdDepartments.find(d => d.name === "Engineering")?.id,
+          firstName: "Alice",
+          lastName: "Johnson",
+          email: "alice.johnson@company.com",
+          phone: "+1-555-0101",
+          position: "Senior Software Engineer",
+          level: "senior",
+          salary: "145000.00",
+          currency: "USD",
+          employmentType: "full_time",
+          status: "active",
+          startDate: new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000), // 2 years ago
+          location: "New York",
+          workSchedule: "remote",
+          profile: {
+            skills: ["React", "TypeScript", "Node.js", "Python"],
+            certifications: ["AWS Solutions Architect"],
+            languages: ["English", "Spanish"]
+          },
+          diversityInfo: {
+            gender: "Female",
+            ethnicity: "Hispanic/Latino",
+            ageGroup: "30-39"
+          },
+          isActive: true
+        },
+        {
+          organizationId,
+          employeeId: "EMP-002", 
+          departmentId: createdDepartments.find(d => d.name === "Sales")?.id,
+          firstName: "David",
+          lastName: "Chen",
+          email: "david.chen@company.com",
+          phone: "+1-555-0102",
+          position: "Account Executive",
+          level: "mid",
+          salary: "95000.00",
+          currency: "USD",
+          employmentType: "full_time",
+          status: "active",
+          startDate: new Date(Date.now() - 18 * 30 * 24 * 60 * 60 * 1000), // 18 months ago
+          location: "San Francisco",
+          workSchedule: "hybrid",
+          profile: {
+            skills: ["Salesforce", "Customer Relations", "Negotiation"],
+            certifications: ["Salesforce Administrator"],
+            languages: ["English", "Mandarin"]
+          },
+          diversityInfo: {
+            gender: "Male",
+            ethnicity: "Asian",
+            ageGroup: "25-29"
+          },
+          isActive: true
+        },
+        {
+          organizationId,
+          employeeId: "EMP-003",
+          departmentId: createdDepartments.find(d => d.name === "Marketing")?.id,
+          firstName: "Sarah",
+          lastName: "Williams",
+          email: "sarah.williams@company.com", 
+          phone: "+1-555-0103",
+          position: "Marketing Manager",
+          level: "manager",
+          salary: "110000.00",
+          currency: "USD",
+          employmentType: "full_time",
+          status: "active",
+          startDate: new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000), // 3 years ago
+          location: "Los Angeles",
+          workSchedule: "standard",
+          profile: {
+            skills: ["Digital Marketing", "Analytics", "Content Strategy"],
+            certifications: ["Google Analytics", "HubSpot Marketing"],
+            languages: ["English", "French"]
+          },
+          diversityInfo: {
+            gender: "Female",
+            ethnicity: "White",
+            ageGroup: "30-39"
+          },
+          isActive: true
+        },
+        {
+          organizationId,
+          employeeId: "EMP-004",
+          departmentId: createdDepartments.find(d => d.name === "Engineering")?.id,
+          firstName: "Michael",
+          lastName: "Thompson",
+          email: "michael.thompson@company.com",
+          phone: "+1-555-0104", 
+          position: "DevOps Engineer",
+          level: "senior",
+          salary: "135000.00",
+          currency: "USD",
+          employmentType: "full_time",
+          status: "onboarding",
+          startDate: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000), // 2 weeks ago
+          location: "Austin",
+          workSchedule: "remote",
+          profile: {
+            skills: ["Kubernetes", "Docker", "AWS", "Terraform"],
+            certifications: ["CKA", "AWS DevOps Engineer"],
+            languages: ["English"]
+          },
+          diversityInfo: {
+            gender: "Male",
+            ethnicity: "Black/African American",
+            ageGroup: "25-29"
+          },
+          isActive: true
+        },
+        {
+          organizationId,
+          employeeId: "EMP-005",
+          departmentId: createdDepartments.find(d => d.name === "Human Resources")?.id,
+          firstName: "Jennifer",
+          lastName: "Martinez",
+          email: "jennifer.martinez@company.com",
+          phone: "+1-555-0105",
+          position: "HR Business Partner",
+          level: "senior",
+          salary: "125000.00",
+          currency: "USD",
+          employmentType: "full_time",
+          status: "active",
+          startDate: new Date(Date.now() - 4 * 365 * 24 * 60 * 60 * 1000), // 4 years ago
+          location: "Austin",
+          workSchedule: "hybrid",
+          profile: {
+            skills: ["Employee Relations", "Performance Management", "Recruiting"],
+            certifications: ["SHRM-CP", "PHR"],
+            languages: ["English", "Spanish"]
+          },
+          diversityInfo: {
+            gender: "Female",
+            ethnicity: "Hispanic/Latino",
+            ageGroup: "35-44"
+          },
+          isActive: true
+        }
+      ];
+
+      const createdEmployees = [];
+      for (const emp of demoEmployees) {
+        try {
+          const created = await storage.createEmployee(emp);
+          createdEmployees.push(created);
+        } catch (e) {
+          console.log("Employee might already exist:", emp.email);
+        }
+      }
+
+      // Create demo performance reviews
+      const demoReviews = [
+        {
+          organizationId,
+          employeeId: createdEmployees[0]?.id,
+          reviewerId: createdEmployees[4]?.id, // HR Partner as reviewer
+          reviewPeriod: "Q3-2024",
+          reviewType: "regular",
+          status: "completed",
+          overallRating: "4.5",
+          ratings: {
+            performance: 4.5,
+            communication: 4.8,
+            teamwork: 4.3,
+            leadership: 4.6,
+            innovation: 4.7,
+            reliability: 4.4
+          },
+          feedback: {
+            strengths: ["Excellent technical skills", "Strong leadership in projects", "Great mentoring ability"],
+            areasForImprovement: ["Could improve documentation", "Work on time management"],
+            managerNotes: "Top performer, ready for promotion",
+            developmentPlan: ["Tech lead training", "Management fundamentals course"]
+          },
+          reviewDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30 days ago
+          submittedAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000),
+          approvedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000)
+        },
+        {
+          organizationId,
+          employeeId: createdEmployees[1]?.id,
+          reviewerId: createdEmployees[4]?.id,
+          reviewPeriod: "Q3-2024",
+          reviewType: "regular", 
+          status: "in_progress",
+          overallRating: null,
+          ratings: {
+            performance: 4.2,
+            communication: 4.0,
+            teamwork: 4.3,
+            leadership: 3.8
+          },
+          feedback: {
+            strengths: ["Consistently meets targets", "Good client relationships"],
+            areasForImprovement: ["Needs to improve presentation skills"]
+          },
+          reviewDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
+          submittedAt: null,
+          approvedAt: null
+        }
+      ];
+
+      for (const review of demoReviews) {
+        try {
+          if (review.employeeId && review.reviewerId) {
+            await storage.createPerformanceReview(review);
+          }
+        } catch (e) {
+          console.log("Performance review might already exist");
+        }
+      }
+
+      // Create demo recruitment jobs
+      const demoJobs = [
+        {
+          organizationId,
+          departmentId: createdDepartments.find(d => d.name === "Engineering")?.id,
+          hiringManagerId: createdEmployees[0]?.id,
+          title: "Senior Full Stack Developer",
+          description: "We are looking for an experienced full stack developer to join our growing engineering team.",
+          requirements: {
+            skills: ["React", "Node.js", "TypeScript", "PostgreSQL"],
+            experience: "5+ years in full stack development",
+            education: "Bachelor's degree in Computer Science or related field",
+            certifications: ["AWS certification preferred"]
+          },
+          location: "Remote",
+          workType: "full_time",
+          workSchedule: "remote",
+          salaryRange: {
+            min: 130000,
+            max: 180000,
+            currency: "USD",
+            isPublic: true
+          },
+          status: "open",
+          priority: "high",
+          positionsToFill: 2,
+          positionsFilled: 0,
+          applicationDeadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          postedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+          isActive: true
+        },
+        {
+          organizationId,
+          departmentId: createdDepartments.find(d => d.name === "Sales")?.id,
+          hiringManagerId: createdEmployees[1]?.id,
+          title: "Business Development Representative",
+          description: "Join our sales team as a BDR and help drive our company's growth.",
+          requirements: {
+            skills: ["Sales", "Lead Generation", "CRM"],
+            experience: "1-2 years in sales or business development",
+            education: "Bachelor's degree preferred"
+          },
+          location: "San Francisco",
+          workType: "full_time",
+          workSchedule: "hybrid",
+          salaryRange: {
+            min: 65000,
+            max: 85000,
+            currency: "USD",
+            isPublic: true
+          },
+          status: "open",
+          priority: "medium",
+          positionsToFill: 1,
+          positionsFilled: 0,
+          applicationDeadline: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000),
+          postedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+          isActive: true
+        }
+      ];
+
+      const createdJobs = [];
+      for (const job of demoJobs) {
+        try {
+          if (job.departmentId && job.hiringManagerId) {
+            const created = await storage.createRecruitmentJob(job);
+            createdJobs.push(created);
+          }
+        } catch (e) {
+          console.log("Job might already exist:", job.title);
+        }
+      }
+
+      // Create demo training programs
+      const demoTrainingPrograms = [
+        {
+          organizationId,
+          title: "Security Awareness Training",
+          description: "Comprehensive cybersecurity awareness program for all employees",
+          category: "compliance",
+          type: "course", 
+          format: "online",
+          difficulty: "beginner",
+          duration: 4, // hours
+          cost: "0.00",
+          maxParticipants: 200,
+          provider: "Internal",
+          learningObjectives: [
+            "Identify common security threats",
+            "Understand password best practices",
+            "Recognize phishing attempts",
+            "Follow data protection protocols"
+          ],
+          isActive: true,
+          isMandatory: true
+        },
+        {
+          organizationId,
+          title: "Leadership Development Program",
+          description: "Advanced leadership skills for managers and senior staff",
+          category: "leadership",
+          type: "workshop",
+          format: "hybrid",
+          difficulty: "advanced",
+          duration: 24, // hours
+          cost: "2500.00",
+          maxParticipants: 20,
+          provider: "External",
+          learningObjectives: [
+            "Develop emotional intelligence",
+            "Master effective communication",
+            "Learn conflict resolution",
+            "Build high-performing teams"
+          ],
+          isActive: true,
+          isMandatory: false
+        }
+      ];
+
+      const createdPrograms = [];
+      for (const program of demoTrainingPrograms) {
+        try {
+          const created = await storage.createTrainingProgram(program);
+          createdPrograms.push(created);
+        } catch (e) {
+          console.log("Training program might already exist:", program.title);
+        }
+      }
+
+      // Create demo training completions
+      const demoCompletions = [
+        {
+          organizationId,
+          programId: createdPrograms[0]?.id, // Security training
+          employeeId: createdEmployees[0]?.id,
+          status: "completed",
+          progress: 100,
+          score: "95.00",
+          grade: "A",
+          enrolledAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+          startedAt: new Date(Date.now() - 29 * 24 * 60 * 60 * 1000),
+          completedAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000),
+          feedback: {
+            rating: 5,
+            comments: "Very informative and practical",
+            wouldRecommend: true
+          },
+          timeSpent: 4,
+          attempts: 1
+        },
+        {
+          organizationId,
+          programId: createdPrograms[0]?.id, // Security training  
+          employeeId: createdEmployees[1]?.id,
+          status: "in_progress",
+          progress: 75,
+          score: null,
+          enrolledAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          startedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+          timeSpent: 3,
+          attempts: 1
+        }
+      ];
+
+      for (const completion of demoCompletions) {
+        try {
+          if (completion.programId && completion.employeeId) {
+            await storage.createTrainingCompletion(completion);
+          }
+        } catch (e) {
+          console.log("Training completion might already exist");
+        }
+      }
+
       res.json({ message: "Demo data seeded successfully", 
         stores: demoStores.length,
         offenders: demoOffenders.length, 
-        payments: demoPayments.length 
+        payments: demoPayments.length,
+        departments: createdDepartments.length,
+        employees: createdEmployees.length,
+        reviews: demoReviews.length,
+        jobs: createdJobs.length,
+        trainingPrograms: createdPrograms.length,
+        trainingCompletions: demoCompletions.length
       });
     } catch (error: any) {
       console.error("Demo data seeding error:", error);
@@ -1324,24 +1821,139 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // HR Agent Dashboard Data
-  app.get("/api/hr", requireAuth, requireHRAgent("viewer"), async (req, res) => {
+  // HR Agent Dashboard Data - NOW WITH PROPER TENANCY SCOPING
+  app.get("/api/hr", requireAuth, requireOrganizationAccess, requireHRAgent("viewer"), async (req, res) => {
     try {
-      const hrStats = {
-        totalEmployees: 156,
-        activeEmployees: 152,
-        newHires: 8,
-        satisfactionScore: 4.2,
-        turnoverRate: 12.5,
-        openPositions: 7,
-        departments: [
-          { name: "Engineering", employees: 45, satisfaction: 4.4 },
-          { name: "Sales", employees: 32, satisfaction: 4.1 },
-          { name: "Marketing", employees: 18, satisfaction: 4.3 },
-          { name: "Operations", employees: 23, satisfaction: 4.0 }
-        ]
+      const organizationId = req.user!.organizationId;
+      
+      // Get comprehensive HR metrics from storage with organization scoping
+      const hrMetrics = await storage.getHRMetrics(organizationId);
+      
+      // Get recent hires (last 30 days)
+      const recentHires = await storage.getEmployeesByOrganization(organizationId);
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const recentNewHires = recentHires
+        .filter(emp => emp.startDate && new Date(emp.startDate) >= thirtyDaysAgo)
+        .slice(0, 4)
+        .map(emp => ({
+          id: emp.id,
+          name: `${emp.firstName} ${emp.lastName}`,
+          position: emp.position,
+          startDate: emp.startDate,
+          department: emp.departmentId // Would join with departments table in real app
+        }));
+
+      // Get department statistics
+      const departments = await storage.getDepartmentsByOrganization(organizationId);
+      const departmentStats = await Promise.all(
+        departments.map(async (dept) => {
+          const deptEmployees = await storage.getEmployeesByDepartment(dept.id);
+          return {
+            name: dept.name,
+            employees: deptEmployees.length,
+            vacancies: 0, // Would calculate from open positions
+            satisfaction: 4.0 + Math.random() * 0.8 // Mock satisfaction scores
+          };
+        })
+      );
+
+      // Get upcoming events (performance reviews, training, etc.)
+      const pendingReviews = await storage.getPendingPerformanceReviews(organizationId);
+      const upcomingEvents = [
+        ...pendingReviews.slice(0, 2).map(review => ({
+          id: review.id,
+          title: `Performance Review - ${review.reviewPeriod}`,
+          date: review.reviewDate ? new Date(review.reviewDate).toLocaleDateString() : 'TBD',
+          type: 'Review'
+        })),
+        {
+          id: 'training-1',
+          title: 'New Employee Orientation',
+          date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          type: 'Training'
+        },
+        {
+          id: 'survey-1', 
+          title: 'Quarterly Engagement Survey',
+          date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          type: 'Survey'
+        }
+      ];
+
+      // Get training completion progress
+      const trainingCompletions = await storage.getTrainingCompletionsByOrganization(organizationId);
+      const trainingProgress = [
+        {
+          program: 'Security Awareness',
+          completed: trainingCompletions.filter(tc => tc.status === 'completed').length,
+          total: Math.max(hrMetrics.totalEmployees, trainingCompletions.length),
+          progress: trainingCompletions.length > 0 ? 
+            (trainingCompletions.filter(tc => tc.status === 'completed').length / trainingCompletions.length) * 100 : 0
+        },
+        {
+          program: 'Leadership Development',
+          completed: Math.floor(hrMetrics.totalEmployees * 0.3),
+          total: hrMetrics.totalEmployees,
+          progress: 30
+        },
+        {
+          program: 'Technical Skills',
+          completed: Math.floor(hrMetrics.totalEmployees * 0.7),
+          total: hrMetrics.totalEmployees,
+          progress: 70
+        }
+      ];
+
+      // Get performance insights
+      const performanceInsights = {
+        highPerformers: Math.floor(hrMetrics.totalEmployees * 0.2),
+        needsImprovement: Math.floor(hrMetrics.totalEmployees * 0.1),
+        onTrack: hrMetrics.totalEmployees - Math.floor(hrMetrics.totalEmployees * 0.3),
+        avgRating: hrMetrics.avgPerformanceRating || 4.1
       };
-      res.json(hrStats);
+
+      // Combine all HR data for the dashboard
+      const hrDashboardData = {
+        // Core metrics
+        ...hrMetrics,
+        
+        // Recent activity
+        recentHires: recentNewHires,
+        
+        // Department breakdown
+        departmentStats,
+        
+        // Upcoming events and activities
+        upcomingEvents,
+        
+        // Training and development
+        trainingProgress,
+        
+        // Performance insights
+        performanceInsights,
+        
+        // Additional insights
+        insights: {
+          recruiting: {
+            openPositions: hrMetrics.openPositions,
+            candidatesInPipeline: Math.floor(hrMetrics.openPositions * 3.5), // Mock data
+            avgTimeToHire: 23 // days
+          },
+          retention: {
+            avgTenure: 2.8, // years
+            exitInterviews: 5,
+            retentionRate: 87.5
+          },
+          engagement: {
+            participationRate: 89,
+            responseRate: 78,
+            satisfactionTrend: '+0.3'
+          }
+        }
+      };
+
+      res.json(hrDashboardData);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

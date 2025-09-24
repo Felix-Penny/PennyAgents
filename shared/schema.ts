@@ -533,6 +533,357 @@ export const operationalIncidents = pgTable("operational_incidents", {
 });
 
 // =====================================
+// HR Agent - Human Resources Management
+// =====================================
+
+export const departments = pgTable("departments", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  managerId: varchar("manager_id", { length: 255 }).references(() => users.id),
+  budget: decimal("budget", { precision: 15, scale: 2 }),
+  headcount: integer("headcount").default(0),
+  location: varchar("location", { length: 255 }),
+  costCenter: varchar("cost_center", { length: 100 }),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const employees = pgTable("employees", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  userId: varchar("user_id", { length: 255 }).references(() => users.id), // link to platform user
+  employeeId: varchar("employee_id", { length: 100 }).notNull(), // company employee ID
+  departmentId: varchar("department_id", { length: 255 }).references(() => departments.id),
+  managerId: varchar("manager_id", { length: 255 }).references(() => employees.id),
+  firstName: varchar("first_name", { length: 255 }).notNull(),
+  lastName: varchar("last_name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 50 }),
+  position: varchar("position", { length: 255 }).notNull(),
+  level: varchar("level", { length: 100 }), // junior, mid, senior, lead, manager, director, vp
+  salary: decimal("salary", { precision: 15, scale: 2 }),
+  currency: varchar("currency", { length: 10 }).default("USD"),
+  employmentType: varchar("employment_type", { length: 50 }).default("full_time"), // full_time, part_time, contract, intern
+  status: varchar("status", { length: 50 }).default("active"), // active, onboarding, on_leave, terminated, suspended
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  location: varchar("location", { length: 255 }),
+  workSchedule: varchar("work_schedule", { length: 100 }).default("standard"), // standard, flexible, remote, hybrid
+  profile: jsonb("profile").$type<{
+    avatar?: string;
+    bio?: string;
+    skills?: string[];
+    certifications?: string[];
+    languages?: string[];
+    emergencyContact?: {
+      name: string;
+      relationship: string;
+      phone: string;
+    };
+    personalInfo?: {
+      dateOfBirth?: string;
+      gender?: string;
+      nationality?: string;
+      address?: string;
+    };
+  }>().default({}),
+  diversityInfo: jsonb("diversity_info").$type<{
+    gender?: string;
+    ethnicity?: string;
+    ageGroup?: string;
+    veteranStatus?: boolean;
+    disabilityStatus?: boolean;
+  }>().default({}),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const performanceReviews = pgTable("performance_reviews", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  employeeId: varchar("employee_id", { length: 255 }).notNull().references(() => employees.id),
+  reviewerId: varchar("reviewer_id", { length: 255 }).notNull().references(() => employees.id),
+  reviewPeriod: varchar("review_period", { length: 100 }).notNull(), // q1-2025, annual-2024, etc.
+  reviewType: varchar("review_type", { length: 100 }).default("regular"), // regular, probationary, promotion, improvement
+  status: varchar("status", { length: 50 }).default("draft"), // draft, in_progress, completed, approved
+  overallRating: decimal("overall_rating", { precision: 3, scale: 2 }), // 1.00 to 5.00
+  ratings: jsonb("ratings").$type<{
+    performance?: number;
+    communication?: number;
+    teamwork?: number;
+    leadership?: number;
+    innovation?: number;
+    reliability?: number;
+    growthMindset?: number;
+  }>().default({}),
+  goals: jsonb("goals").$type<Array<{
+    id: string;
+    title: string;
+    description: string;
+    status: "not_started" | "in_progress" | "completed" | "exceeded";
+    rating?: number;
+    comments?: string;
+  }>>().default([]),
+  feedback: jsonb("feedback").$type<{
+    strengths?: string[];
+    areasForImprovement?: string[];
+    managerNotes?: string;
+    employeeComments?: string;
+    developmentPlan?: string[];
+  }>().default({}),
+  reviewDate: timestamp("review_date").notNull(),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  approvedBy: varchar("approved_by", { length: 255 }).references(() => employees.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const performanceGoals = pgTable("performance_goals", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  employeeId: varchar("employee_id", { length: 255 }).notNull().references(() => employees.id),
+  managerId: varchar("manager_id", { length: 255 }).references(() => employees.id),
+  title: varchar("title", { length: 500 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 100 }), // performance, learning, project, behavior
+  priority: varchar("priority", { length: 50 }).default("medium"), // low, medium, high, critical
+  status: varchar("status", { length: 50 }).default("active"), // active, completed, cancelled, on_hold
+  progress: integer("progress").default(0), // 0-100 percentage
+  targetValue: decimal("target_value", { precision: 15, scale: 4 }),
+  currentValue: decimal("current_value", { precision: 15, scale: 4 }),
+  unit: varchar("unit", { length: 50 }), // %, $, hours, count, etc.
+  dueDate: timestamp("due_date"),
+  completedAt: timestamp("completed_at"),
+  reviewPeriod: varchar("review_period", { length: 100 }), // links to performance review
+  metrics: jsonb("metrics").$type<{
+    kpis?: Array<{
+      name: string;
+      target: number;
+      current: number;
+      unit: string;
+    }>;
+    milestones?: Array<{
+      name: string;
+      dueDate: string;
+      completed: boolean;
+    }>;
+  }>().default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const recruitmentJobs = pgTable("recruitment_jobs", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  departmentId: varchar("department_id", { length: 255 }).references(() => departments.id),
+  hiringManagerId: varchar("hiring_manager_id", { length: 255 }).references(() => employees.id),
+  title: varchar("title", { length: 500 }).notNull(),
+  description: text("description").notNull(),
+  requirements: jsonb("requirements").$type<{
+    skills?: string[];
+    experience?: string;
+    education?: string;
+    certifications?: string[];
+    languages?: string[];
+  }>().default({}),
+  location: varchar("location", { length: 255 }),
+  workType: varchar("work_type", { length: 100 }).default("full_time"), // full_time, part_time, contract, internship
+  workSchedule: varchar("work_schedule", { length: 100 }).default("onsite"), // onsite, remote, hybrid
+  salaryRange: jsonb("salary_range").$type<{
+    min?: number;
+    max?: number;
+    currency?: string;
+    isPublic?: boolean;
+  }>().default({}),
+  status: varchar("status", { length: 50 }).default("open"), // open, closed, on_hold, filled
+  priority: varchar("priority", { length: 50 }).default("medium"), // low, medium, high, urgent
+  positionsToFill: integer("positions_to_fill").default(1),
+  positionsFilled: integer("positions_filled").default(0),
+  applicationDeadline: timestamp("application_deadline"),
+  postedAt: timestamp("posted_at").defaultNow(),
+  closedAt: timestamp("closed_at"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const recruitmentCandidates = pgTable("recruitment_candidates", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  jobId: varchar("job_id", { length: 255 }).notNull().references(() => recruitmentJobs.id),
+  firstName: varchar("first_name", { length: 255 }).notNull(),
+  lastName: varchar("last_name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 50 }),
+  resumeUrl: text("resume_url"),
+  coverLetterUrl: text("cover_letter_url"),
+  source: varchar("source", { length: 100 }), // website, referral, linkedin, job_board, recruiter
+  stage: varchar("stage", { length: 100 }).default("applied"), // applied, screening, interview, offer, hired, rejected
+  status: varchar("status", { length: 50 }).default("active"), // active, on_hold, withdrawn, hired, rejected
+  rating: decimal("rating", { precision: 3, scale: 2 }), // 1.00 to 5.00
+  experience: jsonb("experience").$type<{
+    yearsTotal?: number;
+    relevantYears?: number;
+    previousCompanies?: string[];
+    currentRole?: string;
+    currentSalary?: number;
+    expectedSalary?: number;
+  }>().default({}),
+  skills: jsonb("skills").$type<{
+    technical?: string[];
+    soft?: string[];
+    certifications?: string[];
+    languages?: string[];
+  }>().default({}),
+  interviewSchedule: jsonb("interview_schedule").$type<Array<{
+    round: number;
+    type: string; // phone, video, onsite, technical, behavioral
+    scheduledAt: string;
+    interviewer: string;
+    status: string; // scheduled, completed, cancelled, rescheduled
+    feedback?: string;
+    rating?: number;
+  }>>().default([]),
+  notes: text("notes"),
+  appliedAt: timestamp("applied_at").defaultNow(),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const trainingPrograms = pgTable("training_programs", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  title: varchar("title", { length: 500 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 100 }), // onboarding, technical, leadership, compliance, soft_skills
+  type: varchar("type", { length: 100 }).default("course"), // course, workshop, certification, mentoring, conference
+  format: varchar("format", { length: 100 }).default("online"), // online, in_person, hybrid, self_paced
+  difficulty: varchar("difficulty", { length: 50 }).default("beginner"), // beginner, intermediate, advanced
+  duration: integer("duration"), // in hours
+  cost: decimal("cost", { precision: 10, scale: 2 }),
+  maxParticipants: integer("max_participants"),
+  provider: varchar("provider", { length: 255 }), // internal, external provider name
+  instructorId: varchar("instructor_id", { length: 255 }).references(() => employees.id),
+  prerequisites: jsonb("prerequisites").$type<{
+    skills?: string[];
+    experience?: string;
+    previousTraining?: string[];
+  }>().default({}),
+  learningObjectives: jsonb("learning_objectives").$type<string[]>().default([]),
+  materials: jsonb("materials").$type<{
+    documents?: string[];
+    videos?: string[];
+    links?: string[];
+    assignments?: string[];
+  }>().default({}),
+  schedule: jsonb("schedule").$type<{
+    startDate?: string;
+    endDate?: string;
+    sessions?: Array<{
+      date: string;
+      startTime: string;
+      endTime: string;
+      topic: string;
+    }>;
+  }>(),
+  isActive: boolean("is_active").default(true),
+  isMandatory: boolean("is_mandatory").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const trainingCompletions = pgTable("training_completions", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  programId: varchar("program_id", { length: 255 }).notNull().references(() => trainingPrograms.id),
+  employeeId: varchar("employee_id", { length: 255 }).notNull().references(() => employees.id),
+  status: varchar("status", { length: 50 }).default("enrolled"), // enrolled, in_progress, completed, failed, withdrawn
+  progress: integer("progress").default(0), // 0-100 percentage
+  score: decimal("score", { precision: 5, scale: 2 }), // test/assessment score
+  grade: varchar("grade", { length: 10 }), // A, B, C, D, F or Pass/Fail
+  enrolledAt: timestamp("enrolled_at").defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  certificateUrl: text("certificate_url"),
+  feedback: jsonb("feedback").$type<{
+    rating?: number; // 1-5 rating of the training
+    comments?: string;
+    wouldRecommend?: boolean;
+  }>().default({}),
+  timeSpent: integer("time_spent"), // in hours
+  attempts: integer("attempts").default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const engagementSurveys = pgTable("engagement_surveys", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  title: varchar("title", { length: 500 }).notNull(),
+  description: text("description"),
+  type: varchar("type", { length: 100 }).default("engagement"), // engagement, satisfaction, pulse, exit, onboarding
+  status: varchar("status", { length: 50 }).default("draft"), // draft, active, closed, analyzed
+  isAnonymous: boolean("is_anonymous").default(true),
+  questions: jsonb("questions").$type<Array<{
+    id: string;
+    type: "rating" | "multiple_choice" | "text" | "yes_no";
+    question: string;
+    options?: string[];
+    required: boolean;
+    category?: string; // work_life_balance, management, growth, compensation, etc.
+  }>>().default([]),
+  targetAudience: jsonb("target_audience").$type<{
+    departments?: string[];
+    levels?: string[];
+    locations?: string[];
+    includeAll?: boolean;
+  }>().default({}),
+  launchDate: timestamp("launch_date"),
+  closeDate: timestamp("close_date"),
+  responseRate: decimal("response_rate", { precision: 5, scale: 2 }), // percentage
+  totalResponses: integer("total_responses").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const surveyResponses = pgTable("survey_responses", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  surveyId: varchar("survey_id", { length: 255 }).notNull().references(() => engagementSurveys.id),
+  employeeId: varchar("employee_id", { length: 255 }).references(() => employees.id), // null if anonymous
+  responses: jsonb("responses").$type<Record<string, any>>().default({}), // questionId -> answer
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  ipAddress: varchar("ip_address", { length: 45 }), // for duplicate prevention
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const hrMetrics = pgTable("hr_metrics", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  metricType: varchar("metric_type", { length: 100 }).notNull(), // headcount, turnover, engagement, diversity, performance
+  category: varchar("category", { length: 100 }), // department, location, level, overall
+  period: varchar("period", { length: 100 }).notNull(), // 2025-q1, 2025-01, 2025, etc.
+  value: decimal("value", { precision: 15, scale: 4 }).notNull(),
+  unit: varchar("unit", { length: 50 }).notNull(), // count, percentage, ratio, score
+  breakdown: jsonb("breakdown").$type<Record<string, number>>().default({}), // detailed breakdown by segments
+  metadata: jsonb("metadata").$type<{
+    source?: string;
+    calculation?: string;
+    baseline?: number;
+    target?: number;
+    benchmark?: number;
+  }>().default({}),
+  calculatedAt: timestamp("calculated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// =====================================
 // Zod Schemas for Validation
 // =====================================
 
@@ -709,6 +1060,94 @@ export type InfrastructureComponent = typeof infrastructureComponents.$inferSele
 export type InsertOperationalIncident = z.infer<typeof insertOperationalIncidentSchema>;
 export type OperationalIncident = typeof operationalIncidents.$inferSelect;
 
+// HR Agent Schema exports
+export const insertDepartmentSchema = createInsertSchema(departments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertEmployeeSchema = createInsertSchema(employees).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertPerformanceReviewSchema = createInsertSchema(performanceReviews).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertPerformanceGoalSchema = createInsertSchema(performanceGoals).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertRecruitmentJobSchema = createInsertSchema(recruitmentJobs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertRecruitmentCandidateSchema = createInsertSchema(recruitmentCandidates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertTrainingProgramSchema = createInsertSchema(trainingPrograms).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertTrainingCompletionSchema = createInsertSchema(trainingCompletions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertEngagementSurveySchema = createInsertSchema(engagementSurveys).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertSurveyResponseSchema = createInsertSchema(surveyResponses).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertHrMetricSchema = createInsertSchema(hrMetrics).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertDepartment = z.infer<typeof insertDepartmentSchema>;
+export type Department = typeof departments.$inferSelect;
+export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
+export type Employee = typeof employees.$inferSelect;
+export type InsertPerformanceReview = z.infer<typeof insertPerformanceReviewSchema>;
+export type PerformanceReview = typeof performanceReviews.$inferSelect;
+export type InsertPerformanceGoal = z.infer<typeof insertPerformanceGoalSchema>;
+export type PerformanceGoal = typeof performanceGoals.$inferSelect;
+export type InsertRecruitmentJob = z.infer<typeof insertRecruitmentJobSchema>;
+export type RecruitmentJob = typeof recruitmentJobs.$inferSelect;
+export type InsertRecruitmentCandidate = z.infer<typeof insertRecruitmentCandidateSchema>;
+export type RecruitmentCandidate = typeof recruitmentCandidates.$inferSelect;
+export type InsertTrainingProgram = z.infer<typeof insertTrainingProgramSchema>;
+export type TrainingProgram = typeof trainingPrograms.$inferSelect;
+export type InsertTrainingCompletion = z.infer<typeof insertTrainingCompletionSchema>;
+export type TrainingCompletion = typeof trainingCompletions.$inferSelect;
+export type InsertEngagementSurvey = z.infer<typeof insertEngagementSurveySchema>;
+export type EngagementSurvey = typeof engagementSurveys.$inferSelect;
+export type InsertSurveyResponse = z.infer<typeof insertSurveyResponseSchema>;
+export type SurveyResponse = typeof surveyResponses.$inferSelect;
+export type InsertHrMetric = z.infer<typeof insertHrMetricSchema>;
+export type HrMetric = typeof hrMetrics.$inferSelect;
+
 // Platform-specific validation schemas
 export const platformRoles = ['super_admin', 'org_admin', 'org_user', 'viewer'] as const;
 export const agentSectors = ['security', 'finance', 'sales', 'operations', 'hr', 'marketing', 'customer_service'] as const;
@@ -717,3 +1156,85 @@ export const subscriptionPlans = ['free', 'starter', 'professional', 'enterprise
 export type PlatformRole = typeof platformRoles[number];
 export type AgentSector = typeof agentSectors[number];
 export type SubscriptionPlan = typeof subscriptionPlans[number];
+
+// =====================================
+// HR Dashboard Response Types
+// =====================================
+
+export interface HRDashboardResponse {
+  // Core metrics
+  totalEmployees: number;
+  newHires: number;
+  turnoverRate: number;
+  satisfactionScore: number;
+  openPositions: number;
+  attendanceRate: number;
+  avgPerformanceRating: number;
+  completedTrainings: number;
+  pendingReviews: number;
+  diversityMetrics: {
+    genderRatio: Record<string, number>;
+    ethnicityRatio: Record<string, number>;
+    ageGroups: Record<string, number>;
+  };
+  
+  // Recent activity
+  recentHires: Array<{
+    id: string;
+    name: string;
+    position: string;
+    startDate: string;
+    department: string;
+  }>;
+  
+  // Department breakdown
+  departmentStats: Array<{
+    name: string;
+    employees: number;
+    vacancies: number;
+    satisfaction: number;
+  }>;
+  
+  // Upcoming events and activities
+  upcomingEvents: Array<{
+    id: string;
+    title: string;
+    date: string;
+    type: string;
+  }>;
+  
+  // Training and development
+  trainingProgress: Array<{
+    program: string;
+    completed: number;
+    total: number;
+    progress: number;
+  }>;
+  
+  // Performance insights
+  performanceInsights: {
+    highPerformers: number;
+    needsImprovement: number;
+    onTrack: number;
+    avgRating: number;
+  };
+  
+  // Additional insights
+  insights: {
+    recruiting: {
+      openPositions: number;
+      candidatesInPipeline: number;
+      avgTimeToHire: number;
+    };
+    retention: {
+      avgTenure: number;
+      exitInterviews: number;
+      retentionRate: number;
+    };
+    engagement: {
+      participationRate: number;
+      responseRate: number;
+      satisfactionTrend: string;
+    };
+  };
+}

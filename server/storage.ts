@@ -24,6 +24,17 @@ import {
   processes,
   infrastructureComponents,
   operationalIncidents,
+  departments,
+  employees,
+  performanceReviews,
+  performanceGoals,
+  recruitmentJobs,
+  recruitmentCandidates,
+  trainingPrograms,
+  trainingCompletions,
+  engagementSurveys,
+  surveyResponses,
+  hrMetrics,
   type InsertUser,
   type User,
   type InsertStore,
@@ -58,6 +69,28 @@ import {
   type InfrastructureComponent,
   type InsertOperationalIncident,
   type OperationalIncident,
+  type InsertDepartment,
+  type Department,
+  type InsertEmployee,
+  type Employee,
+  type InsertPerformanceReview,
+  type PerformanceReview,
+  type InsertPerformanceGoal,
+  type PerformanceGoal,
+  type InsertRecruitmentJob,
+  type RecruitmentJob,
+  type InsertRecruitmentCandidate,
+  type RecruitmentCandidate,
+  type InsertTrainingProgram,
+  type TrainingProgram,
+  type InsertTrainingCompletion,
+  type TrainingCompletion,
+  type InsertEngagementSurvey,
+  type EngagementSurvey,
+  type InsertSurveyResponse,
+  type SurveyResponse,
+  type InsertHrMetric,
+  type HrMetric,
 } from "@shared/schema";
 
 const PostgresSessionStore = connectPg(session);
@@ -252,6 +285,106 @@ export interface IStorage {
   getAgentConfiguration(organizationId: string, agentId: string): Promise<AgentConfiguration | null>;
   getOrganizationAgentConfigurations(organizationId: string): Promise<AgentConfiguration[]>;
   updateAgentConfiguration(id: string, updates: Partial<InsertAgentConfiguration>): Promise<AgentConfiguration>;
+
+  // HR Agent Dashboard Methods - with organization scoping
+  getHRMetrics(organizationId?: string): Promise<{
+    totalEmployees: number;
+    newHires: number;
+    turnoverRate: number;
+    satisfactionScore: number;
+    openPositions: number;
+    attendanceRate: number;
+    avgPerformanceRating: number;
+    completedTrainings: number;
+    pendingReviews: number;
+    diversityMetrics: {
+      genderRatio: Record<string, number>;
+      ethnicityRatio: Record<string, number>;
+      ageGroups: Record<string, number>;
+    };
+  }>;
+
+  // Department Management
+  createDepartment(department: InsertDepartment): Promise<Department>;
+  getDepartment(id: string): Promise<Department | null>;
+  getDepartmentsByOrganization(organizationId: string): Promise<Department[]>;
+  updateDepartment(id: string, updates: Partial<InsertDepartment>): Promise<Department>;
+  deleteDepartment(id: string): Promise<boolean>;
+
+  // Employee Management
+  createEmployee(employee: InsertEmployee): Promise<Employee>;
+  getEmployee(id: string): Promise<Employee | null>;
+  getEmployeesByOrganization(organizationId: string): Promise<Employee[]>;
+  getEmployeesByDepartment(departmentId: string): Promise<Employee[]>;
+  getEmployeesByStatus(organizationId: string, status: string): Promise<Employee[]>;
+  getEmployeesByManager(managerId: string): Promise<Employee[]>;
+  updateEmployee(id: string, updates: Partial<InsertEmployee>): Promise<Employee>;
+  deactivateEmployee(id: string): Promise<Employee>;
+
+  // Performance Management
+  createPerformanceReview(review: InsertPerformanceReview): Promise<PerformanceReview>;
+  getPerformanceReview(id: string): Promise<PerformanceReview | null>;
+  getPerformanceReviewsByEmployee(employeeId: string): Promise<PerformanceReview[]>;
+  getPerformanceReviewsByOrganization(organizationId: string): Promise<PerformanceReview[]>;
+  getPendingPerformanceReviews(organizationId: string): Promise<PerformanceReview[]>;
+  updatePerformanceReview(id: string, updates: Partial<InsertPerformanceReview>): Promise<PerformanceReview>;
+  submitPerformanceReview(id: string, userId: string): Promise<PerformanceReview>;
+
+  createPerformanceGoal(goal: InsertPerformanceGoal): Promise<PerformanceGoal>;
+  getPerformanceGoal(id: string): Promise<PerformanceGoal | null>;
+  getPerformanceGoalsByEmployee(employeeId: string): Promise<PerformanceGoal[]>;
+  getPerformanceGoalsByOrganization(organizationId: string): Promise<PerformanceGoal[]>;
+  updatePerformanceGoal(id: string, updates: Partial<InsertPerformanceGoal>): Promise<PerformanceGoal>;
+  completePerformanceGoal(id: string, userId: string): Promise<PerformanceGoal>;
+
+  // Recruitment Management
+  createRecruitmentJob(job: InsertRecruitmentJob): Promise<RecruitmentJob>;
+  getRecruitmentJob(id: string): Promise<RecruitmentJob | null>;
+  getRecruitmentJobsByOrganization(organizationId: string): Promise<RecruitmentJob[]>;
+  getActiveRecruitmentJobs(organizationId: string): Promise<RecruitmentJob[]>;
+  updateRecruitmentJob(id: string, updates: Partial<InsertRecruitmentJob>): Promise<RecruitmentJob>;
+  closeRecruitmentJob(id: string, userId: string): Promise<RecruitmentJob>;
+
+  createRecruitmentCandidate(candidate: InsertRecruitmentCandidate): Promise<RecruitmentCandidate>;
+  getRecruitmentCandidate(id: string): Promise<RecruitmentCandidate | null>;
+  getRecruitmentCandidatesByJob(jobId: string): Promise<RecruitmentCandidate[]>;
+  getRecruitmentCandidatesByOrganization(organizationId: string): Promise<RecruitmentCandidate[]>;
+  updateRecruitmentCandidate(id: string, updates: Partial<InsertRecruitmentCandidate>): Promise<RecruitmentCandidate>;
+  moveRecruitmentCandidateToStage(id: string, stage: string): Promise<RecruitmentCandidate>;
+
+  // Training Management
+  createTrainingProgram(program: InsertTrainingProgram): Promise<TrainingProgram>;
+  getTrainingProgram(id: string): Promise<TrainingProgram | null>;
+  getTrainingProgramsByOrganization(organizationId: string): Promise<TrainingProgram[]>;
+  getActiveTrainingPrograms(organizationId: string): Promise<TrainingProgram[]>;
+  updateTrainingProgram(id: string, updates: Partial<InsertTrainingProgram>): Promise<TrainingProgram>;
+
+  createTrainingCompletion(completion: InsertTrainingCompletion): Promise<TrainingCompletion>;
+  getTrainingCompletion(id: string): Promise<TrainingCompletion | null>;
+  getTrainingCompletionsByEmployee(employeeId: string): Promise<TrainingCompletion[]>;
+  getTrainingCompletionsByProgram(programId: string): Promise<TrainingCompletion[]>;
+  getTrainingCompletionsByOrganization(organizationId: string): Promise<TrainingCompletion[]>;
+  updateTrainingCompletion(id: string, updates: Partial<InsertTrainingCompletion>): Promise<TrainingCompletion>;
+  completeTraining(id: string, score?: number, feedback?: any): Promise<TrainingCompletion>;
+
+  // Engagement & Survey Management
+  createEngagementSurvey(survey: InsertEngagementSurvey): Promise<EngagementSurvey>;
+  getEngagementSurvey(id: string): Promise<EngagementSurvey | null>;
+  getEngagementSurveysByOrganization(organizationId: string): Promise<EngagementSurvey[]>;
+  getActiveEngagementSurveys(organizationId: string): Promise<EngagementSurvey[]>;
+  updateEngagementSurvey(id: string, updates: Partial<InsertEngagementSurvey>): Promise<EngagementSurvey>;
+
+  createSurveyResponse(response: InsertSurveyResponse): Promise<SurveyResponse>;
+  getSurveyResponse(id: string): Promise<SurveyResponse | null>;
+  getSurveyResponsesBySurvey(surveyId: string): Promise<SurveyResponse[]>;
+  getSurveyResponsesByEmployee(employeeId: string): Promise<SurveyResponse[]>;
+
+  // HR Analytics & Metrics
+  createHrMetric(metric: InsertHrMetric): Promise<HrMetric>;
+  getHrMetric(id: string): Promise<HrMetric | null>;
+  getHrMetricsByOrganization(organizationId: string, metricType?: string): Promise<HrMetric[]>;
+  getLatestHrMetrics(organizationId: string): Promise<HrMetric[]>;
+  updateHrMetric(id: string, updates: Partial<InsertHrMetric>): Promise<HrMetric>;
 
   // Session store for authentication
   sessionStore: any; // Using any to avoid type issues with session.SessionStore
@@ -1578,6 +1711,620 @@ export class DatabaseStorage implements IStorage {
         updatedAt: new Date()
       })
       .where(eq(operationalIncidents.id, id))
+      .returning();
+    return updated;
+  }
+
+  // =====================================
+  // HR Agent Dashboard Methods
+  // =====================================
+
+  async getHRMetrics(organizationId?: string): Promise<{
+    totalEmployees: number;
+    newHires: number;
+    turnoverRate: number;
+    satisfactionScore: number;
+    openPositions: number;
+    attendanceRate: number;
+    avgPerformanceRating: number;
+    completedTrainings: number;
+    pendingReviews: number;
+    diversityMetrics: {
+      genderRatio: Record<string, number>;
+      ethnicityRatio: Record<string, number>;
+      ageGroups: Record<string, number>;
+    };
+  }> {
+    // Get basic employee metrics
+    let employeesQuery = db.select().from(employees);
+    if (organizationId) {
+      employeesQuery = employeesQuery.where(eq(employees.organizationId, organizationId));
+    }
+    const allEmployees = await employeesQuery;
+    
+    const activeEmployees = allEmployees.filter(emp => emp.status === 'active');
+    const totalEmployees = activeEmployees.length;
+    
+    // Calculate new hires (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const newHires = allEmployees.filter(emp => 
+      emp.startDate && new Date(emp.startDate) >= thirtyDaysAgo
+    ).length;
+
+    // Get open positions
+    let jobsQuery = db.select().from(recruitmentJobs).where(eq(recruitmentJobs.status, 'open'));
+    if (organizationId) {
+      jobsQuery = jobsQuery.where(eq(recruitmentJobs.organizationId, organizationId));
+    }
+    const openJobs = await jobsQuery;
+    const openPositions = openJobs.reduce((sum, job) => sum + (job.positionsToFill - job.positionsFilled), 0);
+
+    // Get performance reviews for ratings
+    let reviewsQuery = db.select().from(performanceReviews);
+    if (organizationId) {
+      reviewsQuery = reviewsQuery.where(eq(performanceReviews.organizationId, organizationId));
+    }
+    const reviews = await reviewsQuery;
+    const completedReviews = reviews.filter(r => r.status === 'completed' && r.overallRating);
+    const avgPerformanceRating = completedReviews.length > 0 ? 
+      completedReviews.reduce((sum, r) => sum + parseFloat(r.overallRating!), 0) / completedReviews.length : 0;
+    
+    const pendingReviews = reviews.filter(r => r.status === 'draft' || r.status === 'in_progress').length;
+
+    // Get training completions
+    let trainingQuery = db.select().from(trainingCompletions).where(eq(trainingCompletions.status, 'completed'));
+    if (organizationId) {
+      trainingQuery = trainingQuery.where(eq(trainingCompletions.organizationId, organizationId));
+    }
+    const completedTrainings = (await trainingQuery).length;
+
+    // Calculate diversity metrics
+    const genderRatio: Record<string, number> = {};
+    const ethnicityRatio: Record<string, number> = {};
+    const ageGroups: Record<string, number> = {};
+
+    activeEmployees.forEach(emp => {
+      // Gender ratio
+      const gender = emp.diversityInfo?.gender || 'Not specified';
+      genderRatio[gender] = (genderRatio[gender] || 0) + 1;
+
+      // Ethnicity ratio
+      const ethnicity = emp.diversityInfo?.ethnicity || 'Not specified';
+      ethnicityRatio[ethnicity] = (ethnicityRatio[ethnicity] || 0) + 1;
+
+      // Age groups
+      const ageGroup = emp.diversityInfo?.ageGroup || 'Not specified';
+      ageGroups[ageGroup] = (ageGroups[ageGroup] || 0) + 1;
+    });
+
+    return {
+      totalEmployees,
+      newHires,
+      turnoverRate: totalEmployees > 0 ? (newHires / totalEmployees) * 100 : 0, // Simplified calculation
+      satisfactionScore: 4.2, // Would come from survey data
+      openPositions,
+      attendanceRate: 96.8, // Would come from attendance tracking
+      avgPerformanceRating,
+      completedTrainings,
+      pendingReviews,
+      diversityMetrics: {
+        genderRatio,
+        ethnicityRatio,
+        ageGroups
+      }
+    };
+  }
+
+  // Department Management
+  async createDepartment(department: InsertDepartment): Promise<Department> {
+    const [newDepartment] = await db.insert(departments).values([department]).returning();
+    return newDepartment;
+  }
+
+  async getDepartment(id: string): Promise<Department | null> {
+    const result = await db.select().from(departments).where(eq(departments.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getDepartmentsByOrganization(organizationId: string): Promise<Department[]> {
+    return await db
+      .select()
+      .from(departments)
+      .where(and(eq(departments.organizationId, organizationId), eq(departments.isActive, true)))
+      .orderBy(departments.name);
+  }
+
+  async updateDepartment(id: string, updates: Partial<InsertDepartment>): Promise<Department> {
+    const [updated] = await db
+      .update(departments)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(departments.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteDepartment(id: string): Promise<boolean> {
+    await db.update(departments).set({ isActive: false }).where(eq(departments.id, id));
+    return true;
+  }
+
+  // Employee Management
+  async createEmployee(employee: InsertEmployee): Promise<Employee> {
+    const [newEmployee] = await db.insert(employees).values([employee]).returning();
+    return newEmployee;
+  }
+
+  async getEmployee(id: string): Promise<Employee | null> {
+    const result = await db.select().from(employees).where(eq(employees.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getEmployeesByOrganization(organizationId: string): Promise<Employee[]> {
+    return await db
+      .select()
+      .from(employees)
+      .where(and(eq(employees.organizationId, organizationId), eq(employees.isActive, true)))
+      .orderBy(employees.lastName, employees.firstName);
+  }
+
+  async getEmployeesByDepartment(departmentId: string): Promise<Employee[]> {
+    return await db
+      .select()
+      .from(employees)
+      .where(and(eq(employees.departmentId, departmentId), eq(employees.isActive, true)))
+      .orderBy(employees.lastName, employees.firstName);
+  }
+
+  async getEmployeesByStatus(organizationId: string, status: string): Promise<Employee[]> {
+    return await db
+      .select()
+      .from(employees)
+      .where(and(
+        eq(employees.organizationId, organizationId),
+        eq(employees.status, status),
+        eq(employees.isActive, true)
+      ))
+      .orderBy(employees.lastName, employees.firstName);
+  }
+
+  async getEmployeesByManager(managerId: string): Promise<Employee[]> {
+    return await db
+      .select()
+      .from(employees)
+      .where(and(eq(employees.managerId, managerId), eq(employees.isActive, true)))
+      .orderBy(employees.lastName, employees.firstName);
+  }
+
+  async updateEmployee(id: string, updates: Partial<InsertEmployee>): Promise<Employee> {
+    const [updated] = await db
+      .update(employees)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(employees.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deactivateEmployee(id: string): Promise<Employee> {
+    const [updated] = await db
+      .update(employees)
+      .set({ isActive: false, status: 'terminated', updatedAt: new Date() })
+      .where(eq(employees.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Performance Management
+  async createPerformanceReview(review: InsertPerformanceReview): Promise<PerformanceReview> {
+    const [newReview] = await db.insert(performanceReviews).values([review]).returning();
+    return newReview;
+  }
+
+  async getPerformanceReview(id: string): Promise<PerformanceReview | null> {
+    const result = await db.select().from(performanceReviews).where(eq(performanceReviews.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getPerformanceReviewsByEmployee(employeeId: string): Promise<PerformanceReview[]> {
+    return await db
+      .select()
+      .from(performanceReviews)
+      .where(eq(performanceReviews.employeeId, employeeId))
+      .orderBy(desc(performanceReviews.reviewDate));
+  }
+
+  async getPerformanceReviewsByOrganization(organizationId: string): Promise<PerformanceReview[]> {
+    return await db
+      .select()
+      .from(performanceReviews)
+      .where(eq(performanceReviews.organizationId, organizationId))
+      .orderBy(desc(performanceReviews.reviewDate));
+  }
+
+  async getPendingPerformanceReviews(organizationId: string): Promise<PerformanceReview[]> {
+    return await db
+      .select()
+      .from(performanceReviews)
+      .where(and(
+        eq(performanceReviews.organizationId, organizationId),
+        or(
+          eq(performanceReviews.status, 'draft'),
+          eq(performanceReviews.status, 'in_progress')
+        )
+      ))
+      .orderBy(desc(performanceReviews.reviewDate));
+  }
+
+  async updatePerformanceReview(id: string, updates: Partial<InsertPerformanceReview>): Promise<PerformanceReview> {
+    const [updated] = await db
+      .update(performanceReviews)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(performanceReviews.id, id))
+      .returning();
+    return updated;
+  }
+
+  async submitPerformanceReview(id: string, userId: string): Promise<PerformanceReview> {
+    const [updated] = await db
+      .update(performanceReviews)
+      .set({
+        status: 'completed',
+        submittedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(performanceReviews.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createPerformanceGoal(goal: InsertPerformanceGoal): Promise<PerformanceGoal> {
+    const [newGoal] = await db.insert(performanceGoals).values([goal]).returning();
+    return newGoal;
+  }
+
+  async getPerformanceGoal(id: string): Promise<PerformanceGoal | null> {
+    const result = await db.select().from(performanceGoals).where(eq(performanceGoals.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getPerformanceGoalsByEmployee(employeeId: string): Promise<PerformanceGoal[]> {
+    return await db
+      .select()
+      .from(performanceGoals)
+      .where(eq(performanceGoals.employeeId, employeeId))
+      .orderBy(desc(performanceGoals.createdAt));
+  }
+
+  async getPerformanceGoalsByOrganization(organizationId: string): Promise<PerformanceGoal[]> {
+    return await db
+      .select()
+      .from(performanceGoals)
+      .where(eq(performanceGoals.organizationId, organizationId))
+      .orderBy(desc(performanceGoals.createdAt));
+  }
+
+  async updatePerformanceGoal(id: string, updates: Partial<InsertPerformanceGoal>): Promise<PerformanceGoal> {
+    const [updated] = await db
+      .update(performanceGoals)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(performanceGoals.id, id))
+      .returning();
+    return updated;
+  }
+
+  async completePerformanceGoal(id: string, userId: string): Promise<PerformanceGoal> {
+    const [updated] = await db
+      .update(performanceGoals)
+      .set({
+        status: 'completed',
+        progress: 100,
+        completedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(performanceGoals.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Recruitment Management
+  async createRecruitmentJob(job: InsertRecruitmentJob): Promise<RecruitmentJob> {
+    const [newJob] = await db.insert(recruitmentJobs).values([job]).returning();
+    return newJob;
+  }
+
+  async getRecruitmentJob(id: string): Promise<RecruitmentJob | null> {
+    const result = await db.select().from(recruitmentJobs).where(eq(recruitmentJobs.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getRecruitmentJobsByOrganization(organizationId: string): Promise<RecruitmentJob[]> {
+    return await db
+      .select()
+      .from(recruitmentJobs)
+      .where(and(eq(recruitmentJobs.organizationId, organizationId), eq(recruitmentJobs.isActive, true)))
+      .orderBy(desc(recruitmentJobs.postedAt));
+  }
+
+  async getActiveRecruitmentJobs(organizationId: string): Promise<RecruitmentJob[]> {
+    return await db
+      .select()
+      .from(recruitmentJobs)
+      .where(and(
+        eq(recruitmentJobs.organizationId, organizationId),
+        eq(recruitmentJobs.status, 'open'),
+        eq(recruitmentJobs.isActive, true)
+      ))
+      .orderBy(desc(recruitmentJobs.postedAt));
+  }
+
+  async updateRecruitmentJob(id: string, updates: Partial<InsertRecruitmentJob>): Promise<RecruitmentJob> {
+    const [updated] = await db
+      .update(recruitmentJobs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(recruitmentJobs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async closeRecruitmentJob(id: string, userId: string): Promise<RecruitmentJob> {
+    const [updated] = await db
+      .update(recruitmentJobs)
+      .set({
+        status: 'closed',
+        closedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(recruitmentJobs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createRecruitmentCandidate(candidate: InsertRecruitmentCandidate): Promise<RecruitmentCandidate> {
+    const [newCandidate] = await db.insert(recruitmentCandidates).values([candidate]).returning();
+    return newCandidate;
+  }
+
+  async getRecruitmentCandidate(id: string): Promise<RecruitmentCandidate | null> {
+    const result = await db.select().from(recruitmentCandidates).where(eq(recruitmentCandidates.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getRecruitmentCandidatesByJob(jobId: string): Promise<RecruitmentCandidate[]> {
+    return await db
+      .select()
+      .from(recruitmentCandidates)
+      .where(eq(recruitmentCandidates.jobId, jobId))
+      .orderBy(desc(recruitmentCandidates.appliedAt));
+  }
+
+  async getRecruitmentCandidatesByOrganization(organizationId: string): Promise<RecruitmentCandidate[]> {
+    return await db
+      .select()
+      .from(recruitmentCandidates)
+      .where(eq(recruitmentCandidates.organizationId, organizationId))
+      .orderBy(desc(recruitmentCandidates.appliedAt));
+  }
+
+  async updateRecruitmentCandidate(id: string, updates: Partial<InsertRecruitmentCandidate>): Promise<RecruitmentCandidate> {
+    const [updated] = await db
+      .update(recruitmentCandidates)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(recruitmentCandidates.id, id))
+      .returning();
+    return updated;
+  }
+
+  async moveRecruitmentCandidateToStage(id: string, stage: string): Promise<RecruitmentCandidate> {
+    const [updated] = await db
+      .update(recruitmentCandidates)
+      .set({
+        stage: stage,
+        lastUpdated: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(recruitmentCandidates.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Training Management
+  async createTrainingProgram(program: InsertTrainingProgram): Promise<TrainingProgram> {
+    const [newProgram] = await db.insert(trainingPrograms).values([program]).returning();
+    return newProgram;
+  }
+
+  async getTrainingProgram(id: string): Promise<TrainingProgram | null> {
+    const result = await db.select().from(trainingPrograms).where(eq(trainingPrograms.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getTrainingProgramsByOrganization(organizationId: string): Promise<TrainingProgram[]> {
+    return await db
+      .select()
+      .from(trainingPrograms)
+      .where(and(eq(trainingPrograms.organizationId, organizationId), eq(trainingPrograms.isActive, true)))
+      .orderBy(trainingPrograms.title);
+  }
+
+  async getActiveTrainingPrograms(organizationId: string): Promise<TrainingProgram[]> {
+    return await db
+      .select()
+      .from(trainingPrograms)
+      .where(and(eq(trainingPrograms.organizationId, organizationId), eq(trainingPrograms.isActive, true)))
+      .orderBy(trainingPrograms.title);
+  }
+
+  async updateTrainingProgram(id: string, updates: Partial<InsertTrainingProgram>): Promise<TrainingProgram> {
+    const [updated] = await db
+      .update(trainingPrograms)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(trainingPrograms.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createTrainingCompletion(completion: InsertTrainingCompletion): Promise<TrainingCompletion> {
+    const [newCompletion] = await db.insert(trainingCompletions).values([completion]).returning();
+    return newCompletion;
+  }
+
+  async getTrainingCompletion(id: string): Promise<TrainingCompletion | null> {
+    const result = await db.select().from(trainingCompletions).where(eq(trainingCompletions.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getTrainingCompletionsByEmployee(employeeId: string): Promise<TrainingCompletion[]> {
+    return await db
+      .select()
+      .from(trainingCompletions)
+      .where(eq(trainingCompletions.employeeId, employeeId))
+      .orderBy(desc(trainingCompletions.enrolledAt));
+  }
+
+  async getTrainingCompletionsByProgram(programId: string): Promise<TrainingCompletion[]> {
+    return await db
+      .select()
+      .from(trainingCompletions)
+      .where(eq(trainingCompletions.programId, programId))
+      .orderBy(desc(trainingCompletions.enrolledAt));
+  }
+
+  async getTrainingCompletionsByOrganization(organizationId: string): Promise<TrainingCompletion[]> {
+    return await db
+      .select()
+      .from(trainingCompletions)
+      .where(eq(trainingCompletions.organizationId, organizationId))
+      .orderBy(desc(trainingCompletions.enrolledAt));
+  }
+
+  async updateTrainingCompletion(id: string, updates: Partial<InsertTrainingCompletion>): Promise<TrainingCompletion> {
+    const [updated] = await db
+      .update(trainingCompletions)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(trainingCompletions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async completeTraining(id: string, score?: number, feedback?: any): Promise<TrainingCompletion> {
+    const [updated] = await db
+      .update(trainingCompletions)
+      .set({
+        status: 'completed',
+        progress: 100,
+        score: score ? score.toString() : undefined,
+        feedback: feedback || {},
+        completedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(trainingCompletions.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Engagement & Survey Management
+  async createEngagementSurvey(survey: InsertEngagementSurvey): Promise<EngagementSurvey> {
+    const [newSurvey] = await db.insert(engagementSurveys).values([survey]).returning();
+    return newSurvey;
+  }
+
+  async getEngagementSurvey(id: string): Promise<EngagementSurvey | null> {
+    const result = await db.select().from(engagementSurveys).where(eq(engagementSurveys.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getEngagementSurveysByOrganization(organizationId: string): Promise<EngagementSurvey[]> {
+    return await db
+      .select()
+      .from(engagementSurveys)
+      .where(eq(engagementSurveys.organizationId, organizationId))
+      .orderBy(desc(engagementSurveys.createdAt));
+  }
+
+  async getActiveEngagementSurveys(organizationId: string): Promise<EngagementSurvey[]> {
+    return await db
+      .select()
+      .from(engagementSurveys)
+      .where(and(
+        eq(engagementSurveys.organizationId, organizationId),
+        eq(engagementSurveys.status, 'active')
+      ))
+      .orderBy(desc(engagementSurveys.launchDate));
+  }
+
+  async updateEngagementSurvey(id: string, updates: Partial<InsertEngagementSurvey>): Promise<EngagementSurvey> {
+    const [updated] = await db
+      .update(engagementSurveys)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(engagementSurveys.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createSurveyResponse(response: InsertSurveyResponse): Promise<SurveyResponse> {
+    const [newResponse] = await db.insert(surveyResponses).values([response]).returning();
+    return newResponse;
+  }
+
+  async getSurveyResponse(id: string): Promise<SurveyResponse | null> {
+    const result = await db.select().from(surveyResponses).where(eq(surveyResponses.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getSurveyResponsesBySurvey(surveyId: string): Promise<SurveyResponse[]> {
+    return await db
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.surveyId, surveyId))
+      .orderBy(desc(surveyResponses.submittedAt));
+  }
+
+  async getSurveyResponsesByEmployee(employeeId: string): Promise<SurveyResponse[]> {
+    return await db
+      .select()
+      .from(surveyResponses)
+      .where(eq(surveyResponses.employeeId, employeeId))
+      .orderBy(desc(surveyResponses.submittedAt));
+  }
+
+  // HR Analytics & Metrics
+  async createHrMetric(metric: InsertHrMetric): Promise<HrMetric> {
+    const [newMetric] = await db.insert(hrMetrics).values([metric]).returning();
+    return newMetric;
+  }
+
+  async getHrMetric(id: string): Promise<HrMetric | null> {
+    const result = await db.select().from(hrMetrics).where(eq(hrMetrics.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getHrMetricsByOrganization(organizationId: string, metricType?: string): Promise<HrMetric[]> {
+    let query = db
+      .select()
+      .from(hrMetrics)
+      .where(eq(hrMetrics.organizationId, organizationId));
+    
+    if (metricType) {
+      query = query.where(eq(hrMetrics.metricType, metricType));
+    }
+    
+    return await query.orderBy(desc(hrMetrics.calculatedAt));
+  }
+
+  async getLatestHrMetrics(organizationId: string): Promise<HrMetric[]> {
+    return await db
+      .select()
+      .from(hrMetrics)
+      .where(eq(hrMetrics.organizationId, organizationId))
+      .orderBy(desc(hrMetrics.calculatedAt))
+      .limit(20);
+  }
+
+  async updateHrMetric(id: string, updates: Partial<InsertHrMetric>): Promise<HrMetric> {
+    const [updated] = await db
+      .update(hrMetrics)
+      .set({ ...updates, calculatedAt: new Date() })
+      .where(eq(hrMetrics.id, id))
       .returning();
     return updated;
   }

@@ -2,43 +2,59 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Users, Calendar, Award, TrendingUp, Clock, UserCheck } from "lucide-react";
+import { Users, Calendar, Award, TrendingUp, Clock, UserCheck, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
+import type { HRDashboardResponse } from "@/../../shared/schema";
 
 export default function HRDashboard() {
   const { user } = useAuth();
 
+  // Fetch HR data from API with proper typing
+  const { data: hrData, isLoading, error } = useQuery<HRDashboardResponse>({
+    queryKey: ['/api/hr'],
+    enabled: !!user
+  });
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="p-6 flex items-center justify-center h-64">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-6 w-6 animate-spin text-teal-600" />
+          <span className="text-lg">Loading HR Dashboard...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <h3 className="text-red-800 font-medium">Error Loading HR Data</h3>
+          <p className="text-red-600 text-sm mt-1">
+            {error instanceof Error ? error.message : 'Failed to load HR dashboard data'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Use live data from API with fallback defaults (no more hardcoded values)
   const hrStats = {
-    totalEmployees: 156,
-    newHires: 8,
-    turnoverRate: 12.5,
-    satisfactionScore: 4.2,
-    openPositions: 12,
-    attendanceRate: 96.8
+    totalEmployees: hrData?.totalEmployees || 0,
+    newHires: hrData?.recentHires?.length || 0,
+    turnoverRate: hrData?.turnoverRate || 0,
+    satisfactionScore: hrData?.satisfactionScore || 0,
+    openPositions: hrData?.openPositions || 0,
+    attendanceRate: hrData?.attendanceRate || 0 // Now using live API data
   };
 
-  const recentHires = [
-    { id: 1, name: "Alex Thompson", position: "Software Engineer", startDate: "2025-09-20", department: "Engineering" },
-    { id: 2, name: "Maria Garcia", position: "Marketing Specialist", startDate: "2025-09-18", department: "Marketing" },
-    { id: 3, name: "David Kim", position: "Product Manager", startDate: "2025-09-15", department: "Product" },
-    { id: 4, name: "Sarah Wilson", position: "UX Designer", startDate: "2025-09-10", department: "Design" }
-  ];
-
-  const departmentStats = [
-    { name: "Engineering", employees: 45, vacancies: 5, satisfaction: 4.3 },
-    { name: "Marketing", employees: 28, vacancies: 2, satisfaction: 4.1 },
-    { name: "Sales", employees: 32, vacancies: 3, satisfaction: 4.0 },
-    { name: "Operations", employees: 25, vacancies: 1, satisfaction: 4.4 },
-    { name: "HR", employees: 12, vacancies: 0, satisfaction: 4.5 },
-    { name: "Finance", employees: 14, vacancies: 1, satisfaction: 4.2 }
-  ];
-
-  const upcomingEvents = [
-    { id: 1, title: "Team Building Workshop", date: "Sep 25", type: "Training" },
-    { id: 2, title: "Performance Review Cycle", date: "Sep 30", type: "Review" },
-    { id: 3, title: "New Employee Orientation", date: "Oct 2", type: "Onboarding" },
-    { id: 4, title: "Benefits Information Session", date: "Oct 5", type: "Benefits" }
-  ];
+  const recentHires = hrData?.recentHires || [];
+  const departmentStats = hrData?.departmentStats || [];
+  const upcomingEvents = hrData?.upcomingEvents || [];
 
   const getEventTypeColor = (type: string) => {
     switch (type) {

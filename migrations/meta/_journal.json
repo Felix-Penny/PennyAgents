@@ -8,6 +8,13 @@
       "when": 1758674655159,
       "tag": "0000_operations_agent",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1758676659794,
+      "tag": "0001_hr_agent",
+      "breakpoints": true
     }
   ]
 }
