@@ -397,6 +397,142 @@ export const notifications = pgTable("notifications", {
 });
 
 // =====================================
+// Operations Agent - System Monitoring & Process Management
+// =====================================
+
+export const systemMetrics = pgTable("system_metrics", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  metricType: varchar("metric_type", { length: 100 }).notNull(), // uptime, performance, resource_usage, throughput
+  componentName: varchar("component_name", { length: 255 }).notNull(), // system name or component
+  value: decimal("value", { precision: 15, scale: 4 }).notNull(),
+  unit: varchar("unit", { length: 50 }).notNull(), // percentage, seconds, MB, requests/sec, etc.
+  threshold: jsonb("threshold").$type<{
+    warning?: number;
+    critical?: number;
+  }>(),
+  status: varchar("status", { length: 50 }).default("normal"), // normal, warning, critical, offline
+  metadata: jsonb("metadata").$type<{
+    source?: string;
+    region?: string;
+    environment?: string;
+    tags?: string[];
+  }>().default({}),
+  collectedAt: timestamp("collected_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const processes = pgTable("processes", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  type: varchar("type", { length: 100 }).notNull(), // workflow, automation, batch_job, monitoring
+  category: varchar("category", { length: 100 }), // order_fulfillment, quality_control, inventory, shipping
+  status: varchar("status", { length: 50 }).default("pending"), // pending, running, completed, failed, cancelled
+  priority: varchar("priority", { length: 20 }).default("normal"), // low, normal, high, urgent
+  progress: integer("progress").default(0), // percentage 0-100
+  estimatedDuration: integer("estimated_duration"), // in minutes
+  actualDuration: integer("actual_duration"), // in minutes
+  assignedTo: varchar("assigned_to", { length: 255 }).references(() => users.id),
+  startedBy: varchar("started_by", { length: 255 }).references(() => users.id),
+  completedBy: varchar("completed_by", { length: 255 }).references(() => users.id),
+  configuration: jsonb("configuration").$type<{
+    parameters?: Record<string, any>;
+    schedule?: string; // cron expression for automated processes
+    retryPolicy?: {
+      maxRetries: number;
+      retryDelay: number;
+    };
+    dependencies?: string[]; // dependent process IDs
+  }>().default({}),
+  results: jsonb("results").$type<{
+    output?: any;
+    metrics?: Record<string, number>;
+    errors?: string[];
+    logs?: string[];
+  }>().default({}),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  nextRunAt: timestamp("next_run_at"), // for scheduled processes
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const infrastructureComponents = pgTable("infrastructure_components", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  type: varchar("type", { length: 100 }).notNull(), // server, database, service, network, storage
+  category: varchar("category", { length: 100 }), // production, staging, development, backup
+  status: varchar("status", { length: 50 }).default("operational"), // operational, maintenance, degraded, offline
+  healthScore: integer("health_score").default(100), // 0-100 health percentage
+  location: varchar("location", { length: 255 }), // datacenter, region, zone
+  specifications: jsonb("specifications").$type<{
+    cpu?: string;
+    memory?: string;
+    storage?: string;
+    network?: string;
+    version?: string;
+    provider?: string;
+  }>().default({}),
+  monitoring: jsonb("monitoring").$type<{
+    endpoint?: string;
+    alertsEnabled?: boolean;
+    checkInterval?: number; // in minutes
+    lastCheck?: string;
+    uptime?: number; // percentage
+  }>().default({}),
+  dependencies: jsonb("dependencies").$type<string[]>().default([]), // dependent component IDs
+  maintenanceWindow: jsonb("maintenance_window").$type<{
+    schedule?: string; // cron expression
+    duration?: number; // in minutes
+    nextMaintenance?: string;
+  }>(),
+  lastMaintenanceAt: timestamp("last_maintenance_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const operationalIncidents = pgTable("operational_incidents", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  type: varchar("type", { length: 100 }).notNull(), // system_outage, performance_degradation, security_breach, process_failure
+  severity: varchar("severity", { length: 20 }).default("medium"), // low, medium, high, critical
+  status: varchar("status", { length: 50 }).default("open"), // open, investigating, resolved, closed
+  priority: varchar("priority", { length: 20 }).default("normal"), // low, normal, high, urgent
+  affectedComponents: jsonb("affected_components").$type<string[]>().default([]), // component IDs
+  affectedProcesses: jsonb("affected_processes").$type<string[]>().default([]), // process IDs
+  impactAssessment: jsonb("impact_assessment").$type<{
+    usersAffected?: number;
+    servicesDown?: string[];
+    estimatedLoss?: number;
+    slaImpact?: string;
+  }>(),
+  assignedTo: varchar("assigned_to", { length: 255 }).references(() => users.id),
+  reportedBy: varchar("reported_by", { length: 255 }).references(() => users.id),
+  resolvedBy: varchar("resolved_by", { length: 255 }).references(() => users.id),
+  resolutionTime: integer("resolution_time"), // in minutes
+  rootCause: text("root_cause"),
+  resolution: text("resolution"),
+  preventionMeasures: jsonb("prevention_measures").$type<string[]>().default([]),
+  timeline: jsonb("timeline").$type<Array<{
+    timestamp: string;
+    action: string;
+    user?: string;
+    notes?: string;
+  }>>().default([]),
+  escalationLevel: integer("escalation_level").default(1), // 1-5 escalation levels
+  slaBreached: boolean("sla_breached").default(false),
+  detectedAt: timestamp("detected_at").defaultNow(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
 // Zod Schemas for Validation
 // =====================================
 
@@ -539,6 +675,39 @@ export type InsertCamera = z.infer<typeof insertCameraSchema>;
 export type Camera = typeof cameras.$inferSelect;
 export type InsertIncident = z.infer<typeof insertIncidentSchema>;
 export type Incident = typeof incidents.$inferSelect;
+
+// Operations Agent Schema exports
+export const insertSystemMetricSchema = createInsertSchema(systemMetrics).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertProcessSchema = createInsertSchema(processes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertInfrastructureComponentSchema = createInsertSchema(infrastructureComponents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertOperationalIncidentSchema = createInsertSchema(operationalIncidents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSystemMetric = z.infer<typeof insertSystemMetricSchema>;
+export type SystemMetric = typeof systemMetrics.$inferSelect;
+export type InsertProcess = z.infer<typeof insertProcessSchema>;
+export type Process = typeof processes.$inferSelect;
+export type InsertInfrastructureComponent = z.infer<typeof insertInfrastructureComponentSchema>;
+export type InfrastructureComponent = typeof infrastructureComponents.$inferSelect;
+export type InsertOperationalIncident = z.infer<typeof insertOperationalIncidentSchema>;
+export type OperationalIncident = typeof operationalIncidents.$inferSelect;
 
 // Platform-specific validation schemas
 export const platformRoles = ['super_admin', 'org_admin', 'org_user', 'viewer'] as const;

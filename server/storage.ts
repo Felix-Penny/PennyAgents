@@ -20,6 +20,10 @@ import {
   agentConfigurations,
   cameras,
   incidents,
+  systemMetrics,
+  processes,
+  infrastructureComponents,
+  operationalIncidents,
   type InsertUser,
   type User,
   type InsertStore,
@@ -46,6 +50,14 @@ import {
   type Camera,
   type InsertIncident,
   type Incident,
+  type InsertSystemMetric,
+  type SystemMetric,
+  type InsertProcess,
+  type Process,
+  type InsertInfrastructureComponent,
+  type InfrastructureComponent,
+  type InsertOperationalIncident,
+  type OperationalIncident,
 } from "@shared/schema";
 
 const PostgresSessionStore = connectPg(session);
@@ -171,6 +183,51 @@ export interface IStorage {
   }>;
   getRecentCompletedPayments(limit?: number, organizationId?: string): Promise<Array<DebtPayment & { offenderName?: string; storeName?: string }>>;
   getPaymentsInLast30Days(organizationId?: string): Promise<DebtPayment[]>;
+
+  // Operations Agent Dashboard Methods - with organization scoping
+  getOperationsMetrics(organizationId?: string): Promise<{
+    systemUptime: number;
+    avgResponseTime: number;
+    totalProcesses: number;
+    activeProcesses: number;
+    completedTasks: number;
+    failedTasks: number;
+    infrastructureHealth: number;
+    recentIncidents: number;
+    efficiencyRate: number;
+  }>;
+  
+  // System Metrics Management
+  createSystemMetric(metric: InsertSystemMetric): Promise<SystemMetric>;
+  getSystemMetrics(organizationId: string, metricType?: string): Promise<SystemMetric[]>;
+  getLatestSystemMetrics(organizationId: string): Promise<SystemMetric[]>;
+  updateSystemMetric(id: string, updates: Partial<InsertSystemMetric>): Promise<SystemMetric>;
+  
+  // Process Management
+  createProcess(process: InsertProcess): Promise<Process>;
+  getProcess(id: string): Promise<Process | null>;
+  getProcessesByOrganization(organizationId: string): Promise<Process[]>;
+  getProcessesByStatus(organizationId: string, status: string): Promise<Process[]>;
+  getActiveProcesses(organizationId: string): Promise<Process[]>;
+  updateProcess(id: string, updates: Partial<InsertProcess>): Promise<Process>;
+  startProcess(id: string, userId: string): Promise<Process>;
+  completeProcess(id: string, userId: string, results?: any): Promise<Process>;
+  
+  // Infrastructure Monitoring
+  createInfrastructureComponent(component: InsertInfrastructureComponent): Promise<InfrastructureComponent>;
+  getInfrastructureComponent(id: string): Promise<InfrastructureComponent | null>;
+  getInfrastructureComponentsByOrganization(organizationId: string): Promise<InfrastructureComponent[]>;
+  getInfrastructureComponentsByStatus(organizationId: string, status: string): Promise<InfrastructureComponent[]>;
+  updateInfrastructureComponent(id: string, updates: Partial<InsertInfrastructureComponent>): Promise<InfrastructureComponent>;
+  
+  // Operational Incidents Management
+  createOperationalIncident(incident: InsertOperationalIncident): Promise<OperationalIncident>;
+  getOperationalIncident(id: string): Promise<OperationalIncident | null>;
+  getOperationalIncidentsByOrganization(organizationId: string): Promise<OperationalIncident[]>;
+  getOperationalIncidentsByStatus(organizationId: string, status: string): Promise<OperationalIncident[]>;
+  getRecentOperationalIncidents(organizationId: string, limit?: number): Promise<OperationalIncident[]>;
+  updateOperationalIncident(id: string, updates: Partial<InsertOperationalIncident>): Promise<OperationalIncident>;
+  resolveOperationalIncident(id: string, userId: string, resolution: string): Promise<OperationalIncident>;
 
   // Multi-Agent Platform Management
   // Organizations
@@ -1232,6 +1289,297 @@ export class DatabaseStorage implements IStorage {
     
     const result = await query;
     return result.map(r => r.debtPayment);
+  }
+
+  // =====================================
+  // Operations Agent Dashboard Methods
+  // =====================================
+
+  async getOperationsMetrics(organizationId?: string): Promise<{
+    systemUptime: number;
+    avgResponseTime: number;
+    totalProcesses: number;
+    activeProcesses: number;
+    completedTasks: number;
+    failedTasks: number;
+    infrastructureHealth: number;
+    recentIncidents: number;
+    efficiencyRate: number;
+  }> {
+    // Get processes for this organization
+    let processQuery = db.select().from(processes);
+    if (organizationId) {
+      processQuery = processQuery.where(eq(processes.organizationId, organizationId));
+    }
+    const orgProcesses = await processQuery;
+
+    // Get infrastructure components
+    let infraQuery = db.select().from(infrastructureComponents);
+    if (organizationId) {
+      infraQuery = infraQuery.where(eq(infrastructureComponents.organizationId, organizationId));
+    }
+    const infraComponents = await infraQuery;
+
+    // Get recent incidents (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    let incidentsQuery = db
+      .select()
+      .from(operationalIncidents)
+      .where(sql`${operationalIncidents.detectedAt} >= ${sevenDaysAgo}`);
+    
+    if (organizationId) {
+      incidentsQuery = incidentsQuery.where(eq(operationalIncidents.organizationId, organizationId));
+    }
+    
+    const recentIncidents = await incidentsQuery;
+
+    // Calculate metrics
+    const totalProcesses = orgProcesses.length;
+    const activeProcesses = orgProcesses.filter(p => p.status === 'running').length;
+    const completedTasks = orgProcesses.filter(p => p.status === 'completed').length;
+    const failedTasks = orgProcesses.filter(p => p.status === 'failed').length;
+
+    // Calculate average infrastructure health
+    const avgInfraHealth = infraComponents.length > 0 
+      ? infraComponents.reduce((sum, comp) => sum + (comp.healthScore || 100), 0) / infraComponents.length
+      : 100;
+
+    // Calculate efficiency rate
+    const totalFinishedTasks = completedTasks + failedTasks;
+    const efficiencyRate = totalFinishedTasks > 0 ? (completedTasks / totalFinishedTasks) * 100 : 100;
+
+    return {
+      systemUptime: 99.7, // Mock uptime percentage
+      avgResponseTime: 245, // Mock average response time in ms
+      totalProcesses,
+      activeProcesses,
+      completedTasks,
+      failedTasks,
+      infrastructureHealth: Math.round(avgInfraHealth),
+      recentIncidents: recentIncidents.length,
+      efficiencyRate: Math.round(efficiencyRate * 10) / 10 // Round to 1 decimal
+    };
+  }
+
+  // System Metrics Management
+  async createSystemMetric(metric: InsertSystemMetric): Promise<SystemMetric> {
+    const [newMetric] = await db.insert(systemMetrics).values([metric]).returning();
+    return newMetric;
+  }
+
+  async getSystemMetrics(organizationId: string, metricType?: string): Promise<SystemMetric[]> {
+    let query = db.select().from(systemMetrics).where(eq(systemMetrics.organizationId, organizationId));
+    
+    if (metricType) {
+      query = query.where(eq(systemMetrics.metricType, metricType));
+    }
+    
+    return await query.orderBy(desc(systemMetrics.collectedAt));
+  }
+
+  async getLatestSystemMetrics(organizationId: string): Promise<SystemMetric[]> {
+    return await db
+      .select()
+      .from(systemMetrics)
+      .where(eq(systemMetrics.organizationId, organizationId))
+      .orderBy(desc(systemMetrics.collectedAt))
+      .limit(20);
+  }
+
+  async updateSystemMetric(id: string, updates: Partial<InsertSystemMetric>): Promise<SystemMetric> {
+    const [updated] = await db
+      .update(systemMetrics)
+      .set(updates)
+      .where(eq(systemMetrics.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Process Management
+  async createProcess(process: InsertProcess): Promise<Process> {
+    const [newProcess] = await db.insert(processes).values([process]).returning();
+    return newProcess;
+  }
+
+  async getProcess(id: string): Promise<Process | null> {
+    const result = await db.select().from(processes).where(eq(processes.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getProcessesByOrganization(organizationId: string): Promise<Process[]> {
+    return await db
+      .select()
+      .from(processes)
+      .where(eq(processes.organizationId, organizationId))
+      .orderBy(desc(processes.createdAt));
+  }
+
+  async getProcessesByStatus(organizationId: string, status: string): Promise<Process[]> {
+    return await db
+      .select()
+      .from(processes)
+      .where(and(
+        eq(processes.organizationId, organizationId),
+        eq(processes.status, status)
+      ))
+      .orderBy(desc(processes.createdAt));
+  }
+
+  async getActiveProcesses(organizationId: string): Promise<Process[]> {
+    return await db
+      .select()
+      .from(processes)
+      .where(and(
+        eq(processes.organizationId, organizationId),
+        or(
+          eq(processes.status, 'running'),
+          eq(processes.status, 'pending')
+        )
+      ))
+      .orderBy(desc(processes.createdAt));
+  }
+
+  async updateProcess(id: string, updates: Partial<InsertProcess>): Promise<Process> {
+    const [updated] = await db
+      .update(processes)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(processes.id, id))
+      .returning();
+    return updated;
+  }
+
+  async startProcess(id: string, userId: string): Promise<Process> {
+    const [updated] = await db
+      .update(processes)
+      .set({
+        status: 'running',
+        startedBy: userId,
+        startedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(processes.id, id))
+      .returning();
+    return updated;
+  }
+
+  async completeProcess(id: string, userId: string, results?: any): Promise<Process> {
+    const [updated] = await db
+      .update(processes)
+      .set({
+        status: 'completed',
+        progress: 100,
+        completedBy: userId,
+        completedAt: new Date(),
+        results: results || {},
+        updatedAt: new Date()
+      })
+      .where(eq(processes.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Infrastructure Monitoring
+  async createInfrastructureComponent(component: InsertInfrastructureComponent): Promise<InfrastructureComponent> {
+    const [newComponent] = await db.insert(infrastructureComponents).values([component]).returning();
+    return newComponent;
+  }
+
+  async getInfrastructureComponent(id: string): Promise<InfrastructureComponent | null> {
+    const result = await db.select().from(infrastructureComponents).where(eq(infrastructureComponents.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getInfrastructureComponentsByOrganization(organizationId: string): Promise<InfrastructureComponent[]> {
+    return await db
+      .select()
+      .from(infrastructureComponents)
+      .where(eq(infrastructureComponents.organizationId, organizationId))
+      .orderBy(desc(infrastructureComponents.createdAt));
+  }
+
+  async getInfrastructureComponentsByStatus(organizationId: string, status: string): Promise<InfrastructureComponent[]> {
+    return await db
+      .select()
+      .from(infrastructureComponents)
+      .where(and(
+        eq(infrastructureComponents.organizationId, organizationId),
+        eq(infrastructureComponents.status, status)
+      ))
+      .orderBy(desc(infrastructureComponents.createdAt));
+  }
+
+  async updateInfrastructureComponent(id: string, updates: Partial<InsertInfrastructureComponent>): Promise<InfrastructureComponent> {
+    const [updated] = await db
+      .update(infrastructureComponents)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(infrastructureComponents.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Operational Incidents Management
+  async createOperationalIncident(incident: InsertOperationalIncident): Promise<OperationalIncident> {
+    const [newIncident] = await db.insert(operationalIncidents).values([incident]).returning();
+    return newIncident;
+  }
+
+  async getOperationalIncident(id: string): Promise<OperationalIncident | null> {
+    const result = await db.select().from(operationalIncidents).where(eq(operationalIncidents.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getOperationalIncidentsByOrganization(organizationId: string): Promise<OperationalIncident[]> {
+    return await db
+      .select()
+      .from(operationalIncidents)
+      .where(eq(operationalIncidents.organizationId, organizationId))
+      .orderBy(desc(operationalIncidents.detectedAt));
+  }
+
+  async getOperationalIncidentsByStatus(organizationId: string, status: string): Promise<OperationalIncident[]> {
+    return await db
+      .select()
+      .from(operationalIncidents)
+      .where(and(
+        eq(operationalIncidents.organizationId, organizationId),
+        eq(operationalIncidents.status, status)
+      ))
+      .orderBy(desc(operationalIncidents.detectedAt));
+  }
+
+  async getRecentOperationalIncidents(organizationId: string, limit: number = 10): Promise<OperationalIncident[]> {
+    return await db
+      .select()
+      .from(operationalIncidents)
+      .where(eq(operationalIncidents.organizationId, organizationId))
+      .orderBy(desc(operationalIncidents.detectedAt))
+      .limit(limit);
+  }
+
+  async updateOperationalIncident(id: string, updates: Partial<InsertOperationalIncident>): Promise<OperationalIncident> {
+    const [updated] = await db
+      .update(operationalIncidents)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(operationalIncidents.id, id))
+      .returning();
+    return updated;
+  }
+
+  async resolveOperationalIncident(id: string, userId: string, resolution: string): Promise<OperationalIncident> {
+    const [updated] = await db
+      .update(operationalIncidents)
+      .set({
+        status: 'resolved',
+        resolvedBy: userId,
+        resolvedAt: new Date(),
+        resolution: resolution,
+        updatedAt: new Date()
+      })
+      .where(eq(operationalIncidents.id, id))
+      .returning();
+    return updated;
   }
 }
 

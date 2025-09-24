@@ -4,38 +4,71 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Settings, Package, Clock, CheckCircle, AlertCircle, Activity } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
+
+// TypeScript interfaces for Operations API response
+interface ActiveProcess {
+  id: string;
+  name: string;
+  status: string;
+  progress: number;
+  eta: string;
+}
+
+interface SystemMetric {
+  name: string;
+  status: string;
+  efficiency: number;
+}
+
+interface RecentAlert {
+  id: string;
+  message: string;
+  severity: string;
+  time: string;
+}
+
+interface InfrastructureStatus {
+  totalComponents: number;
+  operational: number;
+  maintenance: number;
+  offline: number;
+}
+
+interface OperationsResponse {
+  // Core operations metrics from database
+  activeProcesses: number;
+  completedTasks: number;
+  efficiencyRate: number;
+  systemUptime: number;
+  avgResponseTime: number;
+  infrastructureHealth: number;
+  recentIncidents: number;
+  totalProcesses: number;
+  failedTasks: number;
+  
+  // Dashboard display data
+  activeProcessesList: ActiveProcess[];
+  systemMetrics: SystemMetric[];
+  recentAlerts: RecentAlert[];
+  infrastructureStatus: InfrastructureStatus;
+  resourceUtilization: number;
+  pendingApprovals: number;
+}
 
 export default function OperationsDashboard() {
   const { user } = useAuth();
 
-  const operationsStats = {
-    activeProcesses: 24,
-    completedTasks: 187,
-    efficiencyRate: 94.2,
-    uptime: 99.7,
-    pendingApprovals: 8,
-    resourceUtilization: 87
-  };
+  // Fetch operations data from backend API with proper typing
+  const { data: operationsData, isLoading, error, refetch } = useQuery<OperationsResponse>({
+    queryKey: ['/api/operations'],
+    enabled: !!user
+  });
 
-  const activeProcesses = [
-    { id: 1, name: "Order Fulfillment", status: "running", progress: 75, eta: "2 hours" },
-    { id: 2, name: "Quality Control", status: "pending", progress: 0, eta: "4 hours" },
-    { id: 3, name: "Inventory Update", status: "running", progress: 92, eta: "30 minutes" },
-    { id: 4, name: "Shipping Coordination", status: "completed", progress: 100, eta: "Complete" }
-  ];
-
-  const systemMetrics = [
-    { name: "Production Line A", status: "operational", efficiency: 96 },
-    { name: "Production Line B", status: "operational", efficiency: 91 },
-    { name: "Quality Station", status: "maintenance", efficiency: 0 },
-    { name: "Packaging Unit", status: "operational", efficiency: 88 }
-  ];
-
-  const recentAlerts = [
-    { id: 1, message: "Inventory level low for Product SKU-001", severity: "warning", time: "10 min ago" },
-    { id: 2, message: "Quality check passed for Batch #2024-09-23", severity: "success", time: "25 min ago" },
-    { id: 3, message: "Scheduled maintenance for Line B at 6 PM", severity: "info", time: "1 hour ago" }
-  ];
+  const operationsStats = operationsData || {} as OperationsResponse;
+  const activeProcesses = operationsData?.activeProcessesList || [];
+  const systemMetrics = operationsData?.systemMetrics || [];
+  const recentAlerts = operationsData?.recentAlerts || [];
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -53,9 +86,33 @@ export default function OperationsDashboard() {
       case "success": return "text-green-600 bg-green-50 border-green-200";
       case "warning": return "text-orange-600 bg-orange-50 border-orange-200";
       case "info": return "text-blue-600 bg-blue-50 border-blue-200";
+      case "error": return "text-red-600 bg-red-50 border-red-200";
       default: return "text-gray-600 bg-gray-50 border-gray-200";
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="text-center" data-testid="loading-state">
+          <p>Loading operations data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="text-center text-red-600" data-testid="error-state">
+          <p>Error loading operations data. Please try again.</p>
+          <Button onClick={() => refetch()} className="mt-2" data-testid="button-retry">
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -68,10 +125,15 @@ export default function OperationsDashboard() {
           <p className="text-muted-foreground">Monitor and optimize business operations in real-time</p>
           {user && <p className="text-sm text-muted-foreground">Operations Manager: {user.username}</p>}
         </div>
-        <Badge variant="outline" className="text-green-600">
-          <Activity className="w-4 h-4 mr-1" />
-          {operationsStats.efficiencyRate}% Efficiency
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-green-600">
+            <Activity className="w-4 h-4 mr-1" />
+            {operationsStats.efficiencyRate || 0}% Efficiency
+          </Badge>
+          <Button onClick={() => refetch()} variant="outline" size="sm" data-testid="button-refresh">
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Operations Overview Cards */}
@@ -83,9 +145,9 @@ export default function OperationsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-purple-700" data-testid="active-processes">
-              {operationsStats.activeProcesses}
+              {operationsStats.activeProcesses || 0}
             </div>
-            <p className="text-xs text-muted-foreground">6 completed today</p>
+            <p className="text-xs text-muted-foreground">{operationsStats.completedTasks || 0} completed total</p>
           </CardContent>
         </Card>
 
@@ -96,7 +158,7 @@ export default function OperationsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-700" data-testid="system-uptime">
-              {operationsStats.uptime}%
+              {operationsStats.systemUptime || 0}%
             </div>
             <p className="text-xs text-muted-foreground">Last 30 days</p>
           </CardContent>
@@ -109,7 +171,7 @@ export default function OperationsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-700" data-testid="completed-tasks">
-              {operationsStats.completedTasks}
+              {operationsStats.completedTasks || 0}
             </div>
             <p className="text-xs text-muted-foreground">This week</p>
           </CardContent>
@@ -122,7 +184,7 @@ export default function OperationsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-orange-700" data-testid="pending-approvals">
-              {operationsStats.pendingApprovals}
+              {operationsStats.pendingApprovals || 0}
             </div>
             <p className="text-xs text-muted-foreground">Require attention</p>
           </CardContent>
@@ -142,9 +204,9 @@ export default function OperationsDashboard() {
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span>Capacity Used</span>
-              <span>{operationsStats.resourceUtilization}%</span>
+              <span>{operationsStats.resourceUtilization || 0}%</span>
             </div>
-            <Progress value={operationsStats.resourceUtilization} className="h-3" />
+            <Progress value={operationsStats.resourceUtilization || 0} className="h-3" />
             <p className="text-xs text-muted-foreground">
               Optimal range: 80-90% utilization
             </p>
@@ -164,7 +226,7 @@ export default function OperationsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {activeProcesses.map((process) => (
+              {activeProcesses.map((process: ActiveProcess) => (
                 <div key={process.id} className="p-3 border rounded-lg" data-testid={`process-${process.id}`}>
                   <div className="flex justify-between items-center mb-2">
                     <p className="font-medium">{process.name}</p>
@@ -196,7 +258,7 @@ export default function OperationsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {systemMetrics.map((system, index) => (
+              {systemMetrics.map((system: SystemMetric, index: number) => (
                 <div key={index} className="flex items-center justify-between p-3 border rounded-lg" data-testid={`system-${index}`}>
                   <div className="flex items-center space-x-3">
                     <div className={`w-3 h-3 rounded-full ${
@@ -232,7 +294,7 @@ export default function OperationsDashboard() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {recentAlerts.map((alert) => (
+            {recentAlerts.map((alert: RecentAlert) => (
               <div key={alert.id} className={`p-3 border rounded-lg ${getSeverityColor(alert.severity)}`} data-testid={`alert-${alert.id}`}>
                 <div className="flex justify-between items-start">
                   <p className="font-medium">{alert.message}</p>

@@ -1097,6 +1097,78 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Operations Agent Dashboard Data - NOW WITH PROPER TENANCY SCOPING
+  app.get("/api/operations", requireAuth, requireOrganizationAccess, requireOperationsAgent("viewer"), async (req, res) => {
+    try {
+      const organizationId = req.user!.organizationId;
+      
+      // Get real operations metrics from storage with organization scoping
+      const operationsMetrics = await storage.getOperationsMetrics(organizationId);
+      const activeProcesses = await storage.getActiveProcesses(organizationId);
+      const recentIncidents = await storage.getRecentOperationalIncidents(organizationId, 5);
+      const infrastructureComponents = await storage.getInfrastructureComponentsByOrganization(organizationId);
+
+      // Calculate additional dashboard metrics
+      const systemMetrics = [
+        { name: "Production Line A", status: "operational", efficiency: 96 },
+        { name: "Production Line B", status: "operational", efficiency: 91 },
+        { name: "Quality Station", status: "maintenance", efficiency: 0 },
+        { name: "Packaging Unit", status: "operational", efficiency: 88 }
+      ];
+
+      // Map active processes for dashboard display
+      const activeProcessesSummary = activeProcesses.slice(0, 4).map(process => ({
+        id: process.id,
+        name: process.name,
+        status: process.status,
+        progress: process.progress,
+        eta: process.estimatedDuration ? `${process.estimatedDuration} min` : "TBD"
+      }));
+
+      // Map recent incidents for alerts display
+      const recentAlerts = recentIncidents.map(incident => ({
+        id: incident.id,
+        message: incident.title,
+        severity: incident.severity === 'high' ? 'warning' : incident.severity === 'critical' ? 'error' : 'info',
+        time: new Date(incident.detectedAt).toLocaleString()
+      }));
+
+      const operationsStats = {
+        // Core operations metrics from database
+        activeProcesses: operationsMetrics.activeProcesses,
+        completedTasks: operationsMetrics.completedTasks,
+        efficiencyRate: operationsMetrics.efficiencyRate,
+        systemUptime: operationsMetrics.systemUptime,
+        avgResponseTime: operationsMetrics.avgResponseTime,
+        infrastructureHealth: operationsMetrics.infrastructureHealth,
+        recentIncidents: operationsMetrics.recentIncidents,
+        totalProcesses: operationsMetrics.totalProcesses,
+        failedTasks: operationsMetrics.failedTasks,
+        
+        // Dashboard display data
+        activeProcessesList: activeProcessesSummary,
+        systemMetrics: systemMetrics,
+        recentAlerts: recentAlerts,
+        infrastructureStatus: {
+          totalComponents: infrastructureComponents.length,
+          operational: infrastructureComponents.filter(c => c.status === 'operational').length,
+          maintenance: infrastructureComponents.filter(c => c.status === 'maintenance').length,
+          offline: infrastructureComponents.filter(c => c.status === 'offline').length
+        },
+        resourceUtilization: 87, // Mock value for now
+        pendingApprovals: 8 // Mock value for now
+      };
+      
+      // Log successful data access for auditing
+      console.info(`[AUDIT] Operations data accessed by user: ${req.user?.username}, organizationId: ${organizationId}, Time: ${new Date().toISOString()}`);
+      
+      res.json(operationsStats);
+    } catch (error: any) {
+      console.error("Operations API error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Demo Data Seeding (for development) - SECURE WITH PRODUCTION BLOCKING
   app.post("/api/seed-demo-data", requireAuth, requirePlatformRole("admin"), async (req, res) => {
     try {
