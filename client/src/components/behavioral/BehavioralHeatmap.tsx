@@ -45,11 +45,7 @@ export default function BehavioralHeatmap({
 
   // Process data for heatmap visualization
   const processHeatmapData = (): HeatmapCell[] => {
-    const areaData = new Map<string, {
-      events: any[];
-      anomalies: any[];
-      eventTypes: Record<string, number>;
-    }>();
+    const areaData = new Map<string, any>();
 
     // Group behavior events by area
     behaviorEvents
@@ -59,7 +55,7 @@ export default function BehavioralHeatmap({
         if (!areaData.has(area)) {
           areaData.set(area, { events: [], anomalies: [], eventTypes: {} });
         }
-        const data = areaData.get(area)!;
+        const data = areaData.get(area) as any;
         data.events.push(event);
         data.eventTypes[event.eventType] = (data.eventTypes[event.eventType] || 0) + 1;
       });
@@ -70,21 +66,21 @@ export default function BehavioralHeatmap({
       if (!areaData.has(area)) {
         areaData.set(area, { events: [], anomalies: [], eventTypes: {} });
       }
-      areaData.get(area)!.anomalies.push(anomaly);
+      (areaData.get(area) as any).anomalies.push(anomaly);
     });
 
     // Create heatmap cells
     const cells: HeatmapCell[] = [];
-    const allEventCounts = Array.from(areaData.values()).map(data => data.events.length);
+    const allEventCounts = Array.from(areaData.values()).map((data: any) => data.events.length);
     const maxEventCount = Math.max(...allEventCounts, 1);
-    const allAnomalyCounts = Array.from(areaData.values()).map(data => data.anomalies.length);
+    const allAnomalyCounts = Array.from(areaData.values()).map((data: any) => data.anomalies.length);
     const maxAnomalyCount = Math.max(...allAnomalyCounts, 1);
 
-    areaData.forEach((data, area) => {
+    areaData.forEach((data: any, area: any) => {
       const eventCount = data.events.length;
       const anomalyCount = data.anomalies.length;
       const averageConfidence = eventCount > 0 
-        ? data.events.reduce((sum, e) => sum + e.confidence, 0) / eventCount 
+        ? data.events.reduce((sum: number, e: any) => sum + e.confidence, 0) / eventCount 
         : 0;
 
       // Calculate intensity based on selected metric
@@ -123,11 +119,11 @@ export default function BehavioralHeatmap({
       });
     });
 
-    return cells.sort((a, b) => b.intensity - a.intensity);
+    return cells.sort((a: any, b: any) => b.intensity - a.intensity);
   };
 
   const heatmapData = processHeatmapData();
-  const eventTypes = [...new Set(behaviorEvents.map(e => e.eventType))];
+  const eventTypes = Array.from(new Set(behaviorEvents.map((e: any) => e.eventType)));
 
   // Get color for intensity
   const getIntensityColor = (intensity: number, metric: string) => {

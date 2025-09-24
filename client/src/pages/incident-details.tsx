@@ -93,10 +93,7 @@ export default function IncidentDetails() {
   // Update incident status mutation
   const updateStatusMutation = useMutation({
     mutationFn: async ({ status, notes }: { status: string; notes?: string }) => {
-      return apiRequest(`/api/incidents/${incidentId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status, notes }),
-      });
+      return apiRequest('PATCH', `/api/incidents/${incidentId}`, { status, notes });
     },
     onSuccess: () => {
       toast({ title: "Success", description: "Incident status updated" });
@@ -115,10 +112,7 @@ export default function IncidentDetails() {
   // Assign incident mutation
   const assignMutation = useMutation({
     mutationFn: async ({ assignedTo, reason }: { assignedTo: string; reason?: string }) => {
-      return apiRequest(`/api/incidents/${incidentId}/assign`, {
-        method: 'POST',
-        body: JSON.stringify({ assignedTo, reason }),
-      });
+      return apiRequest('POST', `/api/incidents/${incidentId}/assign`, { assignedTo, reason });
     },
     onSuccess: () => {
       toast({ title: "Success", description: "Incident assigned successfully" });
@@ -137,10 +131,7 @@ export default function IncidentDetails() {
   // Add note mutation
   const addNoteMutation = useMutation({
     mutationFn: async (note: string) => {
-      return apiRequest(`/api/incidents/${incidentId}/notes`, {
-        method: 'POST',
-        body: JSON.stringify({ note }),
-      });
+      return apiRequest('POST', `/api/incidents/${incidentId}/notes`, { note });
     },
     onSuccess: () => {
       toast({ title: "Success", description: "Note added to incident" });
@@ -586,16 +577,14 @@ function EvidenceUpload({ incidentId, onUploadComplete }: { incidentId: string; 
     try {
       for (const file of files) {
         // Get upload URL
-        const uploadResponse = await apiRequest(`/api/incidents/${incidentId}/evidence/upload-url`, {
-          method: 'POST',
-          body: JSON.stringify({
-            fileName: file.name,
-            fileType: file.type
-          }),
+        const uploadResponse = await apiRequest('POST', `/api/incidents/${incidentId}/evidence/upload-url`, {
+          fileName: file.name,
+          fileType: file.type
         });
+        const uploadData = await uploadResponse.json();
 
         // Upload file
-        await fetch(uploadResponse.uploadUrl, {
+        await fetch(uploadData.uploadUrl, {
           method: 'PUT',
           body: file,
           headers: {
@@ -604,13 +593,10 @@ function EvidenceUpload({ incidentId, onUploadComplete }: { incidentId: string; 
         });
 
         // Confirm upload
-        await apiRequest(`/api/evidence/${uploadResponse.evidenceId}/confirm-upload`, {
-          method: 'POST',
-          body: JSON.stringify({
-            fileSize: file.size,
-            mimeType: file.type,
-            checksum: 'placeholder' // In real implementation, calculate actual checksum
-          }),
+        await apiRequest('POST', `/api/evidence/${uploadData.evidenceId}/confirm-upload`, {
+          fileSize: file.size,
+          mimeType: file.type,
+          checksum: 'placeholder' // In real implementation, calculate actual checksum
         });
       }
 

@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
-  Timeline, AlertTriangle, Clock, MapPin, Activity, TrendingUp,
-  Eye, Zap, Shield, Brain, ChevronDown, ChevronRight
+  Clock, AlertTriangle, MapPin, Activity, TrendingUp,
+  Eye, Zap, Shield, Brain, ChevronDown, ChevronRight, ChevronUp
 } from "lucide-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, CartesianGrid } from "recharts";
@@ -100,12 +100,12 @@ export default function AnomalyTimeline({
       data.severities.push(anomaly.severity);
       
       // Convert severity to numeric score for averaging
-      const severityScore = {
+      const severityScore = ({
         critical: 4,
         high: 3,
         medium: 2,
         low: 1
-      }[anomaly.severity] || 1;
+      } as const)[anomaly.severity as 'critical' | 'high' | 'medium' | 'low'] || 1;
       
       data.severitySum += severityScore;
     });
@@ -141,7 +141,7 @@ export default function AnomalyTimeline({
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Anomalies</CardTitle>
-            <Timeline className="h-4 w-4 text-purple-600" />
+            <Clock className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{filteredAnomalies.length}</div>
@@ -214,7 +214,7 @@ export default function AnomalyTimeline({
             size="sm"
             onClick={() => setViewMode('timeline')}
           >
-            <Timeline className="h-4 w-4 mr-1" />
+            <Clock className="h-4 w-4 mr-1" />
             Timeline
           </Button>
           <Button
@@ -282,7 +282,7 @@ export default function AnomalyTimeline({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Timeline className="h-5 w-5" />
+              <Clock className="h-5 w-5" />
               Anomaly Timeline
             </CardTitle>
             <CardDescription>

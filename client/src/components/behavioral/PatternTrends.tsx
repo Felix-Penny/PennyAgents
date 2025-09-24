@@ -143,8 +143,8 @@ export default function PatternTrends({
     for (let i = 0; i < predictionPeriods; i++) {
       // Calculate moving average for prediction
       const recentData = temporalData.slice(-windowSize);
-      const avgEvents = recentData.reduce((sum, d) => sum + d.eventCount, 0) / windowSize;
-      const avgConfidence = recentData.reduce((sum, d) => sum + d.averageConfidence, 0) / windowSize;
+      const avgEvents = recentData.reduce((sum: number, d: any) => sum + d.eventCount, 0) / windowSize;
+      const avgConfidence = recentData.reduce((sum: number, d: any) => sum + d.averageConfidence, 0) / windowSize;
       
       // Add some trend adjustment
       const trend = windowSize > 1 ? 
@@ -161,7 +161,7 @@ export default function PatternTrends({
       });
     }
 
-    return [...temporalData.map(d => ({ ...d, type: 'actual' })), ...predictions];
+    return [...temporalData.map((d: any) => ({ ...d, type: 'actual' })), ...predictions];
   };
 
   const temporalData = processTemporalData();
@@ -172,9 +172,9 @@ export default function PatternTrends({
   const getTrendDirection = () => {
     if (temporalData.length < 2) return 'stable';
     const first = temporalData.slice(0, Math.floor(temporalData.length / 2))
-      .reduce((sum, d) => sum + d.eventCount, 0);
+      .reduce((sum: number, d: any) => sum + d.eventCount, 0);
     const second = temporalData.slice(Math.floor(temporalData.length / 2))
-      .reduce((sum, d) => sum + d.eventCount, 0);
+      .reduce((sum: number, d: any) => sum + d.eventCount, 0);
     
     const change = ((second - first) / (first || 1)) * 100;
     if (change > 10) return 'increasing';
