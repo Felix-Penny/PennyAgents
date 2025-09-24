@@ -17,9 +17,15 @@ import {
   Loader2,
   Wifi,
   WifiOff,
-  Settings
+  Settings,
+  Eye,
+  EyeOff,
+  Target,
+  Activity
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useCameraAnalysis } from "@/hooks/useCameraAnalysis";
+import { OverlayRenderer, DetectionStats } from "@/components/OverlayRenderer";
 import type { Camera } from "@shared/schema";
 
 // Types
@@ -31,6 +37,8 @@ interface CameraTileState {
   isFullscreen: boolean;
   hasError: boolean;
   isLoading: boolean;
+  showOverlay: boolean;
+  analysisEnabled: boolean;
 }
 
 // Fullscreen API with vendor prefixes
@@ -138,9 +146,17 @@ interface CameraControlsProps {
   onPlay: () => void;
   onPause: () => void;
   onFullscreen: () => void;
+  onToggleOverlay: () => void;
+  onToggleAnalysis: () => void;
+  analysisState?: {
+    isAnalyzing: boolean;
+    isEnabled: boolean;
+    detectionCount: number;
+    errorCount: number;
+  };
 }
 
-function CameraControls({ camera, tileState, onPlay, onPause, onFullscreen }: CameraControlsProps) {
+function CameraControls({ camera, tileState, onPlay, onPause, onFullscreen, onToggleOverlay, onToggleAnalysis, analysisState }: CameraControlsProps) {
   const isOnline = camera.status === "online";
   
   return (
@@ -168,10 +184,66 @@ function CameraControls({ camera, tileState, onPlay, onPause, onFullscreen }: Ca
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{tileState.isPlaying ? "Pause" : "Play"} analysis</p>
+              <p>{tileState.isPlaying ? "Pause" : "Play"} feed</p>
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button 
+                size="sm" 
+                variant="secondary" 
+                className={`h-8 w-8 p-0 bg-black/50 hover:bg-black/70 ${
+                  tileState.analysisEnabled ? 'ring-2 ring-blue-400' : ''
+                }`}
+                onClick={onToggleAnalysis}
+                disabled={!isOnline || tileState.hasError || !tileState.isPlaying}
+                data-testid={`button-toggle-analysis-${camera.id}`}
+                aria-label={tileState.analysisEnabled ? "Stop AI analysis" : "Start AI analysis"}
+              >
+                {analysisState?.isAnalyzing ? (
+                  <Activity className="h-3 w-3 animate-pulse text-blue-400" />
+                ) : (
+                  <Target className={`h-3 w-3 ${tileState.analysisEnabled ? 'text-blue-400' : ''}`} />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <div className="text-xs">
+                <p>{tileState.analysisEnabled ? 'Stop' : 'Start'} AI Analysis</p>
+                {analysisState && (
+                  <p className="text-muted-foreground">
+                    Detections: {analysisState.detectionCount} | Errors: {analysisState.errorCount}
+                  </p>
+                )}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button 
+                size="sm" 
+                variant="secondary" 
+                className="h-8 w-8 p-0 bg-black/50 hover:bg-black/70"
+                onClick={onToggleOverlay}
+                disabled={!tileState.analysisEnabled}
+                data-testid={`button-toggle-overlay-${camera.id}`}
+                aria-label={tileState.showOverlay ? "Hide detection overlay" : "Show detection overlay"}
+              >
+                {tileState.showOverlay ? (
+                  <Eye className="h-3 w-3 text-green-400" />
+                ) : (
+                  <EyeOff className="h-3 w-3" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{tileState.showOverlay ? 'Hide' : 'Show'} overlay</p>
             </TooltipContent>
           </Tooltip>
         </div>
+        
         <Tooltip>
           <TooltipTrigger asChild>
             <Button 
@@ -206,12 +278,33 @@ interface CameraTileProps {
 }
 
 function CameraTile({ camera }: CameraTileProps) {
+  const { user } = useAuth();
   const [tileState, setTileState] = useState<CameraTileState>({
     isPlaying: camera.status === "online",
     isFullscreen: false,
     hasError: false,
-    isLoading: false
+    isLoading: false,
+    showOverlay: true, // Show overlay by default when analysis is enabled
+    analysisEnabled: false // Start with analysis disabled
   });
+
+  // Refs for video container and canvas
+  const videoRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Initialize camera analysis hook
+  const cameraAnalysis = useCameraAnalysis(
+    camera.id,
+    user?.storeId || '',
+    videoRef,
+    {
+      throttleMs: 2000, // 0.5 FPS for better performance
+      confidenceThreshold: 0.4, // Show detections with 40%+ confidence
+      enableThreatDetection: true,
+      enableBehaviorAnalysis: true,
+      enableObjectDetection: true
+    }
+  );
 
   const handlePlay = useCallback(() => {
     setTileState(prev => ({ ...prev, isPlaying: true, isLoading: true }));
@@ -223,9 +316,36 @@ function CameraTile({ camera }: CameraTileProps) {
 
   const handlePause = useCallback(() => {
     setTileState(prev => ({ ...prev, isPlaying: false }));
+    // Stop analysis when paused
+    if (cameraAnalysis.analysisState.isEnabled) {
+      cameraAnalysis.stopAnalysis();
+      setTileState(prev => ({ ...prev, analysisEnabled: false }));
+    }
+  }, [cameraAnalysis]);
+
+  // Handle overlay toggle
+  const handleToggleOverlay = useCallback(() => {
+    setTileState(prev => ({ ...prev, showOverlay: !prev.showOverlay }));
   }, []);
 
-  const videoRef = useRef<HTMLDivElement>(null);
+  // Handle analysis toggle
+  const handleToggleAnalysis = useCallback(() => {
+    if (tileState.analysisEnabled) {
+      cameraAnalysis.stopAnalysis();
+      setTileState(prev => ({ ...prev, analysisEnabled: false }));
+    } else {
+      cameraAnalysis.startAnalysis();
+      setTileState(prev => ({ ...prev, analysisEnabled: true }));
+    }
+  }, [tileState.analysisEnabled, cameraAnalysis]);
+
+  // Sync analysis state with tile state
+  useEffect(() => {
+    setTileState(prev => ({
+      ...prev,
+      analysisEnabled: cameraAnalysis.analysisState.isEnabled
+    }));
+  }, [cameraAnalysis.analysisState.isEnabled]);
 
   const handleFullscreen = useCallback(async () => {
     if (!videoRef.current) return;
@@ -374,12 +494,29 @@ function CameraTile({ camera }: CameraTileProps) {
           ref={videoRef}
           className="relative aspect-video bg-gray-900 rounded-lg overflow-hidden"
         >
-          {/* Canvas overlay for AI detection boxes - foundation for future enhancement */}
+          {/* AI Detection Overlay Renderer */}
+          <OverlayRenderer
+            canvasRef={canvasRef}
+            containerRef={videoRef}
+            detections={cameraAnalysis.getRecentDetections()}
+            getDetectionOpacity={cameraAnalysis.getDetectionOpacity}
+            isVisible={tileState.showOverlay && tileState.analysisEnabled}
+          />
+          
+          {/* Detection Stats Overlay */}
+          {tileState.showOverlay && tileState.analysisEnabled && (
+            <DetectionStats 
+              detections={cameraAnalysis.getRecentDetections()}
+              className="z-20"
+            />
+          )}
+
+          {/* Canvas element for overlay rendering */}
           <canvas 
+            ref={canvasRef}
             className="absolute inset-0 w-full h-full pointer-events-none z-10"
             data-testid={`canvas-overlay-${camera.id}`}
             aria-hidden="true"
-            style={{ display: 'none' }} // Hidden for now, ready for AI overlay integration
           />
           
           {camera.status === "online" ? (
@@ -424,6 +561,9 @@ function CameraTile({ camera }: CameraTileProps) {
             onPlay={handlePlay}
             onPause={handlePause}
             onFullscreen={handleFullscreen}
+            onToggleOverlay={handleToggleOverlay}
+            onToggleAnalysis={handleToggleAnalysis}
+            analysisState={cameraAnalysis.analysisState}
           />
         </div>
       </CardContent>
