@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { WebSocketProvider } from "@/lib/websocket";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
+import AlertManager from "@/components/AlertManager";
 import NotFound from "./pages/not-found";
 import Dashboard from "./pages/dashboard";
 import FinanceDashboard from "./pages/finance-dashboard";
@@ -37,6 +38,15 @@ function Router() {
       {/* Security Agent Routes */}
       <Route path="/security/:rest*">
         <AgentProtectedRoute agentId="security-agent" minimumRole="viewer">
+          {/* Real-time Alert Manager for Security Personnel */}
+          <AlertManager 
+            soundEnabled={true} 
+            position="top-right" 
+            maxConcurrentAlerts={5}
+            onAlertAction={(action, alertId, data) => {
+              console.log(`Alert action: ${action} for alert ${alertId}`, data);
+            }}
+          />
           <ProtectedRoute path="/security/dashboard" component={Dashboard} />
           <ProtectedRoute path="/security/live-feeds" component={LiveFeeds} />
           <ProtectedRoute path="/security/alerts" component={Alerts} />

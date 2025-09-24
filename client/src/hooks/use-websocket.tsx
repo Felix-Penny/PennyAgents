@@ -11,7 +11,7 @@ export function useWebSocket() {
 
   useEffect(() => {
     if (socket && isConnected && !hasSubscribed.current) {
-      // Subscribe to store updates
+      // Subscribe to store updates (legacy)
       sendMessage({
         type: 'subscribe',
         storeId: 'store-1', // In real app, get from user context
@@ -26,15 +26,61 @@ export function useWebSocket() {
           
           switch (message.type) {
             case 'new_alert':
-              // Invalidate alerts query to refresh data
+              // Legacy alert handling - invalidate alerts query to refresh data
               queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
               
-              // Show toast notification
+              // Show toast notification for legacy alerts
               toast({
                 title: "New Security Alert",
                 description: message.alert?.title || "A new security alert has been detected",
                 variant: "destructive",
               });
+              break;
+
+            case 'alert_notification':
+              // Real-time alert popup handled by AlertManager
+              // Still refresh the alerts list for dashboard
+              queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+              break;
+
+            case 'alert_acknowledgment':
+              // Alert acknowledged - refresh alerts list
+              queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+              break;
+
+            case 'alert_dismissal_confirmed':
+              // Alert dismissed - refresh alerts list
+              queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+              break;
+
+            case 'alert_escalation':
+              // Alert escalated - refresh alerts list
+              queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+              break;
+
+            case 'alert_resolution':
+              // Alert resolved - refresh alerts list
+              queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+              break;
+
+            case 'alert_bulk_acknowledgment':
+              // Bulk acknowledgment - refresh alerts list  
+              queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+              break;
+
+            case 'bulk_acknowledgment_confirmed':
+              // Legacy bulk operation - refresh alerts list
+              queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+              break;
+
+            case 'alert_update':
+              // Alert updated - refresh alerts list
+              queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+              break;
+
+            case 'alert_status_change':
+              // Alert status changed - refresh alerts list
+              queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
               break;
 
             case 'new_detection':
@@ -71,13 +117,21 @@ export function useWebSocket() {
               break;
 
             case 'alert_acknowledged':
-              // Refresh alerts
+              // Legacy alert acknowledgment - refresh alerts
               queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
               break;
 
             case 'alert_deactivated':
-              // Refresh alerts
+              // Legacy alert deactivation - refresh alerts
               queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+              break;
+
+            // Real-time alert system message types - handled by AlertManager
+            case 'alert_subscription_confirmed':
+            case 'alert_unsubscription_confirmed':
+            case 'alert_filters_updated':
+            case 'alert_error':
+              // These are handled by AlertManager component
               break;
 
             default:

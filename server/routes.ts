@@ -3,7 +3,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import Stripe from "stripe";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import session from "express-session";
@@ -15,6 +15,16 @@ import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./o
 import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema, offenders, frameAnalysisRequestSchema, FRAME_SIZE_LIMITS, detectionResultSchema } from "../shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
+import { 
+  handleAlertSubscription, 
+  handleAlertUnsubscription, 
+  handleAlertFilterUpdate, 
+  handleAlertAcknowledgment, 
+  handleAlertDismissal, 
+  handleAlertEscalation, 
+  handleBulkAlertAcknowledgment,
+  cleanupAlertClient 
+} from "./routes-alert-handlers";
 
 // Initialize Stripe if keys are available
 let stripe: Stripe | null = null;
@@ -2185,10 +2195,8 @@ export function registerRoutes(app: Express): Server {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req: any) => {
-      return `${req.ip}:${req.user?.id || 'anonymous'}:ai-frame-guard`;
-    },
-    onLimitReached: (req: any) => {
+    keyGenerator: ipKeyGenerator(`ai-frame-guard`),
+    handler: (req: any, res: any) => {
       logSecurityEvent('RATE_LIMIT_EXCEEDED', {
         userId: req.user?.id,
         userRole: req.user?.role,
@@ -2197,6 +2205,12 @@ export function registerRoutes(app: Express): Server {
         limit: 100,
         role: 'guard'
       }, req);
+      res.status(429).json({
+        error: "Too many AI frame analysis requests. Limit: 100 requests per hour for guard role.",
+        limit: 100,
+        role: 'guard',
+        code: "RATE_LIMIT_EXCEEDED"
+      });
     }
   });
   
@@ -2211,10 +2225,8 @@ export function registerRoutes(app: Express): Server {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req: any) => {
-      return `${req.ip}:${req.user?.id || 'anonymous'}:ai-frame-admin`;
-    },
-    onLimitReached: (req: any) => {
+    keyGenerator: ipKeyGenerator(`ai-frame-admin`),
+    handler: (req: any, res: any) => {
       logSecurityEvent('RATE_LIMIT_EXCEEDED', {
         userId: req.user?.id,
         userRole: req.user?.role,
@@ -2223,6 +2235,12 @@ export function registerRoutes(app: Express): Server {
         limit: 500,
         role: 'admin'
       }, req);
+      res.status(429).json({
+        error: "Too many AI frame analysis requests. Limit: 500 requests per hour for admin role.",
+        limit: 500,
+        role: 'admin',
+        code: "RATE_LIMIT_EXCEEDED"
+      });
     }
   });
   
@@ -3316,6 +3334,35 @@ async function handleWebSocketMessage(ws: WebSocketClient, clientId: string, mes
       await handleCameraStatusUnsubscription(ws, clientId, message);
       break;
 
+    // Real-time alert subscription handlers
+    case 'subscribe_alerts':
+      await handleAlertSubscription(ws, clientId, message);
+      break;
+
+    case 'unsubscribe_alerts':
+      await handleAlertUnsubscription(ws, clientId, message);
+      break;
+
+    case 'update_alert_filters':
+      await handleAlertFilterUpdate(ws, clientId, message);
+      break;
+
+    case 'acknowledge_alert':
+      await handleAlertAcknowledgment(ws, clientId, message);
+      break;
+
+    case 'dismiss_alert':
+      await handleAlertDismissal(ws, clientId, message);
+      break;
+
+    case 'escalate_alert':
+      await handleAlertEscalation(ws, clientId, message);
+      break;
+
+    case 'bulk_acknowledge_alerts':
+      await handleBulkAlertAcknowledgment(ws, clientId, message);
+      break;
+
     case 'ping':
       sendMessage(ws, { type: 'pong', timestamp: new Date().toISOString() });
       break;
@@ -3510,6 +3557,9 @@ function cleanupClient(clientId: string) {
         }
       });
     }
+
+    // Clean up alert subscriptions
+    cleanupAlertClient(clientId);
   }
 
   connectedClients.delete(clientId);

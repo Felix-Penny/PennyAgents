@@ -178,6 +178,101 @@ export const alerts = pgTable("alerts", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Alert Acknowledgments - Track who acknowledged which alerts and when
+export const alertAcknowledgments = pgTable("alert_acknowledgments", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  alertId: varchar("alert_id", { length: 255 }).notNull().references(() => alerts.id),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  action: varchar("action", { length: 50 }).notNull(), // acknowledged, dismissed, escalated, resolved
+  notes: text("notes"),
+  responseTime: integer("response_time"), // time taken to acknowledge in seconds
+  location: jsonb("location").$type<{
+    latitude?: number;
+    longitude?: number;
+    address?: string;
+  }>(), // where the user was when they acknowledged
+  metadata: jsonb("metadata").$type<{
+    deviceType?: string;
+    userAgent?: string;
+    ipAddress?: string;
+    sessionId?: string;
+  }>().default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Alert Escalation Rules - Configurable escalation policies per store/role
+export const alertEscalationRules = pgTable("alert_escalation_rules", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id), // null for global rules
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").default(true),
+  priority: integer("priority").default(100), // lower number = higher priority
+  conditions: jsonb("conditions").$type<{
+    severity?: string[]; // alert severities that trigger this rule
+    types?: string[]; // alert types that trigger this rule
+    timeWindow?: number; // time in minutes to wait before escalating
+    unacknowledgedOnly?: boolean;
+    afterHours?: boolean;
+    restrictedAreas?: boolean;
+    roles?: string[]; // user roles this rule applies to
+  }>().notNull(),
+  actions: jsonb("actions").$type<{
+    notify?: {
+      users?: string[];
+      roles?: string[];
+      email?: boolean;
+      sms?: boolean;
+      push?: boolean;
+    };
+    escalate?: {
+      newSeverity?: string;
+      newPriority?: string;
+      assignTo?: string;
+    };
+    autoActions?: {
+      createIncident?: boolean;
+      lockdownArea?: boolean;
+      notifyAuthorities?: boolean;
+    };
+  }>().notNull(),
+  lastTriggered: timestamp("last_triggered"),
+  triggerCount: integer("trigger_count").default(0),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Alert Templates - Reusable alert message templates
+export const alertTemplates = pgTable("alert_templates", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id), // null for global templates
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  category: varchar("category", { length: 100 }).notNull(), // security, safety, operational, maintenance
+  threatType: varchar("threat_type", { length: 100 }), // specific threat type this template is for
+  severity: varchar("severity", { length: 20 }).notNull(), // low, medium, high, critical
+  titleTemplate: text("title_template").notNull(),
+  messageTemplate: text("message_template").notNull(),
+  recommendedActions: jsonb("recommended_actions").$type<string[]>().default([]),
+  variables: jsonb("variables").$type<Array<{
+    name: string;
+    type: string; // string, number, boolean, location, camera, user
+    required: boolean;
+    defaultValue?: any;
+    description?: string;
+  }>>().default([]),
+  isActive: boolean("is_active").default(true),
+  isDefault: boolean("is_default").default(false),
+  usageCount: integer("usage_count").default(0),
+  lastUsed: timestamp("last_used"),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const cameras = pgTable("cameras", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
@@ -3515,6 +3610,36 @@ export const FRAME_SIZE_LIMITS = {
 } as const;
 
 export type AllowedMimeType = typeof FRAME_SIZE_LIMITS.ALLOWED_MIME_TYPES[number];
+
+// Alert-related Zod schemas and type inference (new alert tables)
+export const insertAlertAcknowledgmentSchema = createInsertSchema(alertAcknowledgments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAlertEscalationRuleSchema = createInsertSchema(alertEscalationRules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastTriggered: true,
+  triggerCount: true,
+});
+
+export const insertAlertTemplateSchema = createInsertSchema(alertTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  usageCount: true,
+  lastUsed: true,
+});
+
+// Alert type definitions (new alert tables)
+export type AlertAcknowledgment = typeof alertAcknowledgments.$inferSelect;
+export type AlertAcknowledgmentInsert = z.infer<typeof insertAlertAcknowledgmentSchema>;
+export type AlertEscalationRule = typeof alertEscalationRules.$inferSelect;
+export type AlertEscalationRuleInsert = z.infer<typeof insertAlertEscalationRuleSchema>;
+export type AlertTemplate = typeof alertTemplates.$inferSelect;
+export type AlertTemplateInsert = z.infer<typeof insertAlertTemplateSchema>;
 
 // Types for inference
 export type DetectionBoundingBoxType = z.infer<typeof detectionBoundingBoxSchema>;
