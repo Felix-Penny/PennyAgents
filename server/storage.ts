@@ -91,6 +91,66 @@ import {
   type SurveyResponse,
   type InsertHrMetric,
   type HrMetric,
+  // AI Video Analytics types
+  aiDetections,
+  videoAnalytics,
+  behaviorPatterns,
+  facialRecognition,
+  type InsertAiDetection,
+  type AiDetection,
+  type InsertVideoAnalytics,
+  type VideoAnalytics,
+  type InsertBehaviorPattern,
+  type BehaviorPattern,
+  type InsertFacialRecognition,
+  type FacialRecognition,
+  // Enhanced Camera Management types
+  cameraZones,
+  cameraSchedules,
+  cameraPresets,
+  type InsertCameraZone,
+  type CameraZone,
+  type InsertCameraSchedule,
+  type CameraSchedule,
+  type InsertCameraPreset,
+  type CameraPreset,
+  // Real-Time Detection & Alerts types
+  threatClassifications,
+  alertRules,
+  alertEscalation,
+  type InsertThreatClassification,
+  type ThreatClassification,
+  type InsertAlertRule,
+  type AlertRule,
+  type InsertAlertEscalation,
+  type AlertEscalation,
+  // Advanced Incident Management types
+  incidentTimeline,
+  incidentResponse,
+  evidenceChain,
+  type InsertIncidentTimeline,
+  type IncidentTimeline,
+  type InsertIncidentResponse,
+  type IncidentResponse,
+  type InsertEvidenceChain,
+  type EvidenceChain,
+  // Analytics & Intelligence types
+  securityMetrics,
+  trendAnalysis,
+  networkIntelligence,
+  type InsertSecurityMetrics,
+  type SecurityMetrics,
+  type InsertTrendAnalysis,
+  type TrendAnalysis,
+  type InsertNetworkIntelligence,
+  type NetworkIntelligence,
+  // Role-Based Access Control types
+  securityRoles,
+  accessPermissions,
+  type InsertSecurityRole,
+  type SecurityRole,
+  type InsertAccessPermission,
+  type AccessPermission,
 } from "@shared/schema";
 
 const PostgresSessionStore = connectPg(session);
@@ -385,6 +445,196 @@ export interface IStorage {
   getHrMetricsByOrganization(organizationId: string, metricType?: string): Promise<HrMetric[]>;
   getLatestHrMetrics(organizationId: string): Promise<HrMetric[]>;
   updateHrMetric(id: string, updates: Partial<InsertHrMetric>): Promise<HrMetric>;
+
+  // =====================================
+  // AI Video Analytics Management
+  // =====================================
+  // AI Detections
+  createAiDetection(detection: InsertAiDetection): Promise<AiDetection>;
+  getAiDetection(id: string): Promise<AiDetection | null>;
+  getAiDetectionsByStore(storeId: string, limit?: number): Promise<AiDetection[]>;
+  getAiDetectionsByCamera(cameraId: string, limit?: number): Promise<AiDetection[]>;
+  getAiDetectionsByType(storeId: string, detectionType: string): Promise<AiDetection[]>;
+  getAiDetectionsByConfidence(storeId: string, minConfidence: number): Promise<AiDetection[]>;
+  updateAiDetection(id: string, updates: Partial<InsertAiDetection>): Promise<AiDetection>;
+  verifyAiDetection(id: string, userId: string, isVerified: boolean): Promise<AiDetection>;
+  markFalsePositive(id: string, userId: string, reason: string): Promise<AiDetection>;
+
+  // Video Analytics
+  createVideoAnalytics(analytics: InsertVideoAnalytics): Promise<VideoAnalytics>;
+  getVideoAnalytics(id: string): Promise<VideoAnalytics | null>;
+  getVideoAnalyticsByStore(storeId: string, limit?: number): Promise<VideoAnalytics[]>;
+  getVideoAnalyticsByCamera(cameraId: string, limit?: number): Promise<VideoAnalytics[]>;
+  getVideoAnalyticsByStatus(storeId: string, status: string): Promise<VideoAnalytics[]>;
+  updateVideoAnalytics(id: string, updates: Partial<InsertVideoAnalytics>): Promise<VideoAnalytics>;
+  markVideoAnalyticsCompleted(id: string, results: any): Promise<VideoAnalytics>;
+
+  // Behavior Patterns
+  createBehaviorPattern(pattern: InsertBehaviorPattern): Promise<BehaviorPattern>;
+  getBehaviorPattern(id: string): Promise<BehaviorPattern | null>;
+  getBehaviorPatternsByStore(storeId: string): Promise<BehaviorPattern[]>;
+  getBehaviorPatternsByType(storeId: string, patternType: string): Promise<BehaviorPattern[]>;
+  getActiveBehaviorPatterns(storeId: string): Promise<BehaviorPattern[]>;
+  updateBehaviorPattern(id: string, updates: Partial<InsertBehaviorPattern>): Promise<BehaviorPattern>;
+  validateBehaviorPattern(id: string, userId: string): Promise<BehaviorPattern>;
+
+  // Facial Recognition
+  createFacialRecognition(recognition: InsertFacialRecognition): Promise<FacialRecognition>;
+  getFacialRecognition(id: string): Promise<FacialRecognition | null>;
+  getFacialRecognitionsByStore(storeId: string, limit?: number): Promise<FacialRecognition[]>;
+  getFacialRecognitionsByCamera(cameraId: string, limit?: number): Promise<FacialRecognition[]>;
+  getFacialRecognitionsByOffender(offenderId: string): Promise<FacialRecognition[]>;
+  updateFacialRecognition(id: string, updates: Partial<InsertFacialRecognition>): Promise<FacialRecognition>;
+  verifyFacialRecognition(id: string, userId: string, isVerified: boolean): Promise<FacialRecognition>;
+
+  // =====================================
+  // Enhanced Camera Management
+  // =====================================
+  // Camera Zones
+  createCameraZone(zone: InsertCameraZone): Promise<CameraZone>;
+  getCameraZone(id: string): Promise<CameraZone | null>;
+  getCameraZonesByCamera(cameraId: string): Promise<CameraZone[]>;
+  getCameraZonesByStore(storeId: string): Promise<CameraZone[]>;
+  getCameraZonesByType(cameraId: string, zoneType: string): Promise<CameraZone[]>;
+  updateCameraZone(id: string, updates: Partial<InsertCameraZone>): Promise<CameraZone>;
+  activateCameraZone(id: string): Promise<CameraZone>;
+  deactivateCameraZone(id: string): Promise<CameraZone>;
+
+  // Camera Schedules
+  createCameraSchedule(schedule: InsertCameraSchedule): Promise<CameraSchedule>;
+  getCameraSchedule(id: string): Promise<CameraSchedule | null>;
+  getCameraSchedulesByCamera(cameraId: string): Promise<CameraSchedule[]>;
+  getCameraSchedulesByStore(storeId: string): Promise<CameraSchedule[]>;
+  getCameraSchedulesByType(cameraId: string, scheduleType: string): Promise<CameraSchedule[]>;
+  updateCameraSchedule(id: string, updates: Partial<InsertCameraSchedule>): Promise<CameraSchedule>;
+  getActiveCameraSchedules(cameraId: string): Promise<CameraSchedule[]>;
+
+  // Camera Presets
+  createCameraPreset(preset: InsertCameraPreset): Promise<CameraPreset>;
+  getCameraPreset(id: string): Promise<CameraPreset | null>;
+  getCameraPresetsByCamera(cameraId: string): Promise<CameraPreset[]>;
+  getCameraPresetsByStore(storeId: string): Promise<CameraPreset[]>;
+  getCameraPresetsByScenario(cameraId: string, scenario: string): Promise<CameraPreset[]>;
+  updateCameraPreset(id: string, updates: Partial<InsertCameraPreset>): Promise<CameraPreset>;
+  activateCameraPreset(id: string): Promise<CameraPreset>;
+
+  // =====================================
+  // Real-Time Detection & Alerts
+  // =====================================
+  // Threat Classifications
+  createThreatClassification(classification: InsertThreatClassification): Promise<ThreatClassification>;
+  getThreatClassification(id: string): Promise<ThreatClassification | null>;
+  getThreatClassificationsByStore(storeId: string): Promise<ThreatClassification[]>;
+  getThreatClassificationsByOrganization(organizationId: string): Promise<ThreatClassification[]>;
+  getThreatClassificationsByCategory(category: string): Promise<ThreatClassification[]>;
+  updateThreatClassification(id: string, updates: Partial<InsertThreatClassification>): Promise<ThreatClassification>;
+  getActiveThreatClassifications(storeId?: string): Promise<ThreatClassification[]>;
+
+  // Alert Rules
+  createAlertRule(rule: InsertAlertRule): Promise<AlertRule>;
+  getAlertRule(id: string): Promise<AlertRule | null>;
+  getAlertRulesByStore(storeId: string): Promise<AlertRule[]>;
+  getAlertRulesByOrganization(organizationId: string): Promise<AlertRule[]>;
+  getAlertRulesByCamera(cameraId: string): Promise<AlertRule[]>;
+  getAlertRulesByType(ruleType: string): Promise<AlertRule[]>;
+  updateAlertRule(id: string, updates: Partial<InsertAlertRule>): Promise<AlertRule>;
+  getActiveAlertRules(storeId?: string): Promise<AlertRule[]>;
+  validateAlertRule(id: string, userId: string): Promise<AlertRule>;
+
+  // Alert Escalation
+  createAlertEscalation(escalation: InsertAlertEscalation): Promise<AlertEscalation>;
+  getAlertEscalation(id: string): Promise<AlertEscalation | null>;
+  getAlertEscalationsByAlert(alertId: string): Promise<AlertEscalation[]>;
+  getAlertEscalationsByStore(storeId: string): Promise<AlertEscalation[]>;
+  getAlertEscalationsByAssignee(assigneeId: string): Promise<AlertEscalation[]>;
+  updateAlertEscalation(id: string, updates: Partial<InsertAlertEscalation>): Promise<AlertEscalation>;
+  acknowledgeAlertEscalation(id: string, userId: string): Promise<AlertEscalation>;
+  resolveAlertEscalation(id: string, userId: string): Promise<AlertEscalation>;
+
+  // =====================================
+  // Advanced Incident Management
+  // =====================================
+  // Incident Timeline
+  createIncidentTimeline(timeline: InsertIncidentTimeline): Promise<IncidentTimeline>;
+  getIncidentTimeline(id: string): Promise<IncidentTimeline | null>;
+  getIncidentTimelinesByIncident(incidentId: string): Promise<IncidentTimeline[]>;
+  getIncidentTimelinesByStore(storeId: string, limit?: number): Promise<IncidentTimeline[]>;
+  updateIncidentTimeline(id: string, updates: Partial<InsertIncidentTimeline>): Promise<IncidentTimeline>;
+  verifyIncidentTimeline(id: string, userId: string): Promise<IncidentTimeline>;
+  disputeIncidentTimeline(id: string, userId: string, reason: string): Promise<IncidentTimeline>;
+
+  // Incident Response
+  createIncidentResponse(response: InsertIncidentResponse): Promise<IncidentResponse>;
+  getIncidentResponse(id: string): Promise<IncidentResponse | null>;
+  getIncidentResponsesByIncident(incidentId: string): Promise<IncidentResponse[]>;
+  getIncidentResponsesByStore(storeId: string): Promise<IncidentResponse[]>;
+  getIncidentResponsesByResponder(responderId: string): Promise<IncidentResponse[]>;
+  updateIncidentResponse(id: string, updates: Partial<InsertIncidentResponse>): Promise<IncidentResponse>;
+  completeIncidentResponse(id: string, userId: string): Promise<IncidentResponse>;
+
+  // Evidence Chain
+  createEvidenceChain(evidence: InsertEvidenceChain): Promise<EvidenceChain>;
+  getEvidenceChain(id: string): Promise<EvidenceChain | null>;
+  getEvidenceChainsByIncident(incidentId: string): Promise<EvidenceChain[]>;
+  getEvidenceChainsByStore(storeId: string): Promise<EvidenceChain[]>;
+  getEvidenceChainsByCustodian(custodianId: string): Promise<EvidenceChain[]>;
+  updateEvidenceChain(id: string, updates: Partial<InsertEvidenceChain>): Promise<EvidenceChain>;
+  transferEvidenceCustody(id: string, fromUserId: string, toUserId: string, reason: string): Promise<EvidenceChain>;
+  verifyEvidenceIntegrity(id: string): Promise<EvidenceChain>;
+
+  // =====================================
+  // Analytics & Intelligence
+  // =====================================
+  // Security Metrics
+  createSecurityMetrics(metrics: InsertSecurityMetrics): Promise<SecurityMetrics>;
+  getSecurityMetrics(id: string): Promise<SecurityMetrics | null>;
+  getSecurityMetricsByStore(storeId: string, metricType?: string): Promise<SecurityMetrics[]>;
+  getSecurityMetricsByOrganization(organizationId: string, metricType?: string): Promise<SecurityMetrics[]>;
+  getSecurityMetricsByPeriod(storeId: string, periodStart: Date, periodEnd: Date): Promise<SecurityMetrics[]>;
+  updateSecurityMetrics(id: string, updates: Partial<InsertSecurityMetrics>): Promise<SecurityMetrics>;
+  getLatestSecurityMetrics(storeId: string): Promise<SecurityMetrics[]>;
+
+  // Trend Analysis
+  createTrendAnalysis(analysis: InsertTrendAnalysis): Promise<TrendAnalysis>;
+  getTrendAnalysis(id: string): Promise<TrendAnalysis | null>;
+  getTrendAnalysisByStore(storeId: string, analysisType?: string): Promise<TrendAnalysis[]>;
+  getTrendAnalysisByOrganization(organizationId: string, analysisType?: string): Promise<TrendAnalysis[]>;
+  getTrendAnalysisBySubject(subject: string): Promise<TrendAnalysis[]>;
+  updateTrendAnalysis(id: string, updates: Partial<InsertTrendAnalysis>): Promise<TrendAnalysis>;
+  getCompletedTrendAnalysis(storeId?: string): Promise<TrendAnalysis[]>;
+
+  // Network Intelligence
+  createNetworkIntelligence(intelligence: InsertNetworkIntelligence): Promise<NetworkIntelligence>;
+  getNetworkIntelligence(id: string): Promise<NetworkIntelligence | null>;
+  getNetworkIntelligenceByOrganization(organizationId: string): Promise<NetworkIntelligence[]>;
+  getNetworkIntelligenceByOffender(networkOffenderId: string): Promise<NetworkIntelligence[]>;
+  getNetworkIntelligenceByType(intelligenceType: string): Promise<NetworkIntelligence[]>;
+  updateNetworkIntelligence(id: string, updates: Partial<InsertNetworkIntelligence>): Promise<NetworkIntelligence>;
+  getActiveNetworkIntelligence(organizationId?: string): Promise<NetworkIntelligence[]>;
+  validateNetworkIntelligence(id: string, userId: string): Promise<NetworkIntelligence>;
+
+  // =====================================
+  // Role-Based Access Control
+  // =====================================
+  // Security Roles
+  createSecurityRole(role: InsertSecurityRole): Promise<SecurityRole>;
+  getSecurityRole(id: string): Promise<SecurityRole | null>;
+  getSecurityRolesByOrganization(organizationId: string): Promise<SecurityRole[]>;
+  getSecurityRolesByStore(storeId: string): Promise<SecurityRole[]>;
+  getSecurityRolesByCategory(category: string): Promise<SecurityRole[]>;
+  updateSecurityRole(id: string, updates: Partial<InsertSecurityRole>): Promise<SecurityRole>;
+  getActiveSecurityRoles(organizationId?: string): Promise<SecurityRole[]>;
+  approveSecurityRole(id: string, userId: string): Promise<SecurityRole>;
+
+  // Access Permissions
+  createAccessPermission(permission: InsertAccessPermission): Promise<AccessPermission>;
+  getAccessPermission(id: string): Promise<AccessPermission | null>;
+  getAccessPermissionsByCode(permissionCode: string): Promise<AccessPermission | null>;
+  getAccessPermissionsByCategory(category: string): Promise<AccessPermission[]>;
+  getAccessPermissionsByResourceType(resourceType: string): Promise<AccessPermission[]>;
+  updateAccessPermission(id: string, updates: Partial<InsertAccessPermission>): Promise<AccessPermission>;
+  getActiveAccessPermissions(): Promise<AccessPermission[]>;
+  approveAccessPermission(id: string, userId: string): Promise<AccessPermission>;
 
   // Session store for authentication
   sessionStore: any; // Using any to avoid type issues with session.SessionStore
@@ -1791,11 +2041,9 @@ export class DatabaseStorage implements IStorage {
     };
   }> {
     // Get basic employee metrics
-    let employeesQuery = db.select().from(employees);
-    if (organizationId) {
-      employeesQuery = employeesQuery.where(eq(employees.organizationId, organizationId));
-    }
-    const allEmployees = await employeesQuery;
+    const allEmployees = organizationId 
+      ? await db.select().from(employees).where(eq(employees.organizationId, organizationId))
+      : await db.select().from(employees);
     
     const activeEmployees = allEmployees.filter(emp => emp.status === 'active');
     const totalEmployees = activeEmployees.length;
@@ -1808,19 +2056,18 @@ export class DatabaseStorage implements IStorage {
     ).length;
 
     // Get open positions
-    let jobsQuery = db.select().from(recruitmentJobs).where(eq(recruitmentJobs.status, 'open'));
-    if (organizationId) {
-      jobsQuery = jobsQuery.where(eq(recruitmentJobs.organizationId, organizationId));
-    }
-    const openJobs = await jobsQuery;
-    const openPositions = openJobs.reduce((sum, job) => sum + (job.positionsToFill - job.positionsFilled), 0);
+    const openJobs = organizationId 
+      ? await db.select().from(recruitmentJobs).where(and(
+          eq(recruitmentJobs.status, 'open'),
+          eq(recruitmentJobs.organizationId, organizationId)
+        ))
+      : await db.select().from(recruitmentJobs).where(eq(recruitmentJobs.status, 'open'));
+    const openPositions = openJobs.reduce((sum, job) => sum + ((job.positionsToFill || 0) - (job.positionsFilled || 0)), 0);
 
     // Get performance reviews for ratings
-    let reviewsQuery = db.select().from(performanceReviews);
-    if (organizationId) {
-      reviewsQuery = reviewsQuery.where(eq(performanceReviews.organizationId, organizationId));
-    }
-    const reviews = await reviewsQuery;
+    const reviews = organizationId 
+      ? await db.select().from(performanceReviews).where(eq(performanceReviews.organizationId, organizationId))
+      : await db.select().from(performanceReviews);
     const completedReviews = reviews.filter(r => r.status === 'completed' && r.overallRating);
     const avgPerformanceRating = completedReviews.length > 0 ? 
       completedReviews.reduce((sum, r) => sum + parseFloat(r.overallRating!), 0) / completedReviews.length : 0;
@@ -1828,11 +2075,13 @@ export class DatabaseStorage implements IStorage {
     const pendingReviews = reviews.filter(r => r.status === 'draft' || r.status === 'in_progress').length;
 
     // Get training completions
-    let trainingQuery = db.select().from(trainingCompletions).where(eq(trainingCompletions.status, 'completed'));
-    if (organizationId) {
-      trainingQuery = trainingQuery.where(eq(trainingCompletions.organizationId, organizationId));
-    }
-    const completedTrainings = (await trainingQuery).length;
+    const trainingCompletions_result = organizationId 
+      ? await db.select().from(trainingCompletions).where(and(
+          eq(trainingCompletions.status, 'completed'),
+          eq(trainingCompletions.organizationId, organizationId)
+        ))
+      : await db.select().from(trainingCompletions).where(eq(trainingCompletions.status, 'completed'));
+    const completedTrainings = trainingCompletions_result.length;
 
     // Calculate diversity metrics
     const genderRatio: Record<string, number> = {};
@@ -2354,16 +2603,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getHrMetricsByOrganization(organizationId: string, metricType?: string): Promise<HrMetric[]> {
-    let query = db
-      .select()
-      .from(hrMetrics)
-      .where(eq(hrMetrics.organizationId, organizationId));
-    
     if (metricType) {
-      query = query.where(eq(hrMetrics.metricType, metricType));
+      return await db
+        .select()
+        .from(hrMetrics)
+        .where(and(
+          eq(hrMetrics.organizationId, organizationId),
+          eq(hrMetrics.metricType, metricType)
+        ))
+        .orderBy(desc(hrMetrics.calculatedAt));
     }
     
-    return await query.orderBy(desc(hrMetrics.calculatedAt));
+    return await db
+      .select()
+      .from(hrMetrics)
+      .where(eq(hrMetrics.organizationId, organizationId))
+      .orderBy(desc(hrMetrics.calculatedAt));
   }
 
   async getLatestHrMetrics(organizationId: string): Promise<HrMetric[]> {

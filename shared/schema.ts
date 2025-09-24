@@ -290,6 +290,2004 @@ export const offenders = pgTable("offenders", {
 });
 
 // =====================================
+// AI Video Analytics
+// =====================================
+
+export const aiDetections = pgTable("ai_detections", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  cameraId: varchar("camera_id", { length: 255 }).notNull().references(() => cameras.id),
+  alertId: varchar("alert_id", { length: 255 }).references(() => alerts.id),
+  incidentId: varchar("incident_id", { length: 255 }).references(() => incidents.id),
+  // Detection details
+  detectionType: varchar("detection_type", { length: 100 }).notNull(), // person, object, behavior, threat, anomaly
+  objectClass: varchar("object_class", { length: 100 }), // weapon, bag, person, vehicle, etc.
+  threatType: varchar("threat_type", { length: 100 }), // theft, violence, loitering, unauthorized_access
+  behaviorType: varchar("behavior_type", { length: 100 }), // suspicious, aggressive, normal, panic
+  // AI analysis data
+  confidence: decimal("confidence", { precision: 5, scale: 4 }).notNull(), // 0.0000 to 1.0000
+  boundingBox: jsonb("bounding_box").$type<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    normalized?: boolean; // whether coordinates are 0-1 normalized
+  }>(),
+  keyPoints: jsonb("key_points").$type<Array<{
+    x: number;
+    y: number;
+    confidence: number;
+    label?: string;
+  }>>().default([]),
+  // Model information
+  modelName: varchar("model_name", { length: 255 }).notNull(),
+  modelVersion: varchar("model_version", { length: 100 }).notNull(),
+  processingTime: integer("processing_time"), // in milliseconds
+  // Frame data
+  frameTimestamp: timestamp("frame_timestamp").notNull(),
+  frameNumber: integer("frame_number"),
+  videoSegmentId: varchar("video_segment_id", { length: 255 }),
+  // Evidence and tracking
+  thumbnailPath: varchar("thumbnail_path", { length: 500 }),
+  videoClipPath: varchar("video_clip_path", { length: 500 }),
+  trackingId: varchar("tracking_id", { length: 255 }), // for object tracking across frames
+  // Review and verification
+  isVerified: boolean("is_verified").default(false),
+  verifiedBy: varchar("verified_by", { length: 255 }).references(() => users.id),
+  verifiedAt: timestamp("verified_at"),
+  isFalsePositive: boolean("is_false_positive").default(false),
+  notes: text("notes"),
+  // Metadata
+  metadata: jsonb("metadata").$type<{
+    originalImagePath?: string;
+    processingRegion?: string;
+    sensitivity?: number;
+    alertThreshold?: number;
+    relatedDetections?: string[];
+    environmentalFactors?: {
+      lighting: string;
+      weather?: string;
+      crowdLevel?: string;
+    };
+  }>().default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const videoAnalytics = pgTable("video_analytics", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  cameraId: varchar("camera_id", { length: 255 }).notNull().references(() => cameras.id),
+  // Video segment information
+  segmentId: varchar("segment_id", { length: 255 }).notNull().unique(),
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time").notNull(),
+  duration: integer("duration").notNull(), // in seconds
+  // File information
+  originalFilePath: varchar("original_file_path", { length: 500 }).notNull(),
+  processedFilePath: varchar("processed_file_path", { length: 500 }),
+  fileSize: integer("file_size"), // in bytes
+  resolution: varchar("resolution", { length: 50 }), // e.g., "1920x1080"
+  frameRate: decimal("frame_rate", { precision: 5, scale: 2 }), // frames per second
+  // Processing status and results
+  processingStatus: varchar("processing_status", { length: 50 }).default("pending"), // pending, processing, completed, failed, skipped
+  aiProcessingEnabled: boolean("ai_processing_enabled").default(true),
+  totalDetections: integer("total_detections").default(0),
+  threatDetections: integer("threat_detections").default(0),
+  qualityScore: decimal("quality_score", { precision: 3, scale: 2 }), // 0.00 to 1.00
+  // AI model information
+  modelsUsed: jsonb("models_used").$type<Array<{
+    name: string;
+    version: string;
+    purpose: string; // detection, recognition, behavior_analysis, etc.
+  }>>().default([]),
+  processingTime: integer("processing_time"), // total time in milliseconds
+  // Analytics summary
+  analyticsResults: jsonb("analytics_results").$type<{
+    objectCounts?: Record<string, number>;
+    behaviorCounts?: Record<string, number>;
+    averageConfidence?: number;
+    motionLevel?: string; // low, medium, high
+    crowdDensity?: string; // empty, sparse, moderate, dense
+    lightingConditions?: string; // poor, fair, good, excellent
+    alerts?: Array<{
+      type: string;
+      severity: string;
+      confidence: number;
+      timestamp: string;
+    }>;
+  }>().default({}),
+  // Retention and storage
+  retentionPolicy: varchar("retention_policy", { length: 100 }).default("standard"), // standard, extended, permanent, auto_delete
+  retentionUntil: timestamp("retention_until"),
+  isArchived: boolean("is_archived").default(false),
+  archivedAt: timestamp("archived_at"),
+  // Error handling
+  errors: jsonb("errors").$type<Array<{
+    type: string;
+    message: string;
+    timestamp: string;
+    code?: string;
+  }>>().default([]),
+  lastProcessedAt: timestamp("last_processed_at"),
+  processedBy: varchar("processed_by", { length: 255 }), // system component that processed
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const behaviorPatterns = pgTable("behavior_patterns", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  cameraId: varchar("camera_id", { length: 255 }).references(() => cameras.id),
+  // Pattern identification
+  patternName: varchar("pattern_name", { length: 255 }).notNull(),
+  patternType: varchar("pattern_type", { length: 100 }).notNull(), // normal, suspicious, threatening, anomalous
+  category: varchar("category", { length: 100 }).notNull(), // movement, dwell_time, interaction, crowd, individual
+  description: text("description"),
+  // Pattern characteristics
+  characteristics: jsonb("characteristics").$type<{
+    duration?: {
+      min: number;
+      max: number;
+      average: number;
+    };
+    location?: {
+      zones: string[];
+      coordinates?: Array<{ x: number; y: number }>;
+    };
+    temporal?: {
+      timeOfDay?: string[];
+      dayOfWeek?: string[];
+      frequency?: string;
+    };
+    behavioral?: {
+      movementPattern?: string;
+      interactionType?: string;
+      velocityProfile?: string;
+      directionChanges?: number;
+    };
+  }>().default({}),
+  // Learning and detection data
+  totalObservations: integer("total_observations").default(0),
+  firstObservedAt: timestamp("first_observed_at").defaultNow(),
+  lastObservedAt: timestamp("last_observed_at"),
+  confidenceThreshold: decimal("confidence_threshold", { precision: 3, scale: 2 }).default("0.75"),
+  // Classification and severity
+  riskLevel: varchar("risk_level", { length: 20 }).default("low"), // low, medium, high, critical
+  severity: varchar("severity", { length: 20 }).default("info"), // info, warning, alert, critical
+  alertOnDetection: boolean("alert_on_detection").default(false),
+  // Model training data
+  trainingData: jsonb("training_data").$type<{
+    sampleSize?: number;
+    accuracy?: number;
+    precision?: number;
+    recall?: number;
+    f1Score?: number;
+    lastTrainedAt?: string;
+    modelVersion?: string;
+  }>(),
+  // Associated incidents and alerts
+  relatedIncidents: jsonb("related_incidents").$type<string[]>().default([]),
+  relatedAlerts: jsonb("related_alerts").$type<string[]>().default([]),
+  // Pattern status and management
+  isActive: boolean("is_active").default(true),
+  isLearning: boolean("is_learning").default(true), // whether pattern is still being refined
+  isValidated: boolean("is_validated").default(false),
+  validatedBy: varchar("validated_by", { length: 255 }).references(() => users.id),
+  validatedAt: timestamp("validated_at"),
+  // Anomaly detection specifics
+  baselineData: jsonb("baseline_data").$type<{
+    normalFrequency?: number;
+    normalDuration?: number;
+    normalLocations?: string[];
+    timePatterns?: Record<string, number>;
+  }>(),
+  deviationThreshold: decimal("deviation_threshold", { precision: 3, scale: 2 }).default("2.00"), // standard deviations
+  lastAnalyzedAt: timestamp("last_analyzed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const facialRecognition = pgTable("facial_recognition", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  cameraId: varchar("camera_id", { length: 255 }).notNull().references(() => cameras.id),
+  offenderId: varchar("offender_id", { length: 255 }).references(() => offenders.id),
+  detectionId: varchar("detection_id", { length: 255 }).references(() => aiDetections.id),
+  alertId: varchar("alert_id", { length: 255 }).references(() => alerts.id),
+  // Recognition results
+  matchType: varchar("match_type", { length: 50 }).notNull(), // positive_match, potential_match, no_match, new_face
+  confidence: decimal("confidence", { precision: 5, scale: 4 }).notNull(), // 0.0000 to 1.0000
+  recognitionThreshold: decimal("recognition_threshold", { precision: 5, scale: 4 }).default("0.8000"),
+  // Face data and embeddings
+  faceEmbedding: jsonb("face_embedding").$type<number[]>(), // facial feature vector
+  embeddingVersion: varchar("embedding_version", { length: 50 }), // model version used for embedding
+  faceImagePath: varchar("face_image_path", { length: 500 }),
+  croppedFacePath: varchar("cropped_face_path", { length: 500 }),
+  // Face characteristics
+  faceQuality: decimal("face_quality", { precision: 3, scale: 2 }), // 0.00 to 1.00
+  faceAttributes: jsonb("face_attributes").$type<{
+    age?: number;
+    gender?: string;
+    emotion?: string;
+    eyeglasses?: boolean;
+    sunglasses?: boolean;
+    facialHair?: string;
+    headPose?: {
+      pitch: number;
+      roll: number;
+      yaw: number;
+    };
+    landmarks?: Array<{
+      type: string;
+      x: number;
+      y: number;
+    }>;
+  }>(),
+  // Detection context
+  detectionTimestamp: timestamp("detection_timestamp").notNull(),
+  frameNumber: integer("frame_number"),
+  boundingBox: jsonb("bounding_box").$type<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>(),
+  // CRITICAL SECURITY: Privacy and compliance for biometric data
+  privacyCompliant: boolean("privacy_compliant").default(true),
+  consentStatus: varchar("consent_status", { length: 50 }).default("not_required"), // granted, denied, not_required, pending
+  dataRetentionDate: timestamp("data_retention_date").notNull(), // mandatory retention policy
+  anonymized: boolean("anonymized").default(false),
+  anonymizedAt: timestamp("anonymized_at"),
+  // CRITICAL: Biometric data access audit trail
+  accessLog: jsonb("access_log").$type<Array<{
+    timestamp: string;
+    userId: string;
+    action: string; // create, read, update, delete, match
+    purpose: string; // investigation, verification, maintenance
+    approvedBy?: string; // supervisor approval required
+    ipAddress?: string;
+    userAgent?: string;
+  }>>().default([]),
+  // RBAC enforcement fields
+  minimumClearanceLevel: varchar("minimum_clearance_level", { length: 50 }).default("high"), // biometric data requires high clearance
+  accessRestricted: boolean("access_restricted").default(true), // require explicit permission
+  fieldLevelEncryption: boolean("field_level_encryption").default(true), // face embeddings must be encrypted
+  // Verification and review
+  isVerified: boolean("is_verified").default(false),
+  verifiedBy: varchar("verified_by", { length: 255 }).references(() => users.id),
+  verifiedAt: timestamp("verified_at"),
+  isManualReview: boolean("is_manual_review").default(false),
+  reviewNotes: text("review_notes"),
+  // False positive handling
+  isFalsePositive: boolean("is_false_positive").default(false),
+  falsePositiveReason: text("false_positive_reason"),
+  // Model and processing info
+  modelName: varchar("model_name", { length: 255 }).notNull(),
+  modelVersion: varchar("model_version", { length: 100 }).notNull(),
+  processingTime: integer("processing_time"), // in milliseconds
+  // Legal and audit trail
+  accessLog: jsonb("access_log").$type<Array<{
+    userId: string;
+    action: string;
+    timestamp: string;
+    ipAddress?: string;
+    userAgent?: string;
+  }>>().default([]),
+  legalBasis: varchar("legal_basis", { length: 100 }), // legitimate_interest, consent, legal_obligation
+  dataSource: varchar("data_source", { length: 100 }).default("live_detection"), // live_detection, manual_upload, batch_import
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
+// Enhanced Camera Management
+// =====================================
+
+export const cameraZones = pgTable("camera_zones", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  cameraId: varchar("camera_id", { length: 255 }).notNull().references(() => cameras.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  // Zone definition
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  zoneType: varchar("zone_type", { length: 100 }).notNull(), // detection, exclusion, privacy, entrance, checkout, restricted
+  // Geometric definition
+  coordinates: jsonb("coordinates").$type<Array<{
+    x: number;
+    y: number;
+  }>>().notNull(), // polygon coordinates
+  boundingBox: jsonb("bounding_box").$type<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>(),
+  // Detection settings
+  detectionEnabled: boolean("detection_enabled").default(true),
+  alertEnabled: boolean("alert_enabled").default(true),
+  sensitivity: decimal("sensitivity", { precision: 3, scale: 2 }).default("0.75"), // 0.00 to 1.00
+  // Alert configuration
+  alertTypes: jsonb("alert_types").$type<string[]>().default([]), // motion, loitering, crowd, object, behavior
+  alertThresholds: jsonb("alert_thresholds").$type<{
+    motionThreshold?: number;
+    dwellTimeThreshold?: number; // seconds
+    crowdSizeThreshold?: number;
+    objectSizeThreshold?: number;
+  }>().default({}),
+  // Schedule and conditions
+  activeSchedule: jsonb("active_schedule").$type<{
+    alwaysActive?: boolean;
+    timeRanges?: Array<{
+      dayOfWeek: number; // 0-6, Sunday is 0
+      startTime: string; // HH:MM format
+      endTime: string;
+    }>;
+    specialDates?: Array<{
+      date: string; // YYYY-MM-DD
+      active: boolean;
+    }>;
+  }>().default({ alwaysActive: true }),
+  // Privacy and masking
+  privacyZone: boolean("privacy_zone").default(false),
+  maskingEnabled: boolean("masking_enabled").default(false),
+  recordingAllowed: boolean("recording_allowed").default(true),
+  // Zone priority and rules
+  priority: integer("priority").default(1), // 1-10, higher number = higher priority
+  overlaySettings: jsonb("overlay_settings").$type<{
+    visible?: boolean;
+    color?: string;
+    opacity?: number;
+    labelVisible?: boolean;
+  }>().default({ visible: true, color: "#ff0000", opacity: 0.3, labelVisible: true }),
+  // Status and management
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  lastModifiedBy: varchar("last_modified_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const cameraSchedules = pgTable("camera_schedules", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  cameraId: varchar("camera_id", { length: 255 }).notNull().references(() => cameras.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  // Schedule identification
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  scheduleType: varchar("schedule_type", { length: 100 }).notNull(), // recording, ai_processing, maintenance, alert, motion_detection
+  // Schedule definition
+  isActive: boolean("is_active").default(true),
+  priority: integer("priority").default(5), // 1-10, higher number = higher priority
+  // Time-based scheduling
+  schedule: jsonb("schedule").$type<{
+    type: 'always' | 'never' | 'scheduled' | 'event_based';
+    timeRanges?: Array<{
+      dayOfWeek: number; // 0-6, Sunday is 0
+      startTime: string; // HH:MM format
+      endTime: string;
+      enabled: boolean;
+    }>;
+    specialDates?: Array<{
+      date: string; // YYYY-MM-DD
+      startTime?: string;
+      endTime?: string;
+      enabled: boolean;
+      description?: string;
+    }>;
+    timezone?: string;
+  }>().notNull(),
+  // Recording settings
+  recordingSettings: jsonb("recording_settings").$type<{
+    enabled?: boolean;
+    quality?: string; // low, medium, high, max
+    frameRate?: number;
+    resolution?: string;
+    compression?: string;
+    audioEnabled?: boolean;
+  }>(),
+  // AI processing settings
+  aiProcessingSettings: jsonb("ai_processing_settings").$type<{
+    enabled?: boolean;
+    models?: string[];
+    sensitivity?: number;
+    realTimeProcessing?: boolean;
+    batchProcessing?: boolean;
+    alertsEnabled?: boolean;
+  }>(),
+  // Motion detection settings
+  motionDetectionSettings: jsonb("motion_detection_settings").$type<{
+    enabled?: boolean;
+    sensitivity?: number;
+    minimumMotionSize?: number;
+    ignoredZones?: string[]; // zone IDs to ignore
+  }>(),
+  // Maintenance settings
+  maintenanceSettings: jsonb("maintenance_settings").$type<{
+    type?: string; // cleaning, calibration, inspection, update
+    duration?: number; // minutes
+    automaticRestart?: boolean;
+    notifyBeforeStart?: number; // minutes
+  }>(),
+  // Event-based triggers
+  eventTriggers: jsonb("event_triggers").$type<Array<{
+    eventType: string; // alert, motion, schedule, manual
+    condition?: string;
+    action: string;
+    parameters?: Record<string, any>;
+  }>>().default([]),
+  // Override and emergency settings
+  allowOverride: boolean("allow_override").default(true),
+  emergencyOverride: boolean("emergency_override").default(false),
+  overrideExpiresAt: timestamp("override_expires_at"),
+  // Status tracking
+  lastExecutedAt: timestamp("last_executed_at"),
+  nextExecutionAt: timestamp("next_execution_at"),
+  executionCount: integer("execution_count").default(0),
+  failureCount: integer("failure_count").default(0),
+  lastFailureReason: text("last_failure_reason"),
+  // Management
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  lastModifiedBy: varchar("last_modified_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const cameraPresets = pgTable("camera_presets", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  cameraId: varchar("camera_id", { length: 255 }).notNull().references(() => cameras.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  // Preset identification
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  presetNumber: integer("preset_number"), // camera-specific preset number
+  // PTZ (Pan-Tilt-Zoom) settings
+  panPosition: decimal("pan_position", { precision: 8, scale: 4 }), // degrees, -180 to 180
+  tiltPosition: decimal("tilt_position", { precision: 8, scale: 4 }), // degrees, -90 to 90
+  zoomLevel: decimal("zoom_level", { precision: 8, scale: 4 }), // zoom factor or focal length
+  // Focus and image settings
+  focusPosition: decimal("focus_position", { precision: 8, scale: 4 }), // focus distance or position
+  autoFocus: boolean("auto_focus").default(true),
+  // Image quality settings
+  brightness: integer("brightness"), // -100 to 100
+  contrast: integer("contrast"), // -100 to 100
+  saturation: integer("saturation"), // -100 to 100
+  sharpness: integer("sharpness"), // -100 to 100
+  whiteBalance: varchar("white_balance", { length: 50 }), // auto, daylight, fluorescent, incandescent, etc.
+  // Advanced settings
+  exposureMode: varchar("exposure_mode", { length: 50 }), // auto, manual, shutter_priority, aperture_priority
+  exposureTime: integer("exposure_time"), // microseconds
+  aperture: decimal("aperture", { precision: 3, scale: 1 }), // f-stop value
+  iso: integer("iso"), // ISO sensitivity
+  gainControl: boolean("gain_control").default(true),
+  // Scenario-specific configurations
+  scenario: varchar("scenario", { length: 100 }), // entrance_monitoring, checkout_coverage, parking_overview, etc.
+  usage: varchar("usage", { length: 100 }), // day_shift, night_shift, peak_hours, emergency, maintenance
+  // Movement and tour settings
+  patrolEnabled: boolean("patrol_enabled").default(false),
+  patrolSpeed: integer("patrol_speed"), // 1-10 scale
+  dwellTime: integer("dwell_time"), // seconds to stay at this preset during patrol
+  nextPresetId: varchar("next_preset_id", { length: 255 }), // for preset sequences
+  // Quick access and shortcuts
+  isHomePosition: boolean("is_home_position").default(false),
+  isEmergencyPreset: boolean("is_emergency_preset").default(false),
+  hotkey: varchar("hotkey", { length: 10 }), // keyboard shortcut
+  // Status and validation
+  isActive: boolean("is_active").default(true),
+  isCalibrated: boolean("is_calibrated").default(false),
+  lastCalibrationAt: timestamp("last_calibration_at"),
+  lastUsedAt: timestamp("last_used_at"),
+  usageCount: integer("usage_count").default(0),
+  // Verification and testing
+  testResults: jsonb("test_results").$type<{
+    lastTestAt?: string;
+    testPassed?: boolean;
+    imageQuality?: number; // 0-100 score
+    focusAccuracy?: number; // 0-100 score
+    positionAccuracy?: number; // 0-100 score
+    issues?: string[];
+  }>(),
+  // Management
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  lastModifiedBy: varchar("last_modified_by", { length: 255 }).references(() => users.id),
+  approvedBy: varchar("approved_by", { length: 255 }).references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
+// Real-Time Detection & Alerts
+// =====================================
+
+export const threatClassifications = pgTable("threat_classifications", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  // Classification details
+  name: varchar("name", { length: 255 }).notNull(),
+  category: varchar("category", { length: 100 }).notNull(), // theft, violence, unauthorized_access, weapons, suspicious_behavior, safety_violation
+  subcategory: varchar("subcategory", { length: 100 }), // shoplifting, robbery, assault, trespassing, weapon_detection, etc.
+  description: text("description"),
+  // Severity and risk assessment
+  severityLevel: varchar("severity_level", { length: 20 }).default("medium"), // low, medium, high, critical, emergency
+  riskScore: integer("risk_score").default(5), // 1-10 risk scale
+  priorityLevel: varchar("priority_level", { length: 20 }).default("normal"), // low, normal, high, urgent, immediate
+  // Response requirements
+  immediateResponse: boolean("immediate_response").default(false),
+  lawEnforcementRequired: boolean("law_enforcement_required").default(false),
+  emergencyServicesRequired: boolean("emergency_services_required").default(false),
+  storeEvacuationRequired: boolean("store_evacuation_required").default(false),
+  // Detection parameters
+  detectionCriteria: jsonb("detection_criteria").$type<{
+    aiModels?: string[];
+    confidenceThreshold?: number;
+    objectClasses?: string[];
+    behaviorPatterns?: string[];
+    duration?: {
+      minimum?: number; // seconds
+      maximum?: number;
+    };
+    location?: {
+      zones?: string[];
+      areas?: string[];
+    };
+    conditions?: {
+      timeOfDay?: string[];
+      storeStatus?: string[]; // open, closed, after_hours
+    };
+  }>().default({}),
+  // Escalation settings
+  autoEscalation: boolean("auto_escalation").default(false),
+  escalationDelay: integer("escalation_delay"), // seconds before auto-escalation
+  maxEscalationLevel: integer("max_escalation_level").default(3),
+  // Documentation and training
+  responseProtocol: text("response_protocol"),
+  trainingRequired: boolean("training_required").default(false),
+  legalImplications: text("legal_implications"),
+  evidenceRequirements: jsonb("evidence_requirements").$type<{
+    videoRequired?: boolean;
+    photoRequired?: boolean;
+    witnessStatements?: boolean;
+    policeReport?: boolean;
+    incidentReport?: boolean;
+    minRetentionDays?: number;
+  }>().default({}),
+  // Compliance and regulations
+  regulatoryRequirements: jsonb("regulatory_requirements").$type<string[]>().default([]),
+  complianceLevel: varchar("compliance_level", { length: 50 }), // none, standard, high, maximum
+  reportingRequired: boolean("reporting_required").default(false),
+  reportingDeadline: integer("reporting_deadline"), // hours
+  // Status and management
+  isActive: boolean("is_active").default(true),
+  isSystemDefault: boolean("is_system_default").default(false),
+  version: varchar("version", { length: 50 }).default("1.0"),
+  effectiveDate: timestamp("effective_date").defaultNow(),
+  expirationDate: timestamp("expiration_date"),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  approvedBy: varchar("approved_by", { length: 255 }).references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  lastReviewedAt: timestamp("last_reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const alertRules = pgTable("alert_rules", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  threatClassificationId: varchar("threat_classification_id", { length: 255 }).references(() => threatClassifications.id),
+  cameraId: varchar("camera_id", { length: 255 }).references(() => cameras.id),
+  zoneId: varchar("zone_id", { length: 255 }).references(() => cameraZones.id),
+  // Rule identification
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  ruleType: varchar("rule_type", { length: 100 }).notNull(), // detection_based, time_based, condition_based, composite
+  priority: integer("priority").default(5), // 1-10, higher number = higher priority
+  // Trigger conditions
+  triggerConditions: jsonb("trigger_conditions").$type<{
+    detectionTypes?: string[];
+    confidenceThreshold?: number;
+    objectClasses?: string[];
+    behaviorTypes?: string[];
+    duration?: {
+      minimum?: number;
+      maximum?: number;
+    };
+    frequency?: {
+      count?: number;
+      timeWindow?: number; // seconds
+    };
+    location?: {
+      zones?: string[];
+      cameras?: string[];
+      coordinates?: Array<{ x: number; y: number }>;
+    };
+    temporal?: {
+      timeRanges?: Array<{
+        startTime: string;
+        endTime: string;
+        daysOfWeek?: number[];
+      }>;
+      excludeTimeRanges?: Array<{
+        startTime: string;
+        endTime: string;
+        daysOfWeek?: number[];
+      }>;
+    };
+    environmental?: {
+      lightingConditions?: string[];
+      weatherConditions?: string[];
+      storeStatus?: string[]; // open, closed, after_hours
+    };
+    aggregation?: {
+      multiple_cameras?: boolean;
+      cross_zone?: boolean;
+      time_correlation?: number; // seconds
+    };
+  }>().notNull(),
+  // Suppression and filtering
+  suppressionRules: jsonb("suppression_rules").$type<{
+    cooldownPeriod?: number; // seconds between alerts of same type
+    duplicateSuppressionWindow?: number; // seconds
+    maxAlertsPerHour?: number;
+    suppressDuringMaintenance?: boolean;
+    suppressAfterHours?: boolean;
+    whitelistConditions?: Array<{
+      type: string;
+      value: any;
+      description?: string;
+    }>;
+  }>().default({}),
+  // Alert generation settings
+  alertGeneration: jsonb("alert_generation").$type<{
+    alertType?: string;
+    severity?: string;
+    priority?: string;
+    title?: string;
+    messageTemplate?: string;
+    includeSnapshot?: boolean;
+    includeVideoClip?: boolean;
+    clipDuration?: number; // seconds
+    autoAcknowledge?: boolean;
+    autoAssign?: boolean;
+    defaultAssignee?: string;
+  }>().notNull(),
+  // Notification settings
+  notificationSettings: jsonb("notification_settings").$type<{
+    enabled?: boolean;
+    channels?: string[]; // email, sms, push, webhook, dashboard
+    recipients?: Array<{
+      type: 'user' | 'role' | 'group';
+      id: string;
+      channels?: string[];
+    }>;
+    escalationEnabled?: boolean;
+    escalationDelay?: number; // seconds
+    escalationRecipients?: Array<{
+      type: 'user' | 'role' | 'group';
+      id: string;
+      channels?: string[];
+    }>;
+  }>().default({}),
+  // Integration settings
+  integrationActions: jsonb("integration_actions").$type<Array<{
+    type: string; // webhook, api_call, email, sms, external_system
+    endpoint?: string;
+    method?: string;
+    headers?: Record<string, string>;
+    payload?: Record<string, any>;
+    enabled: boolean;
+    retryPolicy?: {
+      maxRetries: number;
+      retryDelay: number;
+    };
+  }>>().default([]),
+  // Performance and metrics
+  performanceMetrics: jsonb("performance_metrics").$type<{
+    totalTriggers?: number;
+    falsePositives?: number;
+    accuracy?: number;
+    averageResponseTime?: number;
+    lastTriggered?: string;
+    triggerHistory?: Array<{
+      timestamp: string;
+      result: string; // triggered, suppressed, false_positive
+      confidence?: number;
+    }>;
+  }>().default({}),
+  // Testing and validation
+  testMode: boolean("test_mode").default(false),
+  testResults: jsonb("test_results").$type<{
+    lastTestAt?: string;
+    testPassed?: boolean;
+    testDetails?: string;
+    accuracy?: number;
+    issues?: string[];
+  }>(),
+  // Status and management
+  isActive: boolean("is_active").default(true),
+  isSystemRule: boolean("is_system_rule").default(false),
+  version: varchar("version", { length: 50 }).default("1.0"),
+  validationStatus: varchar("validation_status", { length: 50 }).default("pending"), // pending, validated, failed, needs_review
+  lastValidatedAt: timestamp("last_validated_at"),
+  validatedBy: varchar("validated_by", { length: 255 }).references(() => users.id),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  lastModifiedBy: varchar("last_modified_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const alertEscalation = pgTable("alert_escalation", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  alertId: varchar("alert_id", { length: 255 }).notNull().references(() => alerts.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  threatClassificationId: varchar("threat_classification_id", { length: 255 }).references(() => threatClassifications.id),
+  alertRuleId: varchar("alert_rule_id", { length: 255 }).references(() => alertRules.id),
+  // Escalation definition
+  escalationLevel: integer("escalation_level").notNull(), // 1-5, higher = more urgent
+  escalationReason: varchar("escalation_reason", { length: 255 }).notNull(), // timeout, severity_increase, manual_escalation, auto_escalation
+  escalationType: varchar("escalation_type", { length: 100 }).notNull(), // automatic, manual, scheduled, condition_based
+  previousLevel: integer("previous_level"),
+  targetLevel: integer("target_level"),
+  // Trigger information
+  triggeredBy: varchar("triggered_by", { length: 255 }).references(() => users.id), // user who triggered manual escalation
+  triggerCondition: varchar("trigger_condition", { length: 255 }), // timeout, no_response, severity_change, etc.
+  triggerThreshold: jsonb("trigger_threshold").$type<{
+    timeLimit?: number; // seconds
+    noResponseLimit?: number; // seconds
+    severityChange?: string;
+    conditionMet?: string;
+  }>(),
+  // Escalation workflow
+  workflowStep: integer("workflow_step").default(1),
+  totalSteps: integer("total_steps"),
+  workflowDefinition: jsonb("workflow_definition").$type<Array<{
+    step: number;
+    name: string;
+    description?: string;
+    assignee?: {
+      type: 'user' | 'role' | 'group';
+      id: string;
+    };
+    timeLimit?: number; // seconds
+    actions?: Array<{
+      type: string;
+      parameters?: Record<string, any>;
+    }>;
+    conditions?: {
+      autoAdvance?: boolean;
+      requiresApproval?: boolean;
+      escalateOnTimeout?: boolean;
+    };
+  }>>().default([]),
+  // Assignment and responsibility
+  currentAssignee: varchar("current_assignee", { length: 255 }).references(() => users.id),
+  assignedRole: varchar("assigned_role", { length: 100 }),
+  assignedGroup: varchar("assigned_group", { length: 255 }),
+  assignmentHistory: jsonb("assignment_history").$type<Array<{
+    timestamp: string;
+    assignedTo: string;
+    assignedBy?: string;
+    reason?: string;
+    level: number;
+  }>>().default([]),
+  // Response and resolution
+  responseRequired: boolean("response_required").default(true),
+  responseDeadline: timestamp("response_deadline"),
+  responseReceived: boolean("response_received").default(false),
+  responseTime: integer("response_time"), // seconds from escalation to response
+  resolutionRequired: boolean("resolution_required").default(false),
+  resolutionDeadline: timestamp("resolution_deadline"),
+  // Notification tracking
+  notificationsSent: jsonb("notifications_sent").$type<Array<{
+    timestamp: string;
+    channel: string; // email, sms, push, call
+    recipient: string;
+    status: string; // sent, delivered, failed
+    messageId?: string;
+  }>>().default([]),
+  // Status and tracking
+  status: varchar("status", { length: 50 }).default("active"), // active, acknowledged, responded, resolved, cancelled, timeout
+  acknowledgedAt: timestamp("acknowledged_at"),
+  acknowledgedBy: varchar("acknowledged_by", { length: 255 }).references(() => users.id),
+  respondedAt: timestamp("responded_at"),
+  respondedBy: varchar("responded_by", { length: 255 }).references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by", { length: 255 }).references(() => users.id),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledBy: varchar("cancelled_by", { length: 255 }).references(() => users.id),
+  cancellationReason: text("cancellation_reason"),
+  // Performance metrics
+  escalationMetrics: jsonb("escalation_metrics").$type<{
+    totalDuration?: number; // seconds from start to resolution
+    responseEfficiency?: number; // 0-100 score
+    escalationEffectiveness?: boolean;
+    escalationNecessary?: boolean; // was escalation actually needed
+    userFeedback?: {
+      rating?: number; // 1-5
+      comments?: string;
+    };
+  }>(),
+  // Next escalation planning
+  nextEscalationAt: timestamp("next_escalation_at"),
+  maxEscalationLevel: integer("max_escalation_level").default(5),
+  autoEscalationEnabled: boolean("auto_escalation_enabled").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
+// Advanced Incident Management
+// =====================================
+
+export const incidentTimeline = pgTable("incident_timeline", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  incidentId: varchar("incident_id", { length: 255 }).notNull().references(() => incidents.id),
+  alertId: varchar("alert_id", { length: 255 }).references(() => alerts.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  // Timeline entry details
+  sequenceNumber: integer("sequence_number").notNull(), // ordered sequence within incident
+  timestamp: timestamp("timestamp").notNull(),
+  eventType: varchar("event_type", { length: 100 }).notNull(), // detection, alert, response, escalation, resolution, evidence, etc.
+  eventCategory: varchar("event_category", { length: 100 }).notNull(), // system, user_action, detection, external
+  // Event description
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  summary: varchar("summary", { length: 500 }), // brief one-line summary
+  // Actor information
+  actorType: varchar("actor_type", { length: 50 }).notNull(), // user, system, ai, external, automatic
+  actorId: varchar("actor_id", { length: 255 }), // user ID, system component, etc.
+  actorName: varchar("actor_name", { length: 255 }), // human-readable actor name
+  // Source and context
+  sourceType: varchar("source_type", { length: 100 }), // camera, sensor, user_input, system, external_api
+  sourceId: varchar("source_id", { length: 255 }), // camera ID, sensor ID, etc.
+  sourceName: varchar("source_name", { length: 255 }),
+  location: jsonb("location").$type<{
+    area?: string;
+    coordinates?: { x: number; y: number };
+    zone?: string;
+    camera?: string;
+    floor?: string;
+    building?: string;
+  }>(),
+  // Media and evidence attachments
+  mediaAttachments: jsonb("media_attachments").$type<Array<{
+    type: string; // image, video, audio, document
+    path: string;
+    filename: string;
+    size?: number;
+    duration?: number; // for video/audio
+    resolution?: string; // for images/video
+    mimeType?: string;
+    description?: string;
+    timestamp?: string;
+    isEvidence?: boolean;
+  }>>().default([]),
+  evidenceItems: jsonb("evidence_items").$type<Array<{
+    type: string;
+    description: string;
+    evidenceId?: string;
+    collectedBy?: string;
+    chainOfCustodyId?: string;
+  }>>().default([]),
+  // Event data and metadata
+  eventData: jsonb("event_data").$type<{
+    confidence?: number;
+    severity?: string;
+    priority?: string;
+    aiModelUsed?: string;
+    detectionType?: string;
+    objectClass?: string;
+    behaviorType?: string;
+    responseTime?: number;
+    userAction?: string;
+    systemResponse?: string;
+    externalEventId?: string;
+    relatedEvents?: string[];
+    tags?: string[];
+  }>().default({}),
+  // Impact and consequences
+  impact: jsonb("impact").$type<{
+    scope?: string; // local, store_wide, multi_store, network
+    affectedSystems?: string[];
+    affectedPersonnel?: string[];
+    businessImpact?: string; // none, minimal, moderate, significant, severe
+    financialImpact?: number;
+    operationalImpact?: string;
+    safetyImpact?: string;
+    complianceImpact?: string;
+  }>(),
+  // Status and verification
+  status: varchar("status", { length: 50 }).default("recorded"), // recorded, verified, disputed, corrected, deleted
+  isVerified: boolean("is_verified").default(false),
+  verifiedBy: varchar("verified_by", { length: 255 }).references(() => users.id),
+  verifiedAt: timestamp("verified_at"),
+  isDisputed: boolean("is_disputed").default(false),
+  disputeReason: text("dispute_reason"),
+  disputedBy: varchar("disputed_by", { length: 255 }).references(() => users.id),
+  disputedAt: timestamp("disputed_at"),
+  // Corrections and updates
+  correctedData: jsonb("corrected_data"), // stores corrected version if needed
+  correctedBy: varchar("corrected_by", { length: 255 }).references(() => users.id),
+  correctedAt: timestamp("corrected_at"),
+  correctionReason: text("correction_reason"),
+  // Cross-references
+  relatedTimelineIds: jsonb("related_timeline_ids").$type<string[]>().default([]),
+  supersededBy: varchar("superseded_by", { length: 255 }),
+  supersedes: varchar("supersedes", { length: 255 }),
+  isDeleted: boolean("is_deleted").default(false),
+  deletedBy: varchar("deleted_by", { length: 255 }).references(() => users.id),
+  deletedAt: timestamp("deleted_at"),
+  deletionReason: text("deletion_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const incidentResponse = pgTable("incident_response", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  incidentId: varchar("incident_id", { length: 255 }).notNull().references(() => incidents.id),
+  alertId: varchar("alert_id", { length: 255 }).references(() => alerts.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  threatClassificationId: varchar("threat_classification_id", { length: 255 }).references(() => threatClassifications.id),
+  // Response protocol definition
+  protocolId: varchar("protocol_id", { length: 255 }),
+  protocolName: varchar("protocol_name", { length: 255 }).notNull(),
+  protocolVersion: varchar("protocol_version", { length: 50 }).default("1.0"),
+  responseType: varchar("response_type", { length: 100 }).notNull(), // immediate, standard, escalated, emergency, investigation
+  priority: varchar("priority", { length: 20 }).default("normal"), // low, normal, high, urgent, emergency
+  // Response status and tracking
+  status: varchar("status", { length: 50 }).default("initiated"), // initiated, in_progress, on_hold, completed, cancelled, failed
+  phase: varchar("phase", { length: 100 }).default("initial_response"), // initial_response, investigation, containment, resolution, follow_up
+  progress: integer("progress").default(0), // 0-100 percentage
+  // Assignment and responsibility
+  primaryResponder: varchar("primary_responder", { length: 255 }).references(() => users.id),
+  responseTeam: jsonb("response_team").$type<Array<{
+    userId: string;
+    role: string; // lead, investigator, observer, specialist, external
+    assignedAt: string;
+    status: string; // assigned, active, completed, unavailable
+    responsibilities?: string[];
+  }>>().default([]),
+  externalResponders: jsonb("external_responders").$type<Array<{
+    organization: string; // police, fire_department, medical, security_company
+    contactPerson?: string;
+    phone?: string;
+    email?: string;
+    notifiedAt?: string;
+    arrivedAt?: string;
+    status: string; // notified, en_route, on_scene, completed
+    role?: string;
+  }>>().default([]),
+  // Time tracking
+  initiatedAt: timestamp("initiated_at").defaultNow(),
+  firstResponseAt: timestamp("first_response_at"),
+  onSceneAt: timestamp("on_scene_at"),
+  containedAt: timestamp("contained_at"),
+  resolvedAt: timestamp("resolved_at"),
+  completedAt: timestamp("completed_at"),
+  // Response timeline and objectives
+  responseObjectives: jsonb("response_objectives").$type<Array<{
+    objective: string;
+    description?: string;
+    priority: number; // 1-10
+    status: string; // pending, in_progress, completed, failed, cancelled
+    assignedTo?: string;
+    targetTime?: string;
+    completedAt?: string;
+    notes?: string;
+  }>>().default([]),
+  // Actions taken
+  actionsTaken: jsonb("actions_taken").$type<Array<{
+    timestamp: string;
+    action: string;
+    description: string;
+    performedBy: string;
+    result?: string;
+    notes?: string;
+    evidence?: string[];
+  }>>().default([]),
+  // Resources and equipment used
+  resourcesDeployed: jsonb("resources_deployed").$type<Array<{
+    type: string; // personnel, equipment, vehicle, technology
+    description: string;
+    quantity?: number;
+    deployedAt: string;
+    recoveredAt?: string;
+    status: string; // deployed, active, recovered, damaged, lost
+    cost?: number;
+  }>>().default([]),
+  // Communication and notifications
+  communicationLog: jsonb("communication_log").$type<Array<{
+    timestamp: string;
+    type: string; // notification, update, request, report
+    channel: string; // radio, phone, email, in_person, app
+    from: string;
+    to: string;
+    message: string;
+    priority?: string;
+    acknowledged?: boolean;
+  }>>().default([]),
+  notificationsSent: jsonb("notifications_sent").$type<Array<{
+    timestamp: string;
+    recipient: string;
+    channel: string;
+    type: string;
+    status: string; // sent, delivered, read, failed
+    content?: string;
+  }>>().default([]),
+  // Evidence and documentation
+  evidenceCollected: jsonb("evidence_collected").$type<Array<{
+    type: string;
+    description: string;
+    collectedBy: string;
+    collectedAt: string;
+    location?: string;
+    chainOfCustodyId?: string;
+    storageLocation?: string;
+    evidenceId?: string;
+  }>>().default([]),
+  reportsFiled: jsonb("reports_filed").$type<Array<{
+    type: string; // incident_report, police_report, insurance_claim, internal_report
+    filedBy: string;
+    filedAt: string;
+    reportNumber?: string;
+    status: string; // draft, filed, submitted, approved, rejected
+    attachments?: string[];
+  }>>().default([]),
+  // Effectiveness and outcomes
+  responseEffectiveness: jsonb("response_effectiveness").$type<{
+    overallRating?: number; // 1-10 scale
+    timeliness?: number; // 1-10 scale
+    coordination?: number; // 1-10 scale
+    communication?: number; // 1-10 scale
+    outcomes?: number; // 1-10 scale
+    areasForImprovement?: string[];
+    strengths?: string[];
+    lessonsLearned?: string[];
+  }>(),
+  // Incident outcome
+  outcome: varchar("outcome", { length: 100 }), // resolved, prevented, contained, escalated, ongoing
+  resolution: text("resolution"),
+  preventionMeasures: jsonb("prevention_measures").$type<string[]>().default([]),
+  followUpRequired: boolean("follow_up_required").default(false),
+  followUpTasks: jsonb("follow_up_tasks").$type<Array<{
+    task: string;
+    assignedTo?: string;
+    dueDate?: string;
+    priority?: string;
+    status: string; // pending, in_progress, completed, cancelled
+    completedAt?: string;
+  }>>().default([]),
+  // Costs and impact
+  estimatedCost: decimal("estimated_cost", { precision: 10, scale: 2 }),
+  actualCost: decimal("actual_cost", { precision: 10, scale: 2 }),
+  businessImpact: jsonb("business_impact").$type<{
+    operationalDisruption?: string; // none, minimal, moderate, significant, severe
+    customerImpact?: string;
+    reputationalImpact?: string;
+    financialLoss?: number;
+    timeToRecover?: number; // hours
+    systemsAffected?: string[];
+  }>(),
+  // Quality assurance and review
+  reviewRequired: boolean("review_required").default(true),
+  reviewedBy: varchar("reviewed_by", { length: 255 }).references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewComments: text("review_comments"),
+  approved: boolean("approved").default(false),
+  approvedBy: varchar("approved_by", { length: 255 }).references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const evidenceChain = pgTable("evidence_chain", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  incidentId: varchar("incident_id", { length: 255 }).notNull().references(() => incidents.id),
+  alertId: varchar("alert_id", { length: 255 }).references(() => alerts.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  evidenceBundleId: varchar("evidence_bundle_id", { length: 255 }).references(() => evidenceBundles.id),
+  // Evidence identification
+  evidenceNumber: varchar("evidence_number", { length: 100 }).unique().notNull(), // unique evidence identifier
+  evidenceType: varchar("evidence_type", { length: 100 }).notNull(), // digital_video, digital_image, digital_audio, document, physical_item, testimony
+  evidenceCategory: varchar("evidence_category", { length: 100 }).notNull(), // primary, supporting, circumstantial, expert_analysis
+  description: text("description").notNull(),
+  // Digital evidence specifics
+  filePath: varchar("file_path", { length: 500 }),
+  fileName: varchar("file_name", { length: 255 }),
+  fileSize: integer("file_size"), // in bytes
+  fileHash: varchar("file_hash", { length: 255 }), // SHA-256 hash for integrity
+  hashAlgorithm: varchar("hash_algorithm", { length: 50 }).default("SHA-256"),
+  mimeType: varchar("mime_type", { length: 100 }),
+  metadata: jsonb("metadata").$type<{
+    resolution?: string;
+    duration?: number; // seconds
+    frameRate?: number;
+    codec?: string;
+    timestamp?: string;
+    gpsLocation?: { lat: number; lng: number };
+    cameraSerial?: string;
+    deviceInfo?: string;
+    compressionType?: string;
+    originalFormat?: string;
+  }>().default({}),
+  // Chain of custody tracking
+  custodyHistory: jsonb("custody_history").$type<Array<{
+    timestamp: string;
+    action: string; // collected, transferred, analyzed, stored, retrieved, copied, deleted
+    custodian: string; // user ID or name
+    role: string; // investigator, evidence_technician, legal_counsel, etc.
+    location: string;
+    purpose?: string;
+    notes?: string;
+    witnessedBy?: string;
+    authorizationReference?: string;
+    integrityVerified?: boolean;
+    hashVerified?: boolean;
+  }>>().notNull().default([]),
+  // Current custody information
+  currentCustodian: varchar("current_custodian", { length: 255 }).references(() => users.id),
+  currentLocation: varchar("current_location", { length: 255 }).notNull(),
+  custodyStatus: varchar("custody_status", { length: 50 }).default("collected"), // collected, stored, analyzed, transferred, released, destroyed
+  lastTransferredAt: timestamp("last_transferred_at"),
+  lastTransferredBy: varchar("last_transferred_by", { length: 255 }).references(() => users.id),
+  lastTransferredTo: varchar("last_transferred_to", { length: 255 }).references(() => users.id),
+  // Collection information
+  collectedAt: timestamp("collected_at").notNull(),
+  collectedBy: varchar("collected_by", { length: 255 }).notNull().references(() => users.id),
+  collectionMethod: varchar("collection_method", { length: 255 }), // automated_recording, manual_download, screen_capture, physical_seizure
+  collectionLocation: varchar("collection_location", { length: 255 }),
+  collectionWitness: varchar("collection_witness", { length: 255 }).references(() => users.id),
+  collectionNotes: text("collection_notes"),
+  // Legal and compliance
+  legalStatus: varchar("legal_status", { length: 100 }).default("collected"), // collected, subpoenaed, court_ordered, voluntary, seized
+  legalAuthorization: varchar("legal_authorization", { length: 255 }), // warrant number, court order, consent form
+  retentionPeriod: integer("retention_period"), // days
+  retentionReason: varchar("retention_reason", { length: 255 }), // investigation, legal_proceedings, compliance, backup
+  retentionUntil: timestamp("retention_until"),
+  destructionScheduled: boolean("destruction_scheduled").default(false),
+  destructionDate: timestamp("destruction_date"),
+  // Access and security
+  accessLog: jsonb("access_log").$type<Array<{
+    timestamp: string;
+    userId: string;
+    action: string; // view, download, copy, analyze, modify, delete
+    purpose: string;
+    ipAddress?: string;
+    userAgent?: string;
+    authorization?: string;
+    duration?: number; // seconds
+    result: string; // success, denied, error
+  }>>().default([]),
+  accessRestrictions: jsonb("access_restrictions").$type<{
+    requiresApproval?: boolean;
+    approvedUsers?: string[];
+    approvedRoles?: string[];
+    accessLevel?: string; // view_only, download, analyze, full
+    restrictions?: string[];
+    clearanceRequired?: string;
+  }>().default({}),
+  encryptionStatus: varchar("encryption_status", { length: 50 }).default("encrypted"), // encrypted, unencrypted, partially_encrypted
+  encryptionKey: varchar("encryption_key", { length: 255 }), // reference to encryption key, not the actual key
+  // Analysis and processing
+  analysisHistory: jsonb("analysis_history").$type<Array<{
+    timestamp: string;
+    analysisType: string; // forensic, ai_analysis, expert_review, enhancement
+    performedBy: string;
+    toolsUsed?: string[];
+    results?: string;
+    confidence?: number;
+    notes?: string;
+    reportId?: string;
+  }>>().default([]),
+  processingHistory: jsonb("processing_history").$type<Array<{
+    timestamp: string;
+    processType: string; // enhancement, conversion, compression, redaction
+    performedBy: string;
+    inputHash?: string;
+    outputHash?: string;
+    parameters?: Record<string, any>;
+    purpose?: string;
+    authorized?: boolean;
+  }>>().default([]),
+  // Integrity and validation
+  integrityStatus: varchar("integrity_status", { length: 50 }).default("verified"), // verified, compromised, unknown, under_review
+  lastIntegrityCheck: timestamp("last_integrity_check"),
+  integrityCheckResults: jsonb("integrity_check_results").$type<{
+    hashMatch?: boolean;
+    timestampValid?: boolean;
+    sizeMatch?: boolean;
+    metadataIntact?: boolean;
+    noModifications?: boolean;
+    issues?: string[];
+  }>(),
+  digitalSignature: varchar("digital_signature", { length: 500 }), // cryptographic signature
+  signatureValid: boolean("signature_valid").default(true),
+  // Legal proceedings
+  courtAdmissibility: varchar("court_admissibility", { length: 50 }), // admissible, inadmissible, pending, unknown
+  courtCaseNumbers: jsonb("court_case_numbers").$type<string[]>().default([]),
+  expertWitnessRequired: boolean("expert_witness_required").default(false),
+  expertWitness: varchar("expert_witness", { length: 255 }),
+  legalChallenge: boolean("legal_challenge").default(false),
+  challengeDetails: text("challenge_details"),
+  // Audit and compliance
+  auditTrail: jsonb("audit_trail").$type<Array<{
+    timestamp: string;
+    action: string;
+    user: string;
+    details: string;
+    ipAddress?: string;
+    result: string;
+  }>>().default([]),
+  complianceChecks: jsonb("compliance_checks").$type<Array<{
+    timestamp: string;
+    checkType: string; // legal, procedural, technical, administrative
+    result: string; // passed, failed, warning
+    details?: string;
+    performedBy?: string;
+  }>>().default([]),
+  // Disposal and destruction
+  disposalAuthorized: boolean("disposal_authorized").default(false),
+  disposalAuthorizedBy: varchar("disposal_authorized_by", { length: 255 }).references(() => users.id),
+  disposalAuthorizedAt: timestamp("disposal_authorized_at"),
+  disposalMethod: varchar("disposal_method", { length: 100 }), // secure_deletion, physical_destruction, return_to_owner, archive
+  disposedAt: timestamp("disposed_at"),
+  disposedBy: varchar("disposed_by", { length: 255 }).references(() => users.id),
+  disposalWitness: varchar("disposal_witness", { length: 255 }).references(() => users.id),
+  disposalCertificate: varchar("disposal_certificate", { length: 255 }), // certificate reference/path
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
+// Analytics & Intelligence
+// =====================================
+
+export const securityMetrics = pgTable("security_metrics", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  cameraId: varchar("camera_id", { length: 255 }).references(() => cameras.id),
+  // Metric identification
+  metricType: varchar("metric_type", { length: 100 }).notNull(), // kpi, performance, prevention, response, detection, compliance
+  metricName: varchar("metric_name", { length: 255 }).notNull(),
+  category: varchar("category", { length: 100 }).notNull(), // operational, financial, safety, compliance, technical
+  subcategory: varchar("subcategory", { length: 100 }), // theft_prevention, response_time, accuracy, etc.
+  // Measurement period
+  measurementPeriod: varchar("measurement_period", { length: 50 }).notNull(), // real_time, hourly, daily, weekly, monthly, quarterly, annual
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  // Metric values
+  value: decimal("value", { precision: 15, scale: 4 }).notNull(),
+  targetValue: decimal("target_value", { precision: 15, scale: 4 }),
+  previousValue: decimal("previous_value", { precision: 15, scale: 4 }),
+  unit: varchar("unit", { length: 50 }).notNull(), // count, percentage, seconds, dollars, score, ratio
+  // Performance indicators
+  performanceIndicator: varchar("performance_indicator", { length: 50 }), // above_target, meets_target, below_target, trending_up, trending_down
+  percentageChange: decimal("percentage_change", { precision: 8, scale: 4 }), // change from previous period
+  trendDirection: varchar("trend_direction", { length: 20 }), // increasing, decreasing, stable, volatile
+  // Thresholds and alerts
+  thresholds: jsonb("thresholds").$type<{
+    excellent?: number;
+    good?: number;
+    acceptable?: number;
+    poor?: number;
+    critical?: number;
+  }>(),
+  alertThreshold: decimal("alert_threshold", { precision: 15, scale: 4 }),
+  alertTriggered: boolean("alert_triggered").default(false),
+  alertTriggeredAt: timestamp("alert_triggered_at"),
+  // Detailed metrics breakdown
+  breakdown: jsonb("breakdown").$type<{
+    byTimeOfDay?: Record<string, number>;
+    byDayOfWeek?: Record<string, number>;
+    byLocation?: Record<string, number>;
+    byCamera?: Record<string, number>;
+    byThreatType?: Record<string, number>;
+    byStaff?: Record<string, number>;
+    additional?: Record<string, any>;
+  }>().default({}),
+  // Context and metadata
+  metadata: jsonb("metadata").$type<{
+    dataSource?: string;
+    calculationMethod?: string;
+    confidence?: number;
+    sampleSize?: number;
+    dataQuality?: string; // excellent, good, fair, poor
+    excludedPeriods?: Array<{
+      start: string;
+      end: string;
+      reason: string;
+    }>;
+    notes?: string;
+    relatedMetrics?: string[];
+  }>().default({}),
+  // Business impact
+  businessImpact: jsonb("business_impact").$type<{
+    impact?: string; // positive, negative, neutral
+    magnitude?: string; // low, medium, high
+    affectedAreas?: string[];
+    estimatedValue?: number;
+    description?: string;
+  }>(),
+  // Benchmarking
+  industryBenchmark: decimal("industry_benchmark", { precision: 15, scale: 4 }),
+  peerComparison: varchar("peer_comparison", { length: 50 }), // above_average, average, below_average
+  rankingPosition: integer("ranking_position"), // position compared to peers
+  totalComparedEntities: integer("total_compared_entities"),
+  // Quality and reliability
+  dataQuality: varchar("data_quality", { length: 50 }).default("good"), // excellent, good, fair, poor, incomplete
+  reliability: decimal("reliability", { precision: 3, scale: 2 }), // 0.00 to 1.00
+  lastValidatedAt: timestamp("last_validated_at"),
+  validatedBy: varchar("validated_by", { length: 255 }).references(() => users.id),
+  // Status and management
+  status: varchar("status", { length: 50 }).default("active"), // active, archived, deprecated, under_review
+  isPublic: boolean("is_public").default(false), // whether metric can be shared externally
+  accessLevel: varchar("access_level", { length: 50 }).default("internal"), // public, internal, restricted, confidential
+  calculatedAt: timestamp("calculated_at").defaultNow(),
+  calculatedBy: varchar("calculated_by", { length: 255 }), // system component or user
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const trendAnalysis = pgTable("trend_analysis", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  // Analysis identification
+  analysisName: varchar("analysis_name", { length: 255 }).notNull(),
+  analysisType: varchar("analysis_type", { length: 100 }).notNull(), // time_series, pattern, anomaly, predictive, correlation, seasonal
+  category: varchar("category", { length: 100 }).notNull(), // security, operational, financial, behavioral, environmental
+  subject: varchar("subject", { length: 255 }).notNull(), // what is being analyzed (theft_incidents, response_times, etc.)
+  // Time period and scope
+  analysisScope: varchar("analysis_scope", { length: 100 }).notNull(), // single_store, multi_store, network, regional
+  timeframeStart: timestamp("timeframe_start").notNull(),
+  timeframeEnd: timestamp("timeframe_end").notNull(),
+  granularity: varchar("granularity", { length: 50 }).notNull(), // minute, hour, day, week, month, quarter, year
+  // Data sources
+  dataSources: jsonb("data_sources").$type<Array<{
+    source: string; // table name or data source
+    sourceType: string; // database, api, file, sensor
+    recordCount: number;
+    dateRange: { start: string; end: string };
+    quality: string; // excellent, good, fair, poor
+  }>>().notNull(),
+  sampleSize: integer("sample_size").notNull(),
+  dataQuality: varchar("data_quality", { length: 50 }).default("good"),
+  // Trend findings
+  trendDirection: varchar("trend_direction", { length: 50 }), // increasing, decreasing, stable, cyclical, volatile, unknown
+  trendStrength: varchar("trend_strength", { length: 50 }), // strong, moderate, weak, negligible
+  trendSignificance: decimal("trend_significance", { precision: 5, scale: 4 }), // statistical significance (p-value)
+  confidenceLevel: decimal("confidence_level", { precision: 3, scale: 2 }).default("0.95"), // 0.00 to 1.00
+  // Statistical analysis
+  statisticalMeasures: jsonb("statistical_measures").$type<{
+    mean?: number;
+    median?: number;
+    mode?: number;
+    standardDeviation?: number;
+    variance?: number;
+    correlation?: number;
+    rSquared?: number;
+    slope?: number;
+    intercept?: number;
+    pValue?: number;
+    tStatistic?: number;
+    degreeOfFreedom?: number;
+  }>(),
+  // Pattern detection
+  patternsDetected: jsonb("patterns_detected").$type<Array<{
+    patternType: string; // seasonal, cyclical, linear, exponential, polynomial
+    description: string;
+    confidence: number;
+    frequency?: string; // daily, weekly, monthly, quarterly
+    amplitude?: number;
+    phase?: number;
+    duration?: string;
+    occurrences?: number;
+  }>>().default([]),
+  // Anomaly detection
+  anomaliesDetected: jsonb("anomalies_detected").$type<Array<{
+    timestamp: string;
+    value: number;
+    expectedValue: number;
+    deviation: number;
+    severity: string; // low, medium, high, critical
+    type: string; // point, contextual, collective
+    description?: string;
+    possibleCauses?: string[];
+  }>>().default([]),
+  // Forecasting and predictions
+  forecasting: jsonb("forecasting").$type<{
+    method?: string; // linear_regression, exponential_smoothing, arima, neural_network
+    horizon?: number; // days/periods into the future
+    predictions?: Array<{
+      period: string;
+      predictedValue: number;
+      confidenceInterval: { lower: number; upper: number };
+      probability: number;
+    }>;
+    accuracy?: {
+      mape?: number; // Mean Absolute Percentage Error
+      rmse?: number; // Root Mean Square Error
+      mae?: number; // Mean Absolute Error
+    };
+  }>(),
+  // Risk assessment
+  riskAssessment: jsonb("risk_assessment").$type<{
+    riskLevel?: string; // low, medium, high, critical
+    riskScore?: number; // 0-100
+    riskFactors?: Array<{
+      factor: string;
+      impact: string; // low, medium, high
+      probability: string; // low, medium, high
+      mitigation?: string;
+    }>;
+    recommendations?: string[];
+    actionRequired?: boolean;
+    urgency?: string; // low, medium, high, immediate
+  }>(),
+  // Seasonal analysis
+  seasonalAnalysis: jsonb("seasonal_analysis").$type<{
+    hasSeasonality?: boolean;
+    seasonalPeriod?: number; // length of season in time units
+    seasonalStrength?: number; // 0-1
+    seasonalPattern?: Array<{
+      period: string;
+      factor: number;
+      description?: string;
+    }>;
+    peakPeriods?: string[];
+    lowPeriods?: string[];
+  }>(),
+  // Correlation analysis
+  correlationAnalysis: jsonb("correlation_analysis").$type<Array<{
+    variable: string;
+    correlationCoefficient: number; // -1 to 1
+    significance: number; // p-value
+    relationship: string; // strong_positive, moderate_positive, weak_positive, no_correlation, weak_negative, moderate_negative, strong_negative
+    description?: string;
+  }>>().default([]),
+  // Insights and recommendations
+  keyInsights: jsonb("key_insights").$type<string[]>().default([]),
+  recommendations: jsonb("recommendations").$type<Array<{
+    priority: string; // high, medium, low
+    recommendation: string;
+    rationale: string;
+    estimatedImpact?: string;
+    implementationEffort?: string;
+    timeline?: string;
+    responsible?: string;
+  }>>().default([]),
+  // Visualization and reporting
+  visualizations: jsonb("visualizations").$type<Array<{
+    type: string; // line_chart, bar_chart, scatter_plot, heatmap, histogram
+    title: string;
+    description?: string;
+    dataPoints?: Array<{ x: any; y: any; label?: string }>;
+    config?: Record<string, any>;
+  }>>().default([]),
+  // Analysis quality and validation
+  analysisQuality: varchar("analysis_quality", { length: 50 }).default("good"), // excellent, good, fair, poor
+  validationResults: jsonb("validation_results").$type<{
+    crossValidation?: boolean;
+    backtesting?: boolean;
+    peerReview?: boolean;
+    accuracyScore?: number;
+    reliabilityScore?: number;
+    issues?: string[];
+  }>(),
+  // Status and management
+  status: varchar("status", { length: 50 }).default("completed"), // running, completed, failed, archived
+  isAutomated: boolean("is_automated").default(false),
+  scheduledRun: boolean("scheduled_run").default(false),
+  nextRunAt: timestamp("next_run_at"),
+  runFrequency: varchar("run_frequency", { length: 50 }), // daily, weekly, monthly, quarterly
+  // Execution details
+  executionTime: integer("execution_time"), // milliseconds
+  computeResources: jsonb("compute_resources").$type<{
+    cpuUsage?: number;
+    memoryUsage?: number;
+    diskUsage?: number;
+    processingTime?: number;
+  }>(),
+  analysisVersion: varchar("analysis_version", { length: 50 }).default("1.0"),
+  algorithmUsed: varchar("algorithm_used", { length: 255 }),
+  parametersUsed: jsonb("parameters_used").default({}),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const networkIntelligence = pgTable("network_intelligence", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  networkOffenderId: varchar("network_offender_id", { length: 255 }), // links to offenders.networkOffenderId
+  // Intelligence type and classification
+  intelligenceType: varchar("intelligence_type", { length: 100 }).notNull(), // threat_correlation, behavior_pattern, risk_assessment, predictive_analysis
+  category: varchar("category", { length: 100 }).notNull(), // cross_store, regional, national, behavioral, financial
+  classification: varchar("classification", { length: 50 }).default("internal"), // public, internal, restricted, confidential, classified
+  confidenceLevel: decimal("confidence_level", { precision: 3, scale: 2 }).notNull(), // 0.00 to 1.00
+  // Intelligence content
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  summary: varchar("summary", { length: 500 }), // executive summary
+  // Cross-store correlation
+  storesInvolved: jsonb("stores_involved").$type<Array<{
+    storeId: string;
+    storeName?: string;
+    involvement: string; // primary, secondary, associated, potential_target
+    riskLevel: string; // low, medium, high, critical
+    incidentCount?: number;
+    lastIncidentDate?: string;
+    patterns?: string[];
+  }>>().default([]),
+  correlatedIncidents: jsonb("correlated_incidents").$type<Array<{
+    incidentId: string;
+    storeId: string;
+    timestamp: string;
+    type: string;
+    severity: string;
+    similarity: number; // 0-1 similarity score
+    relationshipType: string; // same_offender, similar_method, same_timeframe, location_proximity
+  }>>().default([]),
+  // Threat analysis
+  threatLevel: varchar("threat_level", { length: 20 }).default("medium"), // low, medium, high, critical, extreme
+  threatType: varchar("threat_type", { length: 100 }), // individual, organized, systematic, opportunistic
+  threatScope: varchar("threat_scope", { length: 100 }), // local, regional, national, international
+  // Behavioral analysis
+  behaviorProfile: jsonb("behavior_profile").$type<{
+    operatingPattern?: string;
+    timePreferences?: string[];
+    locationPreferences?: string[];
+    methodSignature?: string[];
+    targetPreferences?: string[];
+    sophisticationLevel?: string; // low, medium, high, expert
+    groupActivity?: boolean;
+    knownAssociates?: string[];
+    estimatedRange?: number; // kilometers
+  }>(),
+  riskFactors: jsonb("risk_factors").$type<Array<{
+    factor: string;
+    weight: number; // 0-1
+    description: string;
+    evidence?: string[];
+    confidence: number; // 0-1
+  }>>().default([]),
+  // Network analysis
+  networkConnections: jsonb("network_connections").$type<Array<{
+    connectionType: string; // known_associate, family_member, business_partner, similar_method
+    connectedEntityId?: string;
+    connectedEntityType: string; // offender, organization, location, method
+    connectionStrength: number; // 0-1
+    evidence: string[];
+    verified: boolean;
+  }>>().default([]),
+  geographicPattern: jsonb("geographic_pattern").$type<{
+    centerOfActivity?: { lat: number; lng: number };
+    radiusOfOperation?: number; // kilometers
+    hotspots?: Array<{
+      location: { lat: number; lng: number };
+      activity: number;
+      timePattern?: string;
+    }>;
+    travelPatterns?: Array<{
+      from: string;
+      to: string;
+      frequency: number;
+      method?: string;
+    }>;
+    boundaryAnalysis?: {
+      staysWithinRegion: boolean;
+      crossesBoundaries: string[];
+      expandingTerritory: boolean;
+    };
+  }>(),
+  // Predictive analysis
+  predictiveAssessment: jsonb("predictive_assessment").$type<{
+    nextIncidentProbability?: number; // 0-1
+    timeframePrediction?: {
+      mostLikely: string; // time range
+      confidence: number;
+    };
+    targetPrediction?: Array<{
+      storeId: string;
+      probability: number;
+      reasoning: string[];
+    }>;
+    methodPrediction?: Array<{
+      method: string;
+      probability: number;
+      indicators: string[];
+    }>;
+    escalationRisk?: {
+      probability: number;
+      factors: string[];
+      timeline?: string;
+    };
+  }>(),
+  // Intelligence sources
+  dataSources: jsonb("data_sources").$type<Array<{
+    sourceType: string; // incident_reports, camera_footage, witness_statements, external_intel
+    sourceId?: string;
+    reliability: string; // verified, probable, possible, unconfirmed
+    accessDate: string;
+    relevance: number; // 0-1
+  }>>().default([]),
+  externalIntelligence: jsonb("external_intelligence").$type<Array<{
+    source: string; // law_enforcement, security_network, public_records, social_media
+    type: string;
+    content: string;
+    verified: boolean;
+    dateObtained: string;
+    restrictions?: string;
+  }>>().default([]),
+  // Recommendations and actions
+  recommendedActions: jsonb("recommended_actions").$type<Array<{
+    action: string;
+    priority: string; // immediate, high, medium, low
+    targetStores?: string[];
+    reasoning: string;
+    expectedOutcome?: string;
+    resourceRequirements?: string;
+    timeline?: string;
+  }>>().default([]),
+  alertRecommendations: jsonb("alert_recommendations").$type<Array<{
+    storeId: string;
+    alertType: string;
+    triggerConditions: Record<string, any>;
+    duration?: string;
+    escalationLevel?: string;
+  }>>().default([]),
+  // Sharing and distribution
+  sharingLevel: varchar("sharing_level", { length: 50 }).default("organization"), // store_only, organization, network_partners, law_enforcement
+  sharedWith: jsonb("shared_with").$type<Array<{
+    entityType: string; // store, organization, law_enforcement, security_network
+    entityId?: string;
+    entityName: string;
+    shareDate: string;
+    permissions: string[]; // view, download, modify, share
+    acknowledgement?: boolean;
+  }>>().default([]),
+  accessRestrictions: jsonb("access_restrictions").$type<{
+    minimumClearance?: string;
+    approvalRequired?: boolean;
+    timeRestrictions?: string;
+    locationRestrictions?: string[];
+    needToKnowBasis?: boolean;
+  }>(),
+  // Intelligence lifecycle
+  status: varchar("status", { length: 50 }).default("active"), // draft, active, archived, expired, superseded
+  expirationDate: timestamp("expiration_date"),
+  lastReviewedAt: timestamp("last_reviewed_at"),
+  reviewedBy: varchar("reviewed_by", { length: 255 }).references(() => users.id),
+  supersededBy: varchar("superseded_by", { length: 255 }),
+  // Quality and validation
+  validationStatus: varchar("validation_status", { length: 50 }).default("pending"), // pending, validated, disputed, rejected
+  validatedBy: varchar("validated_by", { length: 255 }).references(() => users.id),
+  validatedAt: timestamp("validated_at"),
+  disputeDetails: text("dispute_details"),
+  qualityScore: decimal("quality_score", { precision: 3, scale: 2 }), // 0.00 to 1.00
+  // Audit and compliance
+  accessLog: jsonb("access_log").$type<Array<{
+    timestamp: string;
+    userId: string;
+    action: string; // view, download, modify, share
+    ipAddress?: string;
+    userAgent?: string;
+    purpose?: string;
+  }>>().default([]),
+  complianceFlags: jsonb("compliance_flags").$type<{
+    privacyCompliant?: boolean;
+    legallyObtained?: boolean;
+    retentionCompliant?: boolean;
+    sharingAuthorized?: boolean;
+    issues?: string[];
+  }>().default({}),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  lastModifiedBy: varchar("last_modified_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
+// Role-Based Access Control (Security)
+// =====================================
+
+export const securityRoles = pgTable("security_roles", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id), // null for organization-wide roles
+  // Role definition
+  roleName: varchar("role_name", { length: 255 }).notNull(),
+  roleCode: varchar("role_code", { length: 100 }).notNull(), // unique identifier for role
+  description: text("description"),
+  roleType: varchar("role_type", { length: 100 }).default("custom"), // system, organization, store, custom
+  category: varchar("category", { length: 100 }).notNull(), // operational, administrative, technical, emergency
+  // Role hierarchy and relationships
+  parentRoleId: varchar("parent_role_id", { length: 255 }),
+  hierarchyLevel: integer("hierarchy_level").default(1), // 1 = top level, higher numbers = lower levels
+  inheritPermissions: boolean("inherit_permissions").default(true), // inherit from parent role
+  // System roles
+  isSystemRole: boolean("is_system_role").default(false), // predefined system roles
+  isDefault: boolean("is_default").default(false), // default role for new users
+  // Clearance and access levels
+  clearanceLevel: varchar("clearance_level", { length: 50 }).default("standard"), // basic, standard, elevated, high, maximum
+  accessLevel: varchar("access_level", { length: 50 }).default("operational"), // view_only, operational, administrative, supervisory, executive
+  securityClassification: varchar("security_classification", { length: 50 }).default("internal"), // public, internal, restricted, confidential, classified
+  // Permissions and capabilities
+  basePermissions: jsonb("base_permissions").$type<{
+    // Core system access
+    dashboard_access?: boolean;
+    live_feeds_access?: boolean;
+    alerts_manage?: boolean;
+    incidents_manage?: boolean;
+    cameras_manage?: boolean;
+    reports_access?: boolean;
+    settings_access?: boolean;
+    
+    // AI and analytics
+    ai_detections_view?: boolean;
+    ai_detections_verify?: boolean;
+    behavior_analysis_access?: boolean;
+    facial_recognition_access?: boolean;
+    facial_recognition_manage?: boolean;
+    video_analytics_access?: boolean;
+    
+    // Evidence and investigations
+    evidence_access?: boolean;
+    evidence_collect?: boolean;
+    evidence_modify?: boolean;
+    evidence_chain_custody?: boolean;
+    incident_investigate?: boolean;
+    
+    // Response and escalation
+    alert_acknowledge?: boolean;
+    alert_escalate?: boolean;
+    incident_respond?: boolean;
+    emergency_response?: boolean;
+    external_contact?: boolean;
+    law_enforcement_contact?: boolean;
+    
+    // Network and intelligence
+    network_intelligence_access?: boolean;
+    network_intelligence_share?: boolean;
+    cross_store_coordination?: boolean;
+    
+    // Administration
+    user_management?: boolean;
+    role_management?: boolean;
+    system_configuration?: boolean;
+    audit_access?: boolean;
+    compliance_management?: boolean;
+    
+    // Analytics and reporting
+    metrics_access?: boolean;
+    trend_analysis_access?: boolean;
+    predictive_analytics?: boolean;
+    custom_reports?: boolean;
+    data_export?: boolean;
+  }>().default({}),
+  // Resource access restrictions
+  resourceAccess: jsonb("resource_access").$type<{
+    cameras?: {
+      all?: boolean;
+      specific?: string[]; // camera IDs
+      byLocation?: string[]; // location names
+      byType?: string[]; // camera types
+    };
+    zones?: {
+      all?: boolean;
+      specific?: string[]; // zone IDs
+      byType?: string[]; // zone types
+    };
+    stores?: {
+      all?: boolean;
+      specific?: string[]; // store IDs
+      network?: boolean;
+    };
+    incidents?: {
+      all?: boolean;
+      assigned_only?: boolean;
+      created_by_only?: boolean;
+      by_severity?: string[]; // severity levels
+      by_type?: string[]; // incident types
+    };
+    evidence?: {
+      all?: boolean;
+      assigned_cases_only?: boolean;
+      by_classification?: string[]; // evidence classifications
+      chain_of_custody?: boolean;
+    };
+  }>().default({}),
+  // Time and schedule restrictions
+  accessSchedule: jsonb("access_schedule").$type<{
+    alwaysActive?: boolean;
+    timeRanges?: Array<{
+      dayOfWeek: number; // 0-6
+      startTime: string; // HH:MM
+      endTime: string;
+    }>;
+    emergencyOverride?: boolean;
+    afterHoursAccess?: boolean;
+    weekendAccess?: boolean;
+    holidayAccess?: boolean;
+  }>().default({ alwaysActive: true }),
+  // Emergency and special provisions
+  emergencyPermissions: jsonb("emergency_permissions").$type<{
+    emergency_full_access?: boolean;
+    emergency_duration?: number; // minutes
+    emergency_approval_required?: boolean;
+    emergency_log_required?: boolean;
+    emergency_permissions?: string[];
+  }>().default({}),
+  // Compliance and audit requirements
+  complianceRequirements: jsonb("compliance_requirements").$type<{
+    background_check_required?: boolean;
+    security_clearance_level?: string;
+    training_required?: boolean;
+    certification_required?: boolean;
+    periodic_review_required?: boolean;
+    review_frequency?: number; // days
+    approval_required?: boolean;
+    approver_role?: string;
+  }>().default({}),
+  // Role limitations
+  limitations: jsonb("limitations").$type<{
+    max_concurrent_sessions?: number;
+    session_timeout?: number; // minutes
+    ip_restrictions?: string[]; // allowed IP ranges
+    location_restrictions?: string[]; // physical locations
+    device_restrictions?: boolean;
+    multi_factor_required?: boolean;
+    password_policy?: string;
+  }>().default({}),
+  // Status and lifecycle
+  status: varchar("status", { length: 50 }).default("active"), // active, inactive, deprecated, pending_approval
+  effectiveDate: timestamp("effective_date").defaultNow(),
+  expirationDate: timestamp("expiration_date"),
+  autoRenewal: boolean("auto_renewal").default(false),
+  // Approval workflow
+  requiresApproval: boolean("requires_approval").default(false),
+  approvedBy: varchar("approved_by", { length: 255 }).references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  rejectedBy: varchar("rejected_by", { length: 255 }).references(() => users.id),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  // Usage tracking
+  assignedUserCount: integer("assigned_user_count").default(0),
+  lastUsedAt: timestamp("last_used_at"),
+  usageStatistics: jsonb("usage_statistics").$type<{
+    total_logins?: number;
+    average_session_duration?: number;
+    most_used_features?: string[];
+    access_violations?: number;
+  }>().default({}),
+  // Audit and compliance
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  lastModifiedBy: varchar("last_modified_by", { length: 255 }).references(() => users.id),
+  lastReviewedAt: timestamp("last_reviewed_at"),
+  reviewedBy: varchar("reviewed_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const accessPermissions = pgTable("access_permissions", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  // Permission identification
+  permissionCode: varchar("permission_code", { length: 100 }).notNull().unique(),
+  permissionName: varchar("permission_name", { length: 255 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 100 }).notNull(), // system, security, data, reporting, administration
+  subcategory: varchar("subcategory", { length: 100 }), // alerts, cameras, incidents, evidence, etc.
+  // Permission scope and type
+  permissionType: varchar("permission_type", { length: 50 }).notNull(), // create, read, update, delete, execute, approve, escalate
+  resourceType: varchar("resource_type", { length: 100 }).notNull(), // alerts, cameras, incidents, users, reports, etc.
+  scope: varchar("scope", { length: 50 }).notNull(), // self, store, organization, network, global
+  // Security classification
+  securityLevel: varchar("security_level", { length: 50 }).default("standard"), // basic, standard, elevated, high, critical
+  riskLevel: varchar("risk_level", { length: 20 }).default("low"), // low, medium, high, critical
+  complianceLevel: varchar("compliance_level", { length: 50 }).default("standard"), // none, standard, high, regulatory
+  // Permission characteristics
+  isSystemPermission: boolean("is_system_permission").default(false),
+  isAdministrative: boolean("is_administrative").default(false),
+  requiresElevation: boolean("requires_elevation").default(false),
+  requiresApproval: boolean("requires_approval").default(false),
+  requiresJustification: boolean("requires_justification").default(false),
+  // Dependencies and relationships
+  prerequisitePermissions: jsonb("prerequisite_permissions").$type<string[]>().default([]),
+  conflictingPermissions: jsonb("conflicting_permissions").$type<string[]>().default([]),
+  impliedPermissions: jsonb("implied_permissions").$type<string[]>().default([]), // permissions automatically granted
+  parentPermission: varchar("parent_permission", { length: 255 }),
+  // Usage constraints
+  constraints: jsonb("constraints").$type<{
+    time_based?: {
+      allowed_hours?: Array<{ start: string; end: string }>;
+      allowed_days?: number[]; // 0-6
+      timezone?: string;
+    };
+    location_based?: {
+      allowed_locations?: string[];
+      ip_restrictions?: string[];
+      physical_locations?: string[];
+    };
+    resource_based?: {
+      max_resources?: number;
+      resource_filters?: Record<string, any>;
+      owner_only?: boolean;
+      assigned_only?: boolean;
+    };
+    frequency_based?: {
+      max_uses_per_hour?: number;
+      max_uses_per_day?: number;
+      cooldown_period?: number; // seconds
+    };
+    conditional?: {
+      requires_mfa?: boolean;
+      requires_supervisor?: boolean;
+      emergency_only?: boolean;
+      business_hours_only?: boolean;
+    };
+  }>().default({}),
+  // Audit and logging requirements
+  auditRequired: boolean("audit_required").default(true),
+  logLevel: varchar("log_level", { length: 20 }).default("standard"), // none, basic, standard, detailed, comprehensive
+  sensitiveOperation: boolean("sensitive_operation").default(false),
+  alertOnUsage: boolean("alert_on_usage").default(false),
+  // Compliance and regulatory
+  regulatoryRequirement: jsonb("regulatory_requirement").$type<{
+    gdpr_relevant?: boolean;
+    sox_relevant?: boolean;
+    hipaa_relevant?: boolean;
+    pci_relevant?: boolean;
+    custom_regulations?: string[];
+  }>().default({}),
+  dataClassification: varchar("data_classification", { length: 50 }).default("internal"), // public, internal, confidential, restricted
+  retentionRequirement: integer("retention_requirement"), // days
+  // Permission effectiveness
+  effectiveDate: timestamp("effective_date").defaultNow(),
+  expirationDate: timestamp("expiration_date"),
+  autoRevoke: boolean("auto_revoke").default(false),
+  revokeConditions: jsonb("revoke_conditions").$type<{
+    on_role_change?: boolean;
+    on_department_change?: boolean;
+    on_inactivity?: number; // days
+    on_violation?: boolean;
+  }>().default({}),
+  // Usage and performance tracking
+  usageStatistics: jsonb("usage_statistics").$type<{
+    total_grants?: number;
+    active_grants?: number;
+    total_usage?: number;
+    last_used?: string;
+    average_usage_frequency?: number;
+    violation_count?: number;
+  }>().default({}),
+  performanceImpact: varchar("performance_impact", { length: 20 }).default("low"), // none, low, medium, high
+  // Business justification
+  businessJustification: text("business_justification"),
+  legalBasis: varchar("legal_basis", { length: 100 }), // legitimate_interest, consent, legal_obligation, vital_interests, public_task, processing_necessary
+  purposeLimitation: varchar("purpose_limitation", { length: 255 }), // specific purpose for data processing
+  // Status and management
+  status: varchar("status", { length: 50 }).default("active"), // active, deprecated, under_review, suspended
+  isBuiltIn: boolean("is_built_in").default(false), // cannot be deleted or significantly modified
+  version: varchar("version", { length: 50 }).default("1.0"),
+  // Approval and review
+  approvedBy: varchar("approved_by", { length: 255 }).references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  lastReviewedAt: timestamp("last_reviewed_at"),
+  reviewedBy: varchar("reviewed_by", { length: 255 }).references(() => users.id),
+  nextReviewDate: timestamp("next_review_date"),
+  // Audit trail
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  lastModifiedBy: varchar("last_modified_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================
 // Theft & Evidence Management
 // =====================================
 
@@ -1068,6 +3066,180 @@ export type InsertCamera = z.infer<typeof insertCameraSchema>;
 export type Camera = typeof cameras.$inferSelect;
 export type InsertIncident = z.infer<typeof insertIncidentSchema>;
 export type Incident = typeof incidents.$inferSelect;
+
+// AI Video Analytics schemas
+export const insertAiDetectionSchema = createInsertSchema(aiDetections).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectAiDetectionSchema = createSelectSchema(aiDetections);
+export type InsertAiDetection = z.infer<typeof insertAiDetectionSchema>;
+export type AiDetection = typeof aiDetections.$inferSelect;
+
+export const insertVideoAnalyticsSchema = createInsertSchema(videoAnalytics).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectVideoAnalyticsSchema = createSelectSchema(videoAnalytics);
+export type InsertVideoAnalytics = z.infer<typeof insertVideoAnalyticsSchema>;
+export type VideoAnalytics = typeof videoAnalytics.$inferSelect;
+
+export const insertBehaviorPatternSchema = createInsertSchema(behaviorPatterns).omit({
+  id: true,
+  firstObservedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectBehaviorPatternSchema = createSelectSchema(behaviorPatterns);
+export type InsertBehaviorPattern = z.infer<typeof insertBehaviorPatternSchema>;
+export type BehaviorPattern = typeof behaviorPatterns.$inferSelect;
+
+export const insertFacialRecognitionSchema = createInsertSchema(facialRecognition).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectFacialRecognitionSchema = createSelectSchema(facialRecognition);
+export type InsertFacialRecognition = z.infer<typeof insertFacialRecognitionSchema>;
+export type FacialRecognition = typeof facialRecognition.$inferSelect;
+
+// Enhanced Camera Management schemas
+export const insertCameraZoneSchema = createInsertSchema(cameraZones).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectCameraZoneSchema = createSelectSchema(cameraZones);
+export type InsertCameraZone = z.infer<typeof insertCameraZoneSchema>;
+export type CameraZone = typeof cameraZones.$inferSelect;
+
+export const insertCameraScheduleSchema = createInsertSchema(cameraSchedules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectCameraScheduleSchema = createSelectSchema(cameraSchedules);
+export type InsertCameraSchedule = z.infer<typeof insertCameraScheduleSchema>;
+export type CameraSchedule = typeof cameraSchedules.$inferSelect;
+
+export const insertCameraPresetSchema = createInsertSchema(cameraPresets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectCameraPresetSchema = createSelectSchema(cameraPresets);
+export type InsertCameraPreset = z.infer<typeof insertCameraPresetSchema>;
+export type CameraPreset = typeof cameraPresets.$inferSelect;
+
+// Real-Time Detection & Alerts schemas
+export const insertThreatClassificationSchema = createInsertSchema(threatClassifications).omit({
+  id: true,
+  effectiveDate: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectThreatClassificationSchema = createSelectSchema(threatClassifications);
+export type InsertThreatClassification = z.infer<typeof insertThreatClassificationSchema>;
+export type ThreatClassification = typeof threatClassifications.$inferSelect;
+
+export const insertAlertRuleSchema = createInsertSchema(alertRules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectAlertRuleSchema = createSelectSchema(alertRules);
+export type InsertAlertRule = z.infer<typeof insertAlertRuleSchema>;
+export type AlertRule = typeof alertRules.$inferSelect;
+
+export const insertAlertEscalationSchema = createInsertSchema(alertEscalation).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectAlertEscalationSchema = createSelectSchema(alertEscalation);
+export type InsertAlertEscalation = z.infer<typeof insertAlertEscalationSchema>;
+export type AlertEscalation = typeof alertEscalation.$inferSelect;
+
+// Advanced Incident Management schemas
+export const insertIncidentTimelineSchema = createInsertSchema(incidentTimeline).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectIncidentTimelineSchema = createSelectSchema(incidentTimeline);
+export type InsertIncidentTimeline = z.infer<typeof insertIncidentTimelineSchema>;
+export type IncidentTimeline = typeof incidentTimeline.$inferSelect;
+
+export const insertIncidentResponseSchema = createInsertSchema(incidentResponse).omit({
+  id: true,
+  initiatedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectIncidentResponseSchema = createSelectSchema(incidentResponse);
+export type InsertIncidentResponse = z.infer<typeof insertIncidentResponseSchema>;
+export type IncidentResponse = typeof incidentResponse.$inferSelect;
+
+export const insertEvidenceChainSchema = createInsertSchema(evidenceChain).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectEvidenceChainSchema = createSelectSchema(evidenceChain);
+export type InsertEvidenceChain = z.infer<typeof insertEvidenceChainSchema>;
+export type EvidenceChain = typeof evidenceChain.$inferSelect;
+
+// Analytics & Intelligence schemas
+export const insertSecurityMetricsSchema = createInsertSchema(securityMetrics).omit({
+  id: true,
+  calculatedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectSecurityMetricsSchema = createSelectSchema(securityMetrics);
+export type InsertSecurityMetrics = z.infer<typeof insertSecurityMetricsSchema>;
+export type SecurityMetrics = typeof securityMetrics.$inferSelect;
+
+export const insertTrendAnalysisSchema = createInsertSchema(trendAnalysis).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectTrendAnalysisSchema = createSelectSchema(trendAnalysis);
+export type InsertTrendAnalysis = z.infer<typeof insertTrendAnalysisSchema>;
+export type TrendAnalysis = typeof trendAnalysis.$inferSelect;
+
+export const insertNetworkIntelligenceSchema = createInsertSchema(networkIntelligence).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectNetworkIntelligenceSchema = createSelectSchema(networkIntelligence);
+export type InsertNetworkIntelligence = z.infer<typeof insertNetworkIntelligenceSchema>;
+export type NetworkIntelligence = typeof networkIntelligence.$inferSelect;
+
+// Role-Based Access Control schemas
+export const insertSecurityRoleSchema = createInsertSchema(securityRoles).omit({
+  id: true,
+  effectiveDate: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectSecurityRoleSchema = createSelectSchema(securityRoles);
+export type InsertSecurityRole = z.infer<typeof insertSecurityRoleSchema>;
+export type SecurityRole = typeof securityRoles.$inferSelect;
+
+export const insertAccessPermissionSchema = createInsertSchema(accessPermissions).omit({
+  id: true,
+  effectiveDate: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectAccessPermissionSchema = createSelectSchema(accessPermissions);
+export type InsertAccessPermission = z.infer<typeof insertAccessPermissionSchema>;
+export type AccessPermission = typeof accessPermissions.$inferSelect;
 
 // Operations Agent Schema exports
 export const insertSystemMetricSchema = createInsertSchema(systemMetrics).omit({

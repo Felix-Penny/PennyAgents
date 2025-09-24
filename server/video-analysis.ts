@@ -112,7 +112,7 @@ export class VideoAnalysisService {
       const frameBuffer = await fs.readFile(framePath);
       return frameBuffer.toString('base64');
     } catch (error) {
-      throw new Error(`Failed to read frame: ${error.message}`);
+      throw new Error(`Failed to read frame: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -368,7 +368,7 @@ export class VideoAnalysisService {
 
     } catch (error) {
       console.error('Video analysis failed:', error);
-      throw new Error(`Video analysis failed: ${error.message}`);
+      throw new Error(`Video analysis failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -393,7 +393,7 @@ export class VideoAnalysisService {
       return clipPath;
 
     } catch (error) {
-      throw new Error(`Failed to create video clip: ${error.message}`);
+      throw new Error(`Failed to create video clip: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -409,7 +409,7 @@ export class VideoAnalysisService {
       await fs.writeFile(filePath, fileBuffer);
       return filePath;
     } catch (error) {
-      throw new Error(`Failed to save video file: ${error.message}`);
+      throw new Error(`Failed to save video file: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }
