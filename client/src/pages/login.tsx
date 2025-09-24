@@ -24,7 +24,7 @@ export default function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (user) {
-      setLocation("/dashboard");
+      setLocation("/platform");
     }
   }, [user, setLocation]);
 

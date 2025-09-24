@@ -321,8 +321,13 @@ export function requireOrganizationAccess(req: any, res: any, next: any) {
     return next();
   }
 
-  // Users can only access their own organization
-  if (!user.organizationId || user.organizationId !== requestedOrgId) {
+  // Users must have an organization assigned
+  if (!user.organizationId) {
+    return res.status(403).json({ message: "Access denied to this organization" });
+  }
+
+  // If a specific organization is requested, check that the user belongs to it
+  if (requestedOrgId && user.organizationId !== requestedOrgId) {
     return res.status(403).json({ message: "Access denied to this organization" });
   }
 
