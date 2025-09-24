@@ -2069,7 +2069,7 @@ export const networkIntelligence = pgTable("network_intelligence", {
 // Role-Based Access Control (Security)
 // =====================================
 
-export const securityRoles = pgTable("security_roles", {
+export const oldSecurityRoles = pgTable("old_security_roles", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
   storeId: varchar("store_id", { length: 255 }).references(() => stores.id), // null for organization-wide roles
@@ -3292,26 +3292,6 @@ export const selectNetworkIntelligenceSchema = createSelectSchema(networkIntelli
 export type InsertNetworkIntelligence = z.infer<typeof insertNetworkIntelligenceSchema>;
 export type NetworkIntelligence = typeof networkIntelligence.$inferSelect;
 
-// Role-Based Access Control schemas
-export const insertSecurityRoleSchema = createInsertSchema(securityRoles).omit({
-  id: true,
-  effectiveDate: true,
-  createdAt: true,
-  updatedAt: true,
-});
-export const selectSecurityRoleSchema = createSelectSchema(securityRoles);
-export type InsertSecurityRole = z.infer<typeof insertSecurityRoleSchema>;
-export type SecurityRole = typeof securityRoles.$inferSelect;
-
-export const insertAccessPermissionSchema = createInsertSchema(accessPermissions).omit({
-  id: true,
-  effectiveDate: true,
-  createdAt: true,
-  updatedAt: true,
-});
-export const selectAccessPermissionSchema = createSelectSchema(accessPermissions);
-export type InsertAccessPermission = z.infer<typeof insertAccessPermissionSchema>;
-export type AccessPermission = typeof accessPermissions.$inferSelect;
 
 // Operations Agent Schema exports
 export const insertSystemMetricSchema = createInsertSchema(systemMetrics).omit({
@@ -3838,10 +3818,527 @@ export const analyticsReports = pgTable("analytics_reports", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// =====================================
+// Enhanced Role-Based Access Control (RBAC) System
+// =====================================
+
+// Security Roles - Enhanced role hierarchy for granular security permissions
+export const securityRoles = pgTable("security_roles", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 100 }).notNull().unique(), // admin, security_personnel, safety_coordinator, guest
+  displayName: varchar("display_name", { length: 255 }).notNull(), // Security Manager, Guard/Officer, Safety Coordinator, Visitor
+  description: text("description"),
+  category: varchar("category", { length: 100 }).notNull(), // security, safety, administrative, visitor
+  // Hierarchical role system
+  level: integer("level").notNull(), // 1=admin, 2=security_personnel, 3=safety_coordinator, 4=guest
+  parentRoleId: varchar("parent_role_id", { length: 255 }).references(() => securityRoles.id),
+  inheritsFrom: jsonb("inherits_from").$type<string[]>().default([]), // role IDs this role inherits permissions from
+  // Access scope and boundaries
+  scope: varchar("scope", { length: 100 }).default("store"), // store, organization, network, global
+  clearanceLevel: varchar("clearance_level", { length: 100 }).default("basic"), // basic, elevated, restricted, classified
+  restrictions: jsonb("restrictions").$type<{
+    timeRestrictions?: {
+      allowedHours?: Array<{ start: string; end: string }>;
+      allowedDays?: number[]; // 0=Sunday, 1=Monday, etc.
+      timezone?: string;
+    };
+    locationRestrictions?: {
+      allowedStores?: string[];
+      allowedZones?: string[];
+      excludedAreas?: string[];
+    };
+    dataRestrictions?: {
+      maxRecordsPerQuery?: number;
+      retentionAccess?: number; // days
+      sensitivityLevel?: string;
+    };
+  }>().default({}),
+  // Role metadata
+  isSystemRole: boolean("is_system_role").default(false), // cannot be deleted/modified
+  isActive: boolean("is_active").default(true),
+  requiresApproval: boolean("requires_approval").default(false), // role assignment requires approval
+  expirationDays: integer("expiration_days"), // auto-expire role assignment after N days
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Role Permissions - Granular permission definitions for each security role
+export const rolePermissions = pgTable("role_permissions", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  roleId: varchar("role_id", { length: 255 }).notNull().references(() => securityRoles.id),
+  // Permission categorization
+  resource: varchar("resource", { length: 100 }).notNull(), // cameras, alerts, incidents, evidence, analytics, users, system
+  action: varchar("action", { length: 100 }).notNull(), // view, create, edit, delete, control, configure, manage, audit
+  permission: varchar("permission", { length: 200 }).notNull(), // cameras:view, alerts:acknowledge, etc.
+  // Permission scope and conditions
+  isGranted: boolean("is_granted").default(true), // true=allow, false=deny
+  conditions: jsonb("conditions").$type<{
+    resourceFilters?: {
+      storeIds?: string[]; // specific stores
+      cameraIds?: string[]; // specific cameras
+      zones?: string[]; // specific zones
+      severityLevels?: string[]; // for alerts/incidents
+    };
+    timeConstraints?: {
+      allowedHours?: Array<{ start: string; end: string }>;
+      allowedDays?: number[];
+      timezone?: string;
+    };
+    dataConstraints?: {
+      ownDataOnly?: boolean; // can only access data they created
+      maxRecords?: number;
+      dateRange?: { start?: string; end?: string };
+    };
+    approvalRequired?: boolean; // action requires approval
+    witnessRequired?: boolean; // action requires witness
+    reasonRequired?: boolean; // action requires justification
+  }>().default({}),
+  // Permission metadata
+  priority: integer("priority").default(100), // lower number = higher priority for conflict resolution
+  isInherited: boolean("is_inherited").default(false), // inherited from parent role
+  sourceRoleId: varchar("source_role_id", { length: 255 }), // if inherited, which role it came from
+  effectiveFrom: timestamp("effective_from").defaultNow(),
+  effectiveUntil: timestamp("effective_until"),
+  notes: text("notes"),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// User Role Assignments - Enhanced user role assignment with security clearance
+export const userRoleAssignments = pgTable("user_role_assignments", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  roleId: varchar("role_id", { length: 255 }).notNull().references(() => securityRoles.id),
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id), // role scoped to specific store
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  // Assignment details
+  assignmentType: varchar("assignment_type", { length: 100 }).default("permanent"), // permanent, temporary, emergency, substitute
+  status: varchar("status", { length: 50 }).default("active"), // active, suspended, expired, revoked, pending_approval
+  // Temporal constraints
+  effectiveFrom: timestamp("effective_from").defaultNow(),
+  effectiveUntil: timestamp("effective_until"),
+  // Approval workflow
+  approvalStatus: varchar("approval_status", { length: 50 }).default("approved"), // pending, approved, rejected, auto_approved
+  approvedBy: varchar("approved_by", { length: 255 }).references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  rejectionReason: text("rejection_reason"),
+  // Assignment metadata
+  assignedBy: varchar("assigned_by", { length: 255 }).notNull().references(() => users.id),
+  assignmentReason: text("assignment_reason"),
+  // Additional constraints
+  constraints: jsonb("constraints").$type<{
+    ipWhitelist?: string[]; // restrict to specific IP addresses
+    deviceRestrictions?: string[]; // restrict to specific devices
+    locationRestrictions?: string[]; // restrict to specific locations
+    concurrentSessionLimit?: number; // max concurrent sessions
+    requireMFA?: boolean; // require multi-factor authentication
+  }>().default({}),
+  // Tracking and monitoring
+  lastAccessedAt: timestamp("last_accessed_at"),
+  accessCount: integer("access_count").default(0),
+  suspendedAt: timestamp("suspended_at"),
+  suspendedBy: varchar("suspended_by", { length: 255 }).references(() => users.id),
+  suspensionReason: text("suspension_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Permission Audit Log - Complete audit trail of permission usage
+export const permissionAuditLog = pgTable("permission_audit_log", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  // Event identification
+  eventId: varchar("event_id", { length: 255 }).unique().notNull(), // unique event identifier
+  eventType: varchar("event_type", { length: 100 }).notNull(), // permission_check, access_granted, access_denied, role_assignment, role_revocation
+  // User and permission details
+  userId: varchar("user_id", { length: 255 }).references(() => users.id),
+  roleId: varchar("role_id", { length: 255 }).references(() => securityRoles.id),
+  permission: varchar("permission", { length: 200 }), // specific permission checked
+  resource: varchar("resource", { length: 100 }), // resource being accessed
+  resourceId: varchar("resource_id", { length: 255 }), // specific resource ID
+  action: varchar("action", { length: 100 }), // action attempted
+  // Access decision
+  decision: varchar("decision", { length: 50 }).notNull(), // granted, denied, restricted, escalated
+  reason: text("reason"), // why access was granted/denied
+  // Context information
+  requestContext: jsonb("request_context").$type<{
+    ipAddress?: string;
+    userAgent?: string;
+    sessionId?: string;
+    deviceInfo?: string;
+    geolocation?: { lat: number; lng: number; accuracy?: number };
+    referrer?: string;
+    requestMethod?: string;
+    endpoint?: string;
+    queryParams?: Record<string, any>;
+    bodyData?: Record<string, any>;
+  }>().default({}),
+  // Security metadata
+  riskScore: decimal("risk_score", { precision: 5, scale: 2 }), // 0-100 risk assessment
+  anomalyFlags: jsonb("anomaly_flags").$type<string[]>().default([]), // unusual_time, unusual_location, privilege_escalation, etc.
+  complianceFlags: jsonb("compliance_flags").$type<string[]>().default([]), // pci_dss, gdpr, sox, etc.
+  // Timing and performance
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  processingTimeMs: integer("processing_time_ms"), // time to process permission check
+  // Related events
+  parentEventId: varchar("parent_event_id", { length: 255 }), // if part of a larger operation
+  correlationId: varchar("correlation_id", { length: 255 }), // group related events
+  // Data retention
+  retentionCategory: varchar("retention_category", { length: 100 }).default("standard"), // standard, extended, permanent
+  purgeAt: timestamp("purge_at"), // when to purge this record
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Resource Permissions - Object-level permissions for cameras, stores, evidence
+export const resourcePermissions = pgTable("resource_permissions", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  // Resource identification
+  resourceType: varchar("resource_type", { length: 100 }).notNull(), // camera, store, evidence, incident, alert, report
+  resourceId: varchar("resource_id", { length: 255 }).notNull(), // ID of the specific resource
+  resourceName: varchar("resource_name", { length: 255 }), // human-readable resource name
+  storeId: varchar("store_id", { length: 255 }).references(() => stores.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id),
+  // Permission subject (who the permission applies to)
+  subjectType: varchar("subject_type", { length: 50 }).notNull(), // user, role, group, organization
+  subjectId: varchar("subject_id", { length: 255 }).notNull(), // ID of user, role, group, or organization
+  // Permission details
+  permission: varchar("permission", { length: 200 }).notNull(), // view, edit, delete, control, download, manage
+  isGranted: boolean("is_granted").default(true), // true=allow, false=deny
+  // Conditions and constraints
+  conditions: jsonb("conditions").$type<{
+    timeRestrictions?: {
+      allowedHours?: Array<{ start: string; end: string }>;
+      allowedDays?: number[];
+      timezone?: string;
+    };
+    locationRestrictions?: {
+      allowedZones?: string[];
+      requiredLocation?: string;
+    };
+    usageRestrictions?: {
+      maxAccesses?: number;
+      maxDuration?: number; // minutes
+      requiresJustification?: boolean;
+      requiresApproval?: boolean;
+    };
+    dataRestrictions?: {
+      sensitivityLevel?: string;
+      retentionPeriod?: number; // days
+      downloadAllowed?: boolean;
+      printAllowed?: boolean;
+      shareAllowed?: boolean;
+    };
+  }>().default({}),
+  // Chain of custody (for evidence)
+  custodyChain: jsonb("custody_chain").$type<Array<{
+    timestamp: string;
+    userId: string;
+    action: string; // accessed, downloaded, modified, shared
+    justification?: string;
+    witnessId?: string;
+  }>>().default([]),
+  // Permission metadata
+  source: varchar("source", { length: 100 }).default("manual"), // manual, inherited, policy, automatic
+  inheritedFrom: varchar("inherited_from", { length: 255 }), // if inherited, source permission ID
+  priority: integer("priority").default(100), // for conflict resolution
+  effectiveFrom: timestamp("effective_from").defaultNow(),
+  effectiveUntil: timestamp("effective_until"),
+  // Tracking
+  lastAccessedAt: timestamp("last_accessed_at"),
+  accessCount: integer("access_count").default(0),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  approvedBy: varchar("approved_by", { length: 255 }).references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Permission Templates - Reusable permission sets for common roles
+export const permissionTemplates = pgTable("permission_templates", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 100 }).notNull(), // security, safety, administrative, operational
+  templateType: varchar("template_type", { length: 100 }).notNull(), // role_template, resource_template, policy_template
+  // Template permissions
+  permissions: jsonb("permissions").$type<{
+    cameras?: {
+      view?: boolean;
+      control?: boolean;
+      configure?: boolean;
+      history?: boolean;
+    };
+    alerts?: {
+      receive?: boolean;
+      acknowledge?: boolean;
+      dismiss?: boolean;
+      escalate?: boolean;
+      manage?: boolean;
+      configure?: boolean;
+    };
+    incidents?: {
+      create?: boolean;
+      investigate?: boolean;
+      assign?: boolean;
+      resolve?: boolean;
+      close?: boolean;
+    };
+    evidence?: {
+      upload?: boolean;
+      view?: boolean;
+      download?: boolean;
+      manage?: boolean;
+      audit?: boolean;
+    };
+    analytics?: {
+      executive?: boolean;
+      operational?: boolean;
+      safety?: boolean;
+      public?: boolean;
+      reports?: boolean;
+      export?: boolean;
+    };
+    users?: {
+      view?: boolean;
+      create?: boolean;
+      edit?: boolean;
+      delete?: boolean;
+      assign_roles?: boolean;
+    };
+    system?: {
+      configure?: boolean;
+      audit?: boolean;
+      backup?: boolean;
+      maintenance?: boolean;
+    };
+  }>().notNull(),
+  // Template constraints
+  constraints: jsonb("constraints").$type<{
+    requiredClearance?: string;
+    maxUsers?: number;
+    organizationTypes?: string[];
+    storeTypes?: string[];
+  }>().default({}),
+  // Template metadata
+  isBuiltIn: boolean("is_built_in").default(false), // system templates cannot be deleted
+  isActive: boolean("is_active").default(true),
+  version: varchar("version", { length: 50 }).default("1.0"),
+  usageCount: integer("usage_count").default(0),
+  lastUsed: timestamp("last_used"),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Types for inference
 export type DetectionBoundingBoxType = z.infer<typeof detectionBoundingBoxSchema>;
 export type DetectionResultType = z.infer<typeof detectionResultSchema>;
 export type FrameAnalysisRequest = z.infer<typeof frameAnalysisRequestSchema>;
+
+// =====================================
+// Enhanced RBAC Zod Schemas and Types
+// =====================================
+
+// Security Roles schemas
+export const insertSecurityRoleSchema = createInsertSchema(securityRoles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertRolePermissionSchema = createInsertSchema(rolePermissions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertUserRoleAssignmentSchema = createInsertSchema(userRoleAssignments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastAccessedAt: true,
+  accessCount: true,
+});
+
+export const insertPermissionAuditLogSchema = createInsertSchema(permissionAuditLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertResourcePermissionSchema = createInsertSchema(resourcePermissions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastAccessedAt: true,
+  accessCount: true,
+});
+
+export const insertPermissionTemplateSchema = createInsertSchema(permissionTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  usageCount: true,
+  lastUsed: true,
+});
+
+// Enhanced RBAC Types
+export type SecurityRole = typeof securityRoles.$inferSelect;
+export type InsertSecurityRole = z.infer<typeof insertSecurityRoleSchema>;
+
+export type RolePermission = typeof rolePermissions.$inferSelect;
+export type InsertRolePermission = z.infer<typeof insertRolePermissionSchema>;
+
+export type UserRoleAssignment = typeof userRoleAssignments.$inferSelect;
+export type InsertUserRoleAssignment = z.infer<typeof insertUserRoleAssignmentSchema>;
+
+export type PermissionAuditLog = typeof permissionAuditLog.$inferSelect;
+export type InsertPermissionAuditLog = z.infer<typeof insertPermissionAuditLogSchema>;
+
+export type ResourcePermission = typeof resourcePermissions.$inferSelect;
+export type InsertResourcePermission = z.infer<typeof insertResourcePermissionSchema>;
+
+export type PermissionTemplate = typeof permissionTemplates.$inferSelect;
+export type InsertPermissionTemplate = z.infer<typeof insertPermissionTemplateSchema>;
+
+// Permission checking interfaces
+export interface UserPermissions {
+  cameras: {
+    view: boolean;
+    control: boolean;
+    configure: boolean;
+    history: boolean;
+  };
+  alerts: {
+    receive: boolean;
+    acknowledge: boolean;
+    dismiss: boolean;
+    escalate: boolean;
+    manage: boolean;
+    configure: boolean;
+  };
+  incidents: {
+    create: boolean;
+    investigate: boolean;
+    assign: boolean;
+    resolve: boolean;
+    close: boolean;
+  };
+  evidence: {
+    upload: boolean;
+    view: boolean;
+    download: boolean;
+    manage: boolean;
+    audit: boolean;
+  };
+  analytics: {
+    executive: boolean;
+    operational: boolean;
+    safety: boolean;
+    public: boolean;
+    reports: boolean;
+    export: boolean;
+  };
+  users: {
+    view: boolean;
+    create: boolean;
+    edit: boolean;
+    delete: boolean;
+    assign_roles: boolean;
+  };
+  system: {
+    configure: boolean;
+    audit: boolean;
+    backup: boolean;
+    maintenance: boolean;
+  };
+}
+
+// Permission context for checking
+export interface PermissionContext {
+  userId: string;
+  roleIds: string[];
+  storeId?: string;
+  organizationId?: string;
+  resourceType?: string;
+  resourceId?: string;
+  action: string;
+  timestamp?: Date;
+  ipAddress?: string;
+  userAgent?: string;
+  sessionId?: string;
+}
+
+// Permission check result
+export interface PermissionCheckResult {
+  granted: boolean;
+  reason: string;
+  restrictedBy?: string[];
+  conditions?: Record<string, any>;
+  auditRequired: boolean;
+  requiresApproval?: boolean;
+  requiresWitness?: boolean;
+}
+
+// Built-in security role definitions with their permissions
+export const SECURITY_ROLE_DEFINITIONS = {
+  admin: {
+    name: "admin",
+    displayName: "Security Manager",
+    level: 1,
+    permissions: {
+      cameras: { view: true, control: true, configure: true, history: true },
+      alerts: { receive: true, acknowledge: true, dismiss: true, escalate: true, manage: true, configure: true },
+      incidents: { create: true, investigate: true, assign: true, resolve: true, close: true },
+      evidence: { upload: true, view: true, download: true, manage: true, audit: true },
+      analytics: { executive: true, operational: true, safety: true, public: true, reports: true, export: true },
+      users: { view: true, create: true, edit: true, delete: true, assign_roles: true },
+      system: { configure: true, audit: true, backup: true, maintenance: true }
+    }
+  },
+  security_personnel: {
+    name: "security_personnel",
+    displayName: "Guard/Officer",
+    level: 2,
+    permissions: {
+      cameras: { view: true, control: true, configure: false, history: true },
+      alerts: { receive: true, acknowledge: true, dismiss: true, escalate: true, manage: false, configure: false },
+      incidents: { create: true, investigate: true, assign: false, resolve: true, close: false },
+      evidence: { upload: true, view: true, download: true, manage: false, audit: false },
+      analytics: { executive: false, operational: true, safety: true, public: true, reports: false, export: false },
+      users: { view: true, create: false, edit: false, delete: false, assign_roles: false },
+      system: { configure: false, audit: false, backup: false, maintenance: false }
+    }
+  },
+  safety_coordinator: {
+    name: "safety_coordinator",
+    displayName: "Safety Coordinator",
+    level: 3,
+    permissions: {
+      cameras: { view: true, control: false, configure: false, history: false },
+      alerts: { receive: true, acknowledge: false, dismiss: false, escalate: true, manage: false, configure: false },
+      incidents: { create: true, investigate: false, assign: false, resolve: false, close: false },
+      evidence: { upload: false, view: true, download: false, manage: false, audit: false },
+      analytics: { executive: false, operational: false, safety: true, public: true, reports: true, export: true },
+      users: { view: true, create: false, edit: false, delete: false, assign_roles: false },
+      system: { configure: false, audit: true, backup: false, maintenance: false }
+    }
+  },
+  guest: {
+    name: "guest",
+    displayName: "Visitor",
+    level: 4,
+    permissions: {
+      cameras: { view: false, control: false, configure: false, history: false },
+      alerts: { receive: false, acknowledge: false, dismiss: false, escalate: false, manage: false, configure: false },
+      incidents: { create: false, investigate: false, assign: false, resolve: false, close: false },
+      evidence: { upload: false, view: false, download: false, manage: false, audit: false },
+      analytics: { executive: false, operational: false, safety: true, public: true, reports: false, export: false },
+      users: { view: false, create: false, edit: false, delete: false, assign_roles: false },
+      system: { configure: false, audit: false, backup: false, maintenance: false }
+    }
+  }
+} as const;
 
 // Analytics aggregation table types
 export type AnalyticsIncidentSummary = typeof analyticsIncidentSummary.$inferSelect;

@@ -6,7 +6,15 @@ import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
-import { User as DbUser } from "@shared/schema";
+import { 
+  User as DbUser,
+  securityRoles,
+  rolePermissions,
+  userRoleAssignments,
+  resourcePermissions,
+  permissionAuditLog
+} from "@shared/schema";
+import { eq, and, or, isNull, gt, inArray } from "drizzle-orm";
 
 declare global {
   namespace Express {
@@ -360,3 +368,351 @@ export const requireHRAgent = (minimumRole?: string) => requireAgentAccess("hr",
 export const requireSuperAdmin = requirePlatformRole(["super_admin"]);
 export const requireOrgAdmin = requirePlatformRole(["org_admin", "super_admin"]);
 export const requirePlatformUser = requirePlatformRole(["user", "org_admin", "super_admin"]);
+
+// =====================================
+// Enhanced Role-Based Access Control (RBAC) System
+// =====================================
+
+// Types for enhanced RBAC system
+interface UserPermissions {
+  cameras: { view: boolean; control: boolean; configure: boolean; history: boolean };
+  alerts: { receive: boolean; acknowledge: boolean; dismiss: boolean; escalate: boolean; manage: boolean; configure: boolean };
+  incidents: { create: boolean; investigate: boolean; assign: boolean; resolve: boolean; close: boolean };
+  evidence: { upload: boolean; view: boolean; download: boolean; manage: boolean; audit: boolean };
+  analytics: { executive: boolean; operational: boolean; safety: boolean; public: boolean; reports: boolean; export: boolean };
+  users: { view: boolean; create: boolean; edit: boolean; delete: boolean; assign_roles: boolean };
+  system: { configure: boolean; audit: boolean; backup: boolean; maintenance: boolean };
+}
+
+interface PermissionContext {
+  userId: string;
+  roleIds?: string[];
+  storeId?: string;
+  organizationId?: string;
+  resourceType?: string;
+  resourceId?: string;
+  action: string;
+  timestamp?: Date;
+  ipAddress?: string;
+  userAgent?: string;
+  sessionId?: string;
+}
+
+interface PermissionCheckResult {
+  granted: boolean;
+  reason?: string;
+  restrictedBy?: string[];
+  auditRequired?: boolean;
+  requiresApproval?: boolean;
+  requiresWitness?: boolean;
+  conditions?: any;
+}
+
+type SecurityRole = typeof securityRoles.$inferSelect;
+type InsertPermissionAuditLog = typeof permissionAuditLog.$inferInsert;
+
+// Permission checking engine
+export class PermissionEngine {
+  private static instance: PermissionEngine;
+  
+  static getInstance(): PermissionEngine {
+    if (!PermissionEngine.instance) {
+      PermissionEngine.instance = new PermissionEngine();
+    }
+    return PermissionEngine.instance;
+  }
+
+  // Check if user has specific permission
+  async checkPermission(context: PermissionContext): Promise<PermissionCheckResult> {
+    const startTime = Date.now();
+    
+    try {
+      // Get user's security roles and permissions
+      const userRoles = await this.getUserSecurityRoles(context.userId);
+      const permissions = await this.aggregateUserPermissions(userRoles, context.storeId, context.organizationId);
+      
+      // Check permission based on action and resource
+      const hasPermission = this.evaluatePermission(permissions, context.action, context.resourceType);
+      
+      // Additional checks for resource-specific permissions
+      const resourcePermission = context.resourceId ? 
+        await this.checkResourcePermission(context) : { granted: true, reason: "No specific resource check needed" };
+      
+      const finalDecision = hasPermission && resourcePermission.granted;
+      const reason = finalDecision ? 
+        "Permission granted" : 
+        (hasPermission ? resourcePermission.reason : "Insufficient role permissions");
+      
+      // Log the permission check
+      await this.auditPermissionCheck(context, {
+        granted: finalDecision,
+        reason,
+        restrictedBy: finalDecision ? undefined : [`role_permissions`],
+        auditRequired: true,
+        processingTimeMs: Date.now() - startTime
+      });
+      
+      return {
+        granted: finalDecision,
+        reason,
+        restrictedBy: finalDecision ? undefined : [`role_permissions`],
+        auditRequired: true,
+        requiresApproval: this.requiresApproval(context.action, permissions),
+        requiresWitness: this.requiresWitness(context.action, permissions),
+        conditions: {}
+      };
+      
+    } catch (error) {
+      // Log error and deny access
+      await this.auditPermissionCheck(context, {
+        granted: false,
+        reason: `Permission check failed: ${error.message}`,
+        restrictedBy: ['system_error'],
+        auditRequired: true,
+        processingTimeMs: Date.now() - startTime
+      });
+      
+      return {
+        granted: false,
+        reason: `Permission check failed: ${error.message}`,
+        restrictedBy: ['system_error'],
+        auditRequired: true
+      };
+    }
+  }
+
+  // Get user's security roles with inheritance
+  private async getUserSecurityRoles(userId: string): Promise<SecurityRole[]> {
+    try {
+      // For now, return a basic role until we implement the storage methods
+      // This will be enhanced when storage.ts is updated with RBAC methods
+      return [];
+    } catch (error) {
+      console.error('Error getting user security roles:', error);
+      return [];
+    }
+  }
+
+  // Get inherited roles based on role hierarchy
+  private async getInheritedRoles(userRoles: SecurityRole[]): Promise<SecurityRole[]> {
+    // Simplified for now - will be enhanced when storage methods are implemented
+    return [];
+  }
+
+  // Aggregate permissions from all user roles
+  private async aggregateUserPermissions(
+    roles: SecurityRole[], 
+    storeId?: string, 
+    organizationId?: string
+  ): Promise<UserPermissions> {
+    const aggregatedPermissions: UserPermissions = {
+      cameras: { view: false, control: false, configure: false, history: false },
+      alerts: { receive: false, acknowledge: false, dismiss: false, escalate: false, manage: false, configure: false },
+      incidents: { create: false, investigate: false, assign: false, resolve: false, close: false },
+      evidence: { upload: false, view: false, download: false, manage: false, audit: false },
+      analytics: { executive: false, operational: false, safety: false, public: false, reports: false, export: false },
+      users: { view: false, create: false, edit: false, delete: false, assign_roles: false },
+      system: { configure: false, audit: false, backup: false, maintenance: false }
+    };
+
+    // Apply permissions from each role (OR logic - if any role grants permission, user has it)
+    for (const role of roles) {
+      const rolePermissions = await this.getRolePermissions(role.id, storeId, organizationId);
+      this.mergePermissions(aggregatedPermissions, rolePermissions);
+    }
+
+    return aggregatedPermissions;
+  }
+
+  // Get permissions for a specific role
+  private async getRolePermissions(
+    roleId: string, 
+    storeId?: string, 
+    organizationId?: string
+  ): Promise<UserPermissions> {
+    // For now, return default permissions - will be enhanced when storage methods are implemented
+    return {
+      cameras: { view: false, control: false, configure: false, history: false },
+      alerts: { receive: false, acknowledge: false, dismiss: false, escalate: false, manage: false, configure: false },
+      incidents: { create: false, investigate: false, assign: false, resolve: false, close: false },
+      evidence: { upload: false, view: false, download: false, manage: false, audit: false },
+      analytics: { executive: false, operational: false, safety: false, public: false, reports: false, export: false },
+      users: { view: false, create: false, edit: false, delete: false, assign_roles: false },
+      system: { configure: false, audit: false, backup: false, maintenance: false }
+    };
+  }
+
+  // Merge permissions using OR logic
+  private mergePermissions(target: UserPermissions, source: UserPermissions): void {
+    Object.keys(target).forEach(resource => {
+      Object.keys(target[resource]).forEach(action => {
+        target[resource][action] = target[resource][action] || source[resource][action];
+      });
+    });
+  }
+
+  // Evaluate if user has specific permission
+  private evaluatePermission(permissions: UserPermissions, action: string, resourceType?: string): boolean {
+    if (!resourceType) return false;
+    
+    const [resource, perm] = action.includes(':') ? action.split(':') : [resourceType, action];
+    
+    if (permissions[resource] && typeof permissions[resource][perm] === 'boolean') {
+      return permissions[resource][perm];
+    }
+    
+    return false;
+  }
+
+  // Check resource-specific permissions
+  private async checkResourcePermission(context: PermissionContext): Promise<PermissionCheckResult> {
+    // For now, return granted for non-sensitive resources - will be enhanced when storage methods are implemented
+    return {
+      granted: true,
+      reason: "Resource permission check placeholder",
+      auditRequired: true
+    };
+  }
+
+  // Check if action requires approval
+  private requiresApproval(action: string, permissions: UserPermissions): boolean {
+    const highRiskActions = ['system:configure', 'users:delete', 'evidence:manage', 'incidents:close'];
+    return highRiskActions.includes(action);
+  }
+
+  // Check if action requires witness
+  private requiresWitness(action: string, permissions: UserPermissions): boolean {
+    const witnessRequiredActions = ['evidence:download', 'system:backup', 'users:assign_roles'];
+    return witnessRequiredActions.includes(action);
+  }
+
+  // Audit permission check
+  private async auditPermissionCheck(
+    context: PermissionContext, 
+    result: Partial<PermissionCheckResult> & { processingTimeMs?: number }
+  ): Promise<void> {
+    try {
+      // Log to console for now - will be enhanced to use database when storage methods are implemented
+      console.log('Permission Check Audit:', {
+        userId: context.userId,
+        action: context.action,
+        granted: result.granted,
+        reason: result.reason,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Failed to audit permission check:', error);
+      // Don't throw - auditing failure shouldn't break permission checking
+    }
+  }
+}
+
+// Enhanced permission middleware factory
+export function requirePermission(permission: string, resourceType?: string) {
+  return async (req: any, res: any, next: any) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const user = req.user;
+    const engine = PermissionEngine.getInstance();
+    
+    const context: PermissionContext = {
+      userId: user.id,
+      roleIds: [], // Will be populated by the engine
+      storeId: req.params.storeId || req.body.storeId || user.storeId,
+      organizationId: user.organizationId,
+      resourceType,
+      resourceId: req.params.id || req.params.resourceId,
+      action: permission,
+      timestamp: new Date(),
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('User-Agent'),
+      sessionId: req.sessionID
+    };
+
+    try {
+      const result = await engine.checkPermission(context);
+      
+      if (!result.granted) {
+        return res.status(403).json({ 
+          message: "Insufficient permissions",
+          reason: result.reason,
+          requiredPermission: permission
+        });
+      }
+
+      // Add permission context to request for downstream use
+      req.permissionContext = context;
+      req.permissionResult = result;
+      
+      next();
+    } catch (error) {
+      console.error('Permission check error:', error);
+      return res.status(500).json({ message: "Permission check failed" });
+    }
+  };
+}
+
+// Enhanced security role-based middleware
+export function requireSecurityRole(allowedRoles: string[]) {
+  return async (req: any, res: any, next: any) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const user = req.user;
+    const engine = PermissionEngine.getInstance();
+    
+    try {
+      const userRoles = await engine.getUserSecurityRoles(user.id);
+      const hasRequiredRole = userRoles.some(role => allowedRoles.includes(role.name));
+      
+      if (!hasRequiredRole) {
+        // Audit the failed role check
+        await engine.auditPermissionCheck({
+          userId: user.id,
+          roleIds: userRoles.map(r => r.id),
+          action: 'role_check',
+          timestamp: new Date(),
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent'),
+          sessionId: req.sessionID
+        }, {
+          granted: false,
+          reason: `Required roles: ${allowedRoles.join(', ')}. User roles: ${userRoles.map(r => r.name).join(', ')}`
+        });
+        
+        return res.status(403).json({ 
+          message: "Insufficient role permissions",
+          requiredRoles: allowedRoles,
+          userRoles: userRoles.map(r => r.name)
+        });
+      }
+
+      // Add role context to request
+      req.securityRoles = userRoles;
+      req.hasSecurityRole = (roleName: string) => userRoles.some(r => r.name === roleName);
+      
+      next();
+    } catch (error) {
+      console.error('Security role check error:', error);
+      return res.status(500).json({ message: "Role check failed" });
+    }
+  };
+}
+
+// Convenience middleware for specific security roles
+export const requireSecurityManager = requireSecurityRole(['admin']);
+export const requireSecurityPersonnel = requireSecurityRole(['admin', 'security_personnel']);
+export const requireSafetyCoordinator = requireSecurityRole(['admin', 'security_personnel', 'safety_coordinator']);
+export const requireSecurityAccess = requireSecurityRole(['admin', 'security_personnel', 'safety_coordinator', 'guest']);
+
+// Resource-specific permission middleware
+export const requireCameraAccess = (action: string) => requirePermission(`cameras:${action}`, 'camera');
+export const requireAlertAccess = (action: string) => requirePermission(`alerts:${action}`, 'alert');
+export const requireIncidentAccess = (action: string) => requirePermission(`incidents:${action}`, 'incident');
+export const requireEvidenceAccess = (action: string) => requirePermission(`evidence:${action}`, 'evidence');
+export const requireAnalyticsAccess = (action: string) => requirePermission(`analytics:${action}`, 'analytics');
+export const requireUserManagement = (action: string) => requirePermission(`users:${action}`, 'user');
+export const requireSystemAccess = (action: string) => requirePermission(`system:${action}`, 'system');
