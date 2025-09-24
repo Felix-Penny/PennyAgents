@@ -181,29 +181,14 @@ export const alerts = pgTable("alerts", {
 export const cameras = pgTable("cameras", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
-  name: varchar("name", { length: 255 }).notNull(),
-  location: varchar("location", { length: 255 }).notNull(),
-  type: varchar("type", { length: 100 }).default("security"), // security, entrance, checkout, storage
+  name: text("name").notNull(),
+  location: text("location").notNull(),
+  ipAddress: text("ip_address"),
   status: varchar("status", { length: 50 }).default("online"), // online, offline, maintenance, error
-  ipAddress: varchar("ip_address", { length: 45 }),
-  streamUrl: text("stream_url"),
-  recordingEnabled: boolean("recording_enabled").default(true),
-  aiAnalysisEnabled: boolean("ai_analysis_enabled").default(true),
-  settings: jsonb("settings").$type<{
-    resolution?: string;
-    frameRate?: number;
-    nightVision?: boolean;
-    motionDetection?: boolean;
-    audioRecording?: boolean;
-    alertZones?: Array<{
-      name: string;
-      coordinates: Array<{ x: number; y: number }>;
-    }>;
-  }>().default({}),
-  lastHeartbeat: timestamp("last_heartbeat"),
+  capabilities: jsonb("capabilities").$type<string[]>().default([]),
   isActive: boolean("is_active").default(true),
+  lastHeartbeat: timestamp("last_seen"), // Map lastHeartbeat to last_seen column
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const incidents = pgTable("incidents", {
@@ -3046,7 +3031,6 @@ export type AgentConfiguration = z.infer<typeof selectAgentConfigurationSchema>;
 export const insertCameraSchema = createInsertSchema(cameras).omit({
   id: true,
   createdAt: true,
-  updatedAt: true,
 });
 
 export const insertIncidentSchema = createInsertSchema(incidents).omit({

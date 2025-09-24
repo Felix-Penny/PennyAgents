@@ -516,7 +516,7 @@ export default function LiveFeeds() {
 
   // Fetch camera data from API
   const { data: cameras = [], isLoading, error, refetch } = useQuery<Camera[]>({
-    queryKey: ['/api/store', user?.storeId, 'cameras'],
+    queryKey: [`/api/store/${user?.storeId}/cameras`],
     enabled: !!user?.storeId,
     refetchInterval: 30000, // Refetch every 30 seconds for status updates
     refetchIntervalInBackground: true,
