@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Upload, 
   Video, 
@@ -13,44 +14,127 @@ import {
   Clock,
   Play,
   Eye,
-  Download
+  Download,
+  Shield,
+  Brain,
+  Target,
+  Zap,
+  BarChart3,
+  FileText,
+  Camera
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 
-interface AnalysisResult {
+interface AIAnalysisResult {
   analysisId: string;
-  detectedFaces: number;
-  matchedOffenders: number;
+  status: 'completed' | 'processing' | 'failed';
+  totalDetections: number;
+  threatDetections: number;
   suspiciousActivities: number;
-  highConfidenceMatches: number;
-  analysisResult: {
-    detectedFaces: Array<{
+  
+  // Quality and processing metrics
+  averageConfidence: number;
+  qualityScore: number;
+  processingDuration: number;
+  
+  // Threat breakdown
+  threats: {
+    high: number;
+    medium: number;
+    low: number;
+    critical: number;
+  };
+  
+  // Frame analysis results
+  frames: Array<{
+    frameNumber: number;
+    timestamp: number;
+    detectionCount: number;
+    highThreatDetections: number;
+    qualityScore: number;
+  }>;
+  
+  // Most significant detections
+  significantDetections: Array<{
+    id: string;
+    type: string;
+    threatType?: string;
+    behaviorType?: string;
+    confidence: number;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    description: string;
+    timestamp: number;
+    boundingBox?: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+  }>;
+  
+  storeId: string;
+  cameraId: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+interface FrameAnalysisResult {
+  analysisId: string;
+  frameAnalysis: {
+    detections: Array<{
       id: string;
+      detectionType: string;
+      threatType?: string;
+      behaviorType?: string;
       confidence: number;
-      features: any;
+      severity: string;
+      description: string;
+      boundingBox?: any;
     }>;
-    matchedOffenders: Array<{
-      offenderId: string;
-      confidence: number;
-      faceId: string;
-    }>;
-    suspiciousActivity: Array<{
-      type: string;
+    qualityScore: number;
+    lightingConditions: string;
+    motionLevel: string;
+    crowdDensity: string;
+    processingTime: number;
+  };
+  threatAssessment: {
+    detectedThreats: Array<{
+      id: string;
+      category: string;
+      severity: string;
       confidence: number;
       description: string;
+      reasoning: string;
+      immediateResponse: boolean;
+      lawEnforcementRequired: boolean;
     }>;
+    overallRiskLevel: string;
+    recommendedActions: string[];
+    analysisMetrics: {
+      totalThreats: number;
+      highSeverityThreats: number;
+      averageConfidence: number;
+      processingTime: number;
+    };
   };
+  timestamp: string;
+  storeId: string;
+  cameraId: string;
 }
 
 export default function VideoUploadPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AIAnalysisResult | null>(null);
+  const [frameAnalysisResult, setFrameAnalysisResult] = useState<FrameAnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [analysisType, setAnalysisType] = useState<'video' | 'frame'>('video');
+  const [selectedFrame, setSelectedFrame] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -75,19 +159,6 @@ export default function VideoUploadPage() {
     }
   };
 
-  const convertFileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result as string;
-        // Remove data:video/mp4;base64, prefix
-        const base64Data = base64.split(',')[1];
-        resolve(base64Data);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
 
   const analyzeVideo = async () => {
     if (!selectedFile || !user?.storeId) {
@@ -100,17 +171,11 @@ export default function VideoUploadPage() {
     setError(null);
 
     try {
-      // Convert video to base64
-      setUploadProgress(20);
-      const videoBase64 = await convertFileToBase64(selectedFile);
-      
-      setUploadProgress(40);
-      
-      // Send to analysis API
-      const response = await apiRequest('/api/video/analyze', {
+      // Step 1: Get signed URL for video upload
+      setUploadProgress(10);
+      const signedUrlResponse = await apiRequest('/api/ai/video-upload-url', {
         method: 'POST',
         body: JSON.stringify({
-          videoBase64,
           storeId: user.storeId,
           cameraId: 'video-upload'
         }),
@@ -119,39 +184,190 @@ export default function VideoUploadPage() {
         }
       });
 
-      setUploadProgress(100);
-      
-      if (!response.ok) {
-        throw new Error('Analysis failed');
+      if (!signedUrlResponse.ok) {
+        const errorData = await signedUrlResponse.json();
+        throw new Error(errorData.message || 'Failed to get upload URL');
       }
 
-      const result = await response.json();
-      setAnalysisResult(result);
+      const { uploadUrl, maxFileSize, allowedTypes } = await signedUrlResponse.json();
       
-      toast({
-        title: "Analysis Complete",
-        description: `Found ${result.detectedFaces} faces, ${result.matchedOffenders} matches`,
+      // Validate file size against server limits
+      if (selectedFile.size > maxFileSize) {
+        throw new Error(`File size exceeds limit of ${Math.round(maxFileSize / 1024 / 1024)}MB`);
+      }
+
+      // Validate file type against server requirements
+      if (allowedTypes && !allowedTypes.includes(selectedFile.type)) {
+        throw new Error(`File type not allowed. Supported types: ${allowedTypes.join(', ')}`);
+      }
+
+      // Step 2: Upload video directly to Object Storage via signed URL
+      setUploadProgress(30);
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: selectedFile,
+        headers: {
+          'Content-Type': selectedFile.type,
+        }
       });
 
-      // Create clips for high-confidence matches
-      if (result.highConfidenceMatches > 0) {
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+      }
+
+      setUploadProgress(60);
+
+      // Step 3: Extract object path from upload URL for analysis
+      const uploadUrlObj = new URL(uploadUrl);
+      const objectPath = uploadUrlObj.pathname; // This gives us the object path in Object Storage
+
+      // Step 4: Send analysis request with object path (not video data)
+      const analysisResponse = await apiRequest('/api/ai/analyze-video', {
+        method: 'POST',
+        body: JSON.stringify({
+          objectPath: objectPath,
+          storeId: user.storeId,
+          cameraId: 'video-upload',
+          config: {
+            enableThreatDetection: true,
+            enableBehaviorAnalysis: true,
+            enableObjectDetection: true,
+            confidenceThreshold: 0.7
+          }
+        }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      setUploadProgress(100);
+      
+      if (!analysisResponse.ok) {
+        const errorData = await analysisResponse.json();
+        throw new Error(errorData.message || 'AI analysis failed');
+      }
+
+      const result: AIAnalysisResult = await analysisResponse.json();
+      setAnalysisResult(result);
+      setAnalysisType('video');
+      
+      toast({
+        title: "AI Analysis Complete",
+        description: `Found ${result.totalDetections} detections, ${result.threatDetections} threats`,
+      });
+
+      // Show threat alerts for high-severity detections
+      if (result.threats.critical > 0 || result.threats.high > 0) {
         toast({
-          title: "Offenders Detected!", 
-          description: `${result.highConfidenceMatches} known offenders detected with high confidence`,
+          title: "Security Threats Detected!", 
+          description: `${result.threats.critical + result.threats.high} high-severity threats detected`,
           variant: "destructive"
         });
       }
 
     } catch (error: any) {
-      console.error('Analysis error:', error);
-      setError(error.message || 'Analysis failed');
+      console.error('AI video analysis error:', error);
+      setError(error.message || 'Video analysis failed');
       toast({
-        title: "Analysis Failed",
-        description: error.message || "Please try again",
+        title: "Video Analysis Failed",
+        description: error.message || "Failed to upload or analyze video",
         variant: "destructive"
       });
     } finally {
       setAnalyzing(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const analyzeFrame = async () => {
+    if (!selectedFrame || !user?.storeId) {
+      setError('No image selected or missing store information');
+      return;
+    }
+
+    setAnalyzing(true);
+    setError(null);
+
+    try {
+      // Send to frame analysis API
+      const response = await apiRequest('/api/ai/analyze-frame', {
+        method: 'POST',
+        body: JSON.stringify({
+          imageData: selectedFrame,
+          storeId: user.storeId,
+          cameraId: 'frame-upload',
+          config: {
+            enableThreatDetection: true,
+            enableBehaviorAnalysis: true,
+            confidenceThreshold: 0.7
+          }
+        }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Frame analysis failed');
+      }
+
+      const result: FrameAnalysisResult = await response.json();
+      setFrameAnalysisResult(result);
+      setAnalysisType('frame');
+      
+      toast({
+        title: "Frame Analysis Complete",
+        description: `Found ${result.frameAnalysis.detections.length} detections, risk level: ${result.threatAssessment.overallRiskLevel}`,
+      });
+
+      // Show threat alerts for high-severity detections
+      if (result.threatAssessment.analysisMetrics.highSeverityThreats > 0) {
+        toast({
+          title: "Threats Detected in Frame!", 
+          description: `${result.threatAssessment.analysisMetrics.highSeverityThreats} high-severity threats detected`,
+          variant: "destructive"
+        });
+      }
+
+    } catch (error: any) {
+      console.error('AI frame analysis error:', error);
+      setError(error.message || 'Frame analysis failed');
+      toast({
+        title: "Frame Analysis Failed",
+        description: error.message || "An error occurred during frame analysis",
+        variant: "destructive"
+      });
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setError('Please select a valid image file');
+        return;
+      }
+      
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        setError('Image size must be less than 10MB');
+        return;
+      }
+
+      // Convert to base64
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        const base64Data = base64.split(',')[1];
+        setSelectedFrame(base64Data);
+        setError(null);
+        setFrameAnalysisResult(null);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -190,26 +406,40 @@ export default function VideoUploadPage() {
         {/* Header */}
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-            <Video className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+            <Brain className="w-6 h-6 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold" data-testid="text-page-title">Video Analysis</h1>
-            <p className="text-muted-foreground">Upload security footage for facial recognition analysis</p>
+            <h1 className="text-2xl font-bold" data-testid="text-page-title">AI Video Analytics</h1>
+            <p className="text-muted-foreground">Advanced AI-powered threat detection and behavior analysis</p>
           </div>
         </div>
 
-        {/* Upload Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="w-5 h-5" />
-              Upload Video
-            </CardTitle>
-            <CardDescription>
-              Select a video file to analyze for faces and suspicious activity
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        {/* Analysis Tabs */}
+        <Tabs defaultValue="video" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="video" data-testid="tab-video-analysis">
+              <Video className="w-4 h-4 mr-2" />
+              Video Analysis
+            </TabsTrigger>
+            <TabsTrigger value="frame" data-testid="tab-frame-analysis">
+              <Camera className="w-4 h-4 mr-2" />
+              Frame Analysis
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Video Analysis Tab */}
+          <TabsContent value="video" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Upload className="w-5 h-5" />
+                  Upload Video for AI Analysis
+                </CardTitle>
+                <CardDescription>
+                  Upload security footage for comprehensive threat detection and behavioral analysis
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
             <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center">
               <input
                 type="file"
@@ -305,27 +535,50 @@ export default function VideoUploadPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Summary Stats */}
+              {/* AI Analysis Summary Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="text-center p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
-                  <Users className="w-8 h-8 mx-auto mb-2 text-blue-600" />
-                  <div className="text-2xl font-bold">{analysisResult.detectedFaces}</div>
-                  <div className="text-sm text-muted-foreground">Faces Detected</div>
+                  <Target className="w-8 h-8 mx-auto mb-2 text-blue-600" />
+                  <div className="text-2xl font-bold">{analysisResult.totalDetections}</div>
+                  <div className="text-sm text-muted-foreground">Total Detections</div>
                 </div>
                 <div className="text-center p-4 bg-red-50 dark:bg-red-950 rounded-lg">
-                  <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-600" />
-                  <div className="text-2xl font-bold">{analysisResult.matchedOffenders}</div>
-                  <div className="text-sm text-muted-foreground">Known Offenders</div>
+                  <Shield className="w-8 h-8 mx-auto mb-2 text-red-600" />
+                  <div className="text-2xl font-bold">{analysisResult.threatDetections}</div>
+                  <div className="text-sm text-muted-foreground">Threat Detections</div>
                 </div>
                 <div className="text-center p-4 bg-orange-50 dark:bg-orange-950 rounded-lg">
-                  <Eye className="w-8 h-8 mx-auto mb-2 text-orange-600" />
-                  <div className="text-2xl font-bold">{analysisResult.suspiciousActivities}</div>
-                  <div className="text-sm text-muted-foreground">Suspicious Activities</div>
+                  <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-orange-600" />
+                  <div className="text-2xl font-bold">{analysisResult.threats.critical + analysisResult.threats.high}</div>
+                  <div className="text-sm text-muted-foreground">High Priority Threats</div>
                 </div>
-                <div className="text-center p-4 bg-green-50 dark:bg-green-950 rounded-lg">
-                  <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-600" />
-                  <div className="text-2xl font-bold">{analysisResult.highConfidenceMatches}</div>
-                  <div className="text-sm text-muted-foreground">High Confidence</div>
+                <div className="text-center p-4 bg-purple-50 dark:bg-purple-950 rounded-lg">
+                  <BarChart3 className="w-8 h-8 mx-auto mb-2 text-purple-600" />
+                  <div className="text-2xl font-bold">{Math.round(analysisResult.averageConfidence * 100)}%</div>
+                  <div className="text-sm text-muted-foreground">Avg Confidence</div>
+                </div>
+              </div>
+
+              {/* Threat Breakdown */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Threat Level Breakdown</h3>
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="text-center p-3 border rounded-lg">
+                    <div className="text-xl font-bold text-red-600">{analysisResult.threats.critical}</div>
+                    <div className="text-xs text-muted-foreground">Critical</div>
+                  </div>
+                  <div className="text-center p-3 border rounded-lg">
+                    <div className="text-xl font-bold text-orange-600">{analysisResult.threats.high}</div>
+                    <div className="text-xs text-muted-foreground">High</div>
+                  </div>
+                  <div className="text-center p-3 border rounded-lg">
+                    <div className="text-xl font-bold text-yellow-600">{analysisResult.threats.medium}</div>
+                    <div className="text-xs text-muted-foreground">Medium</div>
+                  </div>
+                  <div className="text-center p-3 border rounded-lg">
+                    <div className="text-xl font-bold text-green-600">{analysisResult.threats.low}</div>
+                    <div className="text-xs text-muted-foreground">Low</div>
+                  </div>
                 </div>
               </div>
 
@@ -422,6 +675,215 @@ export default function VideoUploadPage() {
             </CardContent>
           </Card>
         )}
+          </TabsContent>
+
+          {/* Frame Analysis Tab */}
+          <TabsContent value="frame" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Upload className="w-5 h-5" />
+                  Upload Image for Frame Analysis
+                </CardTitle>
+                <CardDescription>
+                  Upload a security camera frame or image for AI threat detection analysis
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center">
+                  <input
+                    type="file"
+                    ref={imageInputRef}
+                    onChange={handleImageSelect}
+                    accept="image/*"
+                    className="hidden"
+                    data-testid="input-image-file"
+                  />
+                  
+                  {selectedFrame ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <Camera className="w-8 h-8 text-green-600" />
+                        <span className="font-medium">Image selected</span>
+                      </div>
+                      <div className="flex gap-2 justify-center">
+                        <Button 
+                          onClick={() => imageInputRef.current?.click()}
+                          variant="outline"
+                          data-testid="button-change-image"
+                        >
+                          Change Image
+                        </Button>
+                        <Button 
+                          onClick={analyzeFrame}
+                          disabled={analyzing}
+                          data-testid="button-analyze-frame"
+                        >
+                          {analyzing ? (
+                            <>
+                              <Clock className="w-4 h-4 mr-2 animate-spin" />
+                              Analyzing...
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="w-4 h-4 mr-2" />
+                              Analyze Frame
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <Camera className="w-12 h-12 mx-auto text-gray-400" />
+                      <div>
+                        <p className="text-lg font-medium">Drop image file here</p>
+                        <p className="text-sm text-muted-foreground">or click to browse</p>
+                      </div>
+                      <Button onClick={() => imageInputRef.current?.click()} data-testid="button-upload-image">
+                        <Upload className="w-4 h-4 mr-2" />
+                        Select Image
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Error Display */}
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Frame Analysis Results */}
+            {frameAnalysisResult && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5 text-green-600" />
+                    Frame Analysis Results
+                  </CardTitle>
+                  <CardDescription>
+                    AI-powered frame threat detection and behavior analysis complete
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Frame Analysis Summary Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                      <Target className="w-8 h-8 mx-auto mb-2 text-blue-600" />
+                      <div className="text-2xl font-bold">{frameAnalysisResult.frameAnalysis.detections.length}</div>
+                      <div className="text-sm text-muted-foreground">Total Detections</div>
+                    </div>
+                    <div className="text-center p-4 bg-red-50 dark:bg-red-950 rounded-lg">
+                      <Shield className="w-8 h-8 mx-auto mb-2 text-red-600" />
+                      <div className="text-2xl font-bold">{frameAnalysisResult.threatAssessment.analysisMetrics.totalThreats}</div>
+                      <div className="text-sm text-muted-foreground">Threat Detections</div>
+                    </div>
+                    <div className="text-center p-4 bg-orange-50 dark:bg-orange-950 rounded-lg">
+                      <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-orange-600" />
+                      <div className="text-2xl font-bold">{frameAnalysisResult.threatAssessment.analysisMetrics.highSeverityThreats}</div>
+                      <div className="text-sm text-muted-foreground">High Priority Threats</div>
+                    </div>
+                    <div className="text-center p-4 bg-purple-50 dark:bg-purple-950 rounded-lg">
+                      <BarChart3 className="w-8 h-8 mx-auto mb-2 text-purple-600" />
+                      <div className="text-2xl font-bold">{Math.round(frameAnalysisResult.threatAssessment.analysisMetrics.averageConfidence * 100)}%</div>
+                      <div className="text-sm text-muted-foreground">Avg Confidence</div>
+                    </div>
+                  </div>
+
+                  {/* Overall Risk Level */}
+                  <div className="p-4 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <Shield className="w-6 h-6" />
+                      <div>
+                        <p className="font-semibold">Overall Risk Level</p>
+                        <Badge 
+                          variant={
+                            frameAnalysisResult.threatAssessment.overallRiskLevel === 'HIGH' ? 'destructive' :
+                            frameAnalysisResult.threatAssessment.overallRiskLevel === 'MEDIUM' ? 'default' : 
+                            'secondary'
+                          }
+                        >
+                          {frameAnalysisResult.threatAssessment.overallRiskLevel}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Detected Threats */}
+                  {frameAnalysisResult.threatAssessment.detectedThreats.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-semibold mb-3">Detected Threats</h3>
+                      <div className="space-y-2">
+                        {frameAnalysisResult.threatAssessment.detectedThreats.map((threat, index) => (
+                          <div key={threat.id} className="p-3 border rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <AlertTriangle className="w-4 h-4 text-red-600" />
+                                <p className="font-medium">{threat.category}</p>
+                              </div>
+                              <Badge variant={threat.severity === 'high' ? 'destructive' : 'default'}>
+                                {threat.severity.toUpperCase()}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-1">{threat.description}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Confidence: {(threat.confidence * 100).toFixed(1)}%
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Frame Detections */}
+                  {frameAnalysisResult.frameAnalysis.detections.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-semibold mb-3">Frame Detections</h3>
+                      <div className="space-y-2">
+                        {frameAnalysisResult.frameAnalysis.detections.map((detection, index) => (
+                          <div key={detection.id} className="flex items-center justify-between p-3 border rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
+                                <Eye className="w-4 h-4 text-blue-600" />
+                              </div>
+                              <div>
+                                <p className="font-medium">{detection.detectionType}</p>
+                                <p className="text-sm text-muted-foreground">{detection.description}</p>
+                              </div>
+                            </div>
+                            <Badge variant={detection.confidence > 0.8 ? "default" : "secondary"}>
+                              {(detection.confidence * 100).toFixed(1)}% Confidence
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommended Actions */}
+                  {frameAnalysisResult.threatAssessment.recommendedActions.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-semibold mb-3">Recommended Actions</h3>
+                      <div className="space-y-2">
+                        {frameAnalysisResult.threatAssessment.recommendedActions.map((action, index) => (
+                          <div key={index} className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                            <CheckCircle className="w-5 h-5 text-blue-600" />
+                            <p className="text-sm">{action}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

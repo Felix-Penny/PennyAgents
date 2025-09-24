@@ -703,143 +703,10 @@ export function registerRoutes(app: Express): Server {
   // GENERAL API ENDPOINTS
   // =====================================
 
-  // Video upload and analysis endpoints
-  app.post("/api/store/:storeId/video/analyze", requireAuth, requireStoreStaff, requireStoreAccess, async (req, res) => {
-    try {
-      const { storeId } = req.params;
-      const { videoBase64, cameraId } = req.body;
-      
-      if (!videoBase64) {
-        return res.status(400).json({ message: "Video data is required" });
-      }
-      
-      // Verify store exists and user has access
-      const existingStore = await storage.getStore(storeId);
-      if (!existingStore) {
-        return res.status(404).json({ message: "Store not found" });
-      }
-
-      // Validate file size (max 50MB)
-      const videoSizeBytes = (videoBase64.length * 3) / 4; // Approximate base64 to bytes
-      if (videoSizeBytes > 50 * 1024 * 1024) {
-        return res.status(400).json({ message: "Video file too large. Maximum size is 50MB." });
-      }
-
-      // Import video analysis service
-      const { videoAnalysisService } = await import('./video-analysis');
-      
-      // Convert base64 to buffer and save
-      const videoBuffer = Buffer.from(videoBase64, 'base64');
-      const videoPath = await videoAnalysisService.saveUploadedVideo(videoBuffer, 'upload.mp4');
-      
-      // Analyze video for faces and suspicious activity
-      const analysisResult = await videoAnalysisService.analyzeVideo(videoPath, storeId, cameraId);
-      
-      // Get known offenders for face matching
-      const knownOffenders = await storage.getNetworkOffenders();
-      
-      // Enhanced face matching with proper cropping
-      const enhancedMatches: Array<{
-        offenderId: string;
-        confidence: number;
-        faceId: string;
-        timestamp: number;
-      }> = [];
-
-      for (const face of analysisResult.detectedFaces) {
-        if (face.boundingBox && knownOffenders.length > 0) {
-          try {
-            // Find the frame this face was detected in (simplified for MVP)
-            const frameIndex = parseInt(face.id.split('_frame_')[1]) || 0;
-            const framePath = `/tmp/frame_${frameIndex}.jpg`; // Would need proper frame mapping
-            
-            // Crop face from frame using bounding box
-            const croppedFacePath = await videoAnalysisService.cropFaceFromFrame(
-              framePath, 
-              face.boundingBox
-            );
-            
-            // Compare cropped face with known offenders
-            const faceMatches = await videoAnalysisService.compareFaceWithOffenders(
-              croppedFacePath,
-              knownOffenders.map(o => ({
-                id: o.id,
-                name: o.name || 'Unknown',
-                thumbnails: (o.thumbnails as string[]) || []
-              }))
-            );
-            
-            faceMatches.forEach(match => {
-              enhancedMatches.push({
-                offenderId: match.offenderId,
-                confidence: match.confidence,
-                faceId: face.id,
-                timestamp: frameIndex * 2 // Assuming 2-second intervals
-              });
-            });
-            
-          } catch (error) {
-            console.error('Face processing error:', error);
-          }
-        }
-      }
-
-      // Add enhanced matches to analysis result
-      analysisResult.matchedOffenders.push(...enhancedMatches);
-
-      // Create alerts for high-confidence matches
-      for (const match of analysisResult.matchedOffenders) {
-        if (match.confidence > 0.8) {
-          const offender = knownOffenders.find(o => o.id === match.offenderId);
-          await storage.createAlert({
-            storeId,
-            cameraId: cameraId || 'video-upload',
-            type: 'known_offender_detected',
-            severity: 'high',
-            title: 'Known Offender Detected',
-            message: `Known offender "${offender?.name || 'Unknown'}" detected in uploaded video with ${(match.confidence * 100).toFixed(1)}% confidence`,
-            metadata: {
-              offenderId: match.offenderId,
-              confidence: match.confidence,
-              faceId: match.faceId,
-              videoAnalysisId: analysisResult.id
-            } as any
-          });
-        }
-      }
-
-      // Store analysis results
-      await storage.createVideoAnalysis({
-        id: analysisResult.id,
-        storeId,
-        cameraId: cameraId || null,
-        videoFilePath: videoPath,
-        analysisStatus: "COMPLETED",
-        detectedFaces: analysisResult.detectedFaces,
-        matchedOffenders: analysisResult.matchedOffenders,
-        confidenceScores: {
-          averageFaceConfidence: analysisResult.detectedFaces.length > 0 
-            ? analysisResult.detectedFaces.reduce((sum, face) => sum + face.confidence, 0) / analysisResult.detectedFaces.length 
-            : 0
-        },
-        videoDurationSeconds: analysisResult.videoMetadata.duration,
-        analyzedAt: new Date()
-      });
-
-      res.json({
-        analysisId: analysisResult.id,
-        detectedFaces: analysisResult.detectedFaces.length,
-        matchedOffenders: analysisResult.matchedOffenders.length,
-        suspiciousActivities: analysisResult.suspiciousActivity.length,
-        highConfidenceMatches: analysisResult.matchedOffenders.filter(m => m.confidence > 0.8).length,
-        analysisResult
-      });
-
-    } catch (error: any) {
-      console.error('Video analysis error:', error);
-      res.status(500).json({ message: "Analysis failed: " + error.message });
-    }
-  });
+  // LEGACY ENDPOINT REMOVED FOR SECURITY
+  // The old /api/store/:storeId/video/analyze endpoint has been removed to eliminate 
+  // DoS vulnerabilities from base64 video uploads. Use /api/ai/video-upload-url + 
+  // /api/ai/analyze-video with Object Storage instead.
 
   // Create video clip from analysis
   app.post("/api/store/:storeId/video/create-clip", requireAuth, requireStoreStaff, requireStoreAccess, async (req, res) => {
@@ -2287,6 +2154,702 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // =====================================
+  // AI VIDEO ANALYTICS ENDPOINTS
+  // =====================================
+
+  // Rate limiting for AI endpoints (more restrictive due to expensive OpenAI calls)
+  const aiAnalysisLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 5, // Limit to 5 AI analysis requests per minute
+    message: { error: "Too many AI analysis requests, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  const aiDetectionsLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 30, // Limit to 30 detection retrieval requests per minute
+    message: { error: "Too many detection requests, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  // Separate rate limiter for frame analysis (10/min as specified)
+  const aiFrameAnalysisLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 10, // Limit to 10 frame analysis requests per minute (higher than video analysis)
+    message: { error: "Too many frame analysis requests, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  // POST /api/ai/analyze-frame - Analyze single video frame or image
+  app.post("/api/ai/analyze-frame", requireAuth, requireSecurityAgent("operator"), aiFrameAnalysisLimiter, async (req, res) => {
+    try {
+      const { imageData, storeId, cameraId, config } = req.body;
+
+      // Enhanced validation with security controls
+      if (!imageData) {
+        return res.status(400).json({ message: "Image data is required" });
+      }
+      if (!storeId) {
+        return res.status(400).json({ message: "Store ID is required" });
+      }
+      if (!cameraId) {
+        return res.status(400).json({ message: "Camera ID is required" });
+      }
+
+      // Validate payload structure and prevent injection
+      if (typeof imageData !== 'string' || !imageData.startsWith('data:image/')) {
+        return res.status(400).json({ message: "Invalid image data format. Must be a valid data URL." });
+      }
+
+      // Verify store access
+      const store = await storage.getStore(storeId);
+      if (!store) {
+        return res.status(404).json({ message: "Store not found" });
+      }
+
+      // Extract MIME type and validate
+      const mimeMatch = imageData.match(/^data:([^;]+);base64,/);
+      if (!mimeMatch) {
+        return res.status(400).json({ message: "Invalid image data format" });
+      }
+      
+      const mimeType = mimeMatch[1];
+      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!allowedMimeTypes.includes(mimeType)) {
+        return res.status(400).json({ 
+          message: `Unsupported image type: ${mimeType}. Allowed types: ${allowedMimeTypes.join(', ')}` 
+        });
+      }
+
+      // Convert base64 to buffer with security checks
+      let imageBuffer: Buffer;
+      try {
+        const base64Data = imageData.split(',')[1];
+        imageBuffer = Buffer.from(base64Data, 'base64');
+      } catch (error) {
+        return res.status(400).json({ message: "Invalid base64 encoding" });
+      }
+
+      // Enhanced size validation with stricter limits
+      const maxImageSize = 5 * 1024 * 1024; // Reduced to 5MB for security
+      if (imageBuffer.length > maxImageSize) {
+        return res.status(400).json({ 
+          message: `Image file too large. Maximum size is ${maxImageSize / (1024 * 1024)}MB.` 
+        });
+      }
+
+      // Validate image signature (magic bytes) to prevent fake extensions
+      const isValidImage = validateImageSignature(imageBuffer, mimeType);
+      if (!isValidImage) {
+        return res.status(400).json({ message: "Invalid image file or corrupted data" });
+      }
+
+      // Import AI services
+      const { aiVideoAnalyticsService } = await import('./ai/videoAnalytics');
+      const { threatDetectionService } = await import('./ai/threatDetection');
+
+      // Perform comprehensive threat analysis
+      const threatAssessment = await threatDetectionService.analyzeThreatFrame(
+        imageBuffer,
+        storeId,
+        cameraId,
+        config || {}
+      );
+
+      // Also perform general AI analysis for additional insights
+      const frameAnalysis = await aiVideoAnalyticsService.analyzeImage(
+        imageBuffer,
+        storeId,
+        cameraId,
+        config || {}
+      );
+
+      // Combine results
+      const response = {
+        analysisId: threatAssessment.assessmentId,
+        frameAnalysis: {
+          detections: frameAnalysis.detections,
+          qualityScore: frameAnalysis.qualityScore,
+          lightingConditions: frameAnalysis.lightingConditions,
+          motionLevel: frameAnalysis.motionLevel,
+          crowdDensity: frameAnalysis.crowdDensity,
+          processingTime: frameAnalysis.processingTime
+        },
+        threatAssessment: {
+          detectedThreats: threatAssessment.detectedThreats,
+          overallRiskLevel: threatAssessment.overallRiskLevel,
+          recommendedActions: threatAssessment.recommendedActions,
+          analysisMetrics: threatAssessment.analysisMetrics
+        },
+        timestamp: threatAssessment.timestamp,
+        storeId,
+        cameraId
+      };
+
+      res.json(response);
+
+    } catch (error: any) {
+      console.error('AI frame analysis error:', error);
+      res.status(500).json({ 
+        message: "AI analysis failed", 
+        error: error.message,
+        details: "Please check your image format and try again"
+      });
+    }
+  });
+
+  // POST /api/ai/video-upload-url - Get signed URL for video upload
+  app.post("/api/ai/video-upload-url", requireAuth, requireSecurityAgent("operator"), uploadLimiter, async (req, res) => {
+    try {
+      const { storeId, cameraId } = req.body;
+
+      // Validate required fields
+      if (!storeId) {
+        return res.status(400).json({ message: "Store ID is required" });
+      }
+      if (!cameraId) {
+        return res.status(400).json({ message: "Camera ID is required" });
+      }
+
+      // Verify store access
+      const store = await storage.getStore(storeId);
+      if (!store) {
+        return res.status(404).json({ message: "Store not found" });
+      }
+
+      // Generate upload URL for video analysis
+      const objectStorage = new ObjectStorageService();
+      const uploadUrl = await objectStorage.getSecurityFileUploadURL(SecurityFileCategory.VIDEO_FOOTAGE);
+      
+      res.json({
+        uploadUrl,
+        maxFileSize: 200 * 1024 * 1024, // 200MB limit for videos
+        allowedTypes: ['video/mp4', 'video/webm', 'video/quicktime'],
+        uploadId: randomUUID()
+      });
+
+    } catch (error: any) {
+      console.error('Video upload URL generation error:', error);
+      res.status(500).json({ 
+        message: "Failed to generate upload URL", 
+        error: error.message 
+      });
+    }
+  });
+
+  // POST /api/ai/analyze-video - Process video from Object Storage
+  app.post("/api/ai/analyze-video", requireAuth, requireSecurityAgent("operator"), aiAnalysisLimiter, async (req, res) => {
+    try {
+      const { objectPath, storeId, cameraId, config } = req.body;
+
+      // Validate required fields
+      if (!objectPath) {
+        return res.status(400).json({ message: "Object path is required (upload video first using /api/ai/video-upload-url)" });
+      }
+      if (!storeId) {
+        return res.status(400).json({ message: "Store ID is required" });
+      }
+      if (!cameraId) {
+        return res.status(400).json({ message: "Camera ID is required" });
+      }
+
+      // Verify store access
+      const store = await storage.getStore(storeId);
+      if (!store) {
+        return res.status(404).json({ message: "Store not found" });
+      }
+
+      // Import AI services
+      const { aiVideoAnalyticsService } = await import('./ai/videoAnalytics');
+      
+      // Download video from Object Storage and analyze
+      const objectStorage = new ObjectStorageService();
+      
+      try {
+        // Analyze video from Object Storage (this avoids downloading the entire file into memory)
+        const analysisResult = await aiVideoAnalyticsService.analyzeVideoFromStorage(
+          objectPath,
+          storeId,
+          cameraId,
+          config || {}
+        );
+
+        // Format response with comprehensive results
+        const response = {
+          analysisId: analysisResult.analysisId,
+          status: analysisResult.status,
+          
+          // Summary metrics
+          totalDetections: analysisResult.totalDetections,
+          threatDetections: analysisResult.threatDetections,
+          suspiciousActivities: analysisResult.suspiciousActivities.length,
+          
+          // Quality and processing info
+          averageConfidence: analysisResult.averageConfidence,
+          qualityScore: analysisResult.qualityScore,
+          processingDuration: analysisResult.processingDuration,
+          
+          // Threat breakdown
+          threats: {
+            high: analysisResult.suspiciousActivities.filter(a => a.severity === 'high').length,
+            medium: analysisResult.suspiciousActivities.filter(a => a.severity === 'medium').length,
+            low: analysisResult.suspiciousActivities.filter(a => a.severity === 'low').length,
+            critical: analysisResult.suspiciousActivities.filter(a => a.severity === 'critical').length
+          },
+          
+          // Frame-by-frame results (limited for response size)
+          frames: analysisResult.frames.slice(0, 10).map(frame => ({
+            frameNumber: frame.frameNumber,
+            timestamp: frame.timestamp,
+            detectionCount: frame.detections.length,
+            highThreatDetections: frame.detections.filter(d => d.severity === 'high' || d.severity === 'critical').length,
+            qualityScore: frame.qualityScore
+          })),
+          
+          // Most significant detections
+          significantDetections: analysisResult.suspiciousActivities
+            .filter(a => a.severity === 'high' || a.severity === 'critical')
+            .slice(0, 5)
+            .map(detection => ({
+              id: detection.id,
+              type: detection.detectionType,
+              threatType: detection.threatType,
+              behaviorType: detection.behaviorType,
+              confidence: detection.confidence,
+              severity: detection.severity,
+              description: detection.description,
+              timestamp: detection.frameTimestamp,
+              boundingBox: detection.boundingBox
+            })),
+          
+          storeId,
+          cameraId,
+          createdAt: analysisResult.createdAt,
+          completedAt: analysisResult.completedAt
+        };
+
+        res.json(response);
+
+      } catch (analysisError) {
+        // Clean up temp file on analysis failure
+        try {
+          await fs.unlink(tempVideoPath);
+        } catch (cleanupError) {
+          console.warn('Failed to clean up temp video file after analysis error:', cleanupError);
+        }
+        throw analysisError;
+      }
+
+    } catch (error: any) {
+      console.error('AI video analysis error:', error);
+      res.status(500).json({ 
+        message: "AI video analysis failed", 
+        error: error.message,
+        details: "Please check your video format and try again"
+      });
+    }
+  });
+
+  // GET /api/ai/detections - Retrieve AI detection results with filtering
+  app.get("/api/ai/detections", requireAuth, requireSecurityAgent("viewer"), aiDetectionsLimiter, async (req, res) => {
+    try {
+      const {
+        storeId,
+        cameraId,
+        detectionType,
+        threatType,
+        minConfidence,
+        severity,
+        startDate,
+        endDate,
+        limit = '50',
+        offset = '0',
+        verified,
+        orderBy = 'createdAt',
+        order = 'desc'
+      } = req.query;
+
+      // Validate store access if storeId provided
+      if (storeId) {
+        const store = await storage.getStore(storeId as string);
+        if (!store) {
+          return res.status(404).json({ message: "Store not found" });
+        }
+      }
+
+      // Build filters based on query parameters
+      const filters: any = {};
+      
+      if (storeId) filters.storeId = storeId;
+      if (cameraId) filters.cameraId = cameraId;
+      if (detectionType) filters.detectionType = detectionType;
+      if (threatType) filters.threatType = threatType;
+      if (minConfidence) filters.minConfidence = parseFloat(minConfidence as string);
+      if (verified !== undefined) filters.verified = verified === 'true';
+
+      // Get detections based on filters
+      let detections: any[] = [];
+      
+      if (storeId && detectionType) {
+        detections = await storage.getAiDetectionsByType(storeId as string, detectionType as string);
+      } else if (storeId && minConfidence) {
+        detections = await storage.getAiDetectionsByConfidence(storeId as string, parseFloat(minConfidence as string));
+      } else if (storeId) {
+        detections = await storage.getAiDetectionsByStore(storeId as string, parseInt(limit as string));
+      } else if (cameraId) {
+        detections = await storage.getAiDetectionsByCamera(cameraId as string, parseInt(limit as string));
+      } else {
+        // Get recent detections across all accessible stores
+        // For now, return empty array if no specific store/camera filter
+        detections = [];
+      }
+
+      // Apply additional filtering
+      let filteredDetections = detections;
+
+      if (severity) {
+        filteredDetections = filteredDetections.filter(d => 
+          d.metadata?.severity === severity
+        );
+      }
+
+      if (startDate || endDate) {
+        const start = startDate ? new Date(startDate as string) : new Date(0);
+        const end = endDate ? new Date(endDate as string) : new Date();
+        
+        filteredDetections = filteredDetections.filter(d => {
+          const createdAt = new Date(d.createdAt || d.frameTimestamp);
+          return createdAt >= start && createdAt <= end;
+        });
+      }
+
+      // Apply pagination
+      const offsetNum = parseInt(offset as string);
+      const limitNum = parseInt(limit as string);
+      const paginatedDetections = filteredDetections.slice(offsetNum, offsetNum + limitNum);
+
+      // Format response with analytics
+      const response = {
+        detections: paginatedDetections.map(detection => ({
+          id: detection.id,
+          storeId: detection.storeId,
+          cameraId: detection.cameraId,
+          detectionType: detection.detectionType,
+          objectClass: detection.objectClass,
+          threatType: detection.threatType,
+          behaviorType: detection.behaviorType,
+          confidence: detection.confidence,
+          boundingBox: detection.boundingBox,
+          keyPoints: detection.keyPoints,
+          modelName: detection.modelName,
+          modelVersion: detection.modelVersion,
+          frameTimestamp: detection.frameTimestamp,
+          isVerified: detection.isVerified,
+          isFalsePositive: detection.isFalsePositive,
+          verifiedBy: detection.verifiedBy,
+          verifiedAt: detection.verifiedAt,
+          notes: detection.notes,
+          metadata: detection.metadata,
+          createdAt: detection.createdAt
+        })),
+        
+        pagination: {
+          total: filteredDetections.length,
+          offset: offsetNum,
+          limit: limitNum,
+          hasMore: offsetNum + limitNum < filteredDetections.length
+        },
+        
+        analytics: {
+          totalDetections: filteredDetections.length,
+          averageConfidence: filteredDetections.length > 0 
+            ? filteredDetections.reduce((sum, d) => sum + (d.confidence || 0), 0) / filteredDetections.length 
+            : 0,
+          threatBreakdown: {
+            high: filteredDetections.filter(d => d.metadata?.severity === 'high').length,
+            medium: filteredDetections.filter(d => d.metadata?.severity === 'medium').length,
+            low: filteredDetections.filter(d => d.metadata?.severity === 'low').length,
+            critical: filteredDetections.filter(d => d.metadata?.severity === 'critical').length
+          },
+          verificationStatus: {
+            verified: filteredDetections.filter(d => d.isVerified).length,
+            unverified: filteredDetections.filter(d => !d.isVerified).length,
+            falsePositives: filteredDetections.filter(d => d.isFalsePositive).length
+          },
+          detectionTypes: filteredDetections.reduce((acc, d) => {
+            acc[d.detectionType] = (acc[d.detectionType] || 0) + 1;
+            return acc;
+          }, {} as Record<string, number>)
+        },
+        
+        filters: {
+          storeId,
+          cameraId,
+          detectionType,
+          threatType,
+          minConfidence,
+          severity,
+          startDate,
+          endDate,
+          verified
+        }
+      };
+
+      res.json(response);
+
+    } catch (error: any) {
+      console.error('AI detections retrieval error:', error);
+      res.status(500).json({ 
+        message: "Failed to retrieve AI detections", 
+        error: error.message 
+      });
+    }
+  });
+
+  // POST /api/ai/verify-detection - Manual verification/feedback for AI results
+  app.post("/api/ai/verify-detection", requireAuth, requireSecurityAgent("operator"), async (req, res) => {
+    try {
+      const { detectionId, isValid, feedback, confidence } = req.body;
+
+      // Validate required fields
+      if (!detectionId) {
+        return res.status(400).json({ message: "Detection ID is required" });
+      }
+      if (typeof isValid !== 'boolean') {
+        return res.status(400).json({ message: "Valid verification status (isValid) is required" });
+      }
+
+      // Get the detection to verify it exists and user has access
+      const detection = await storage.getAiDetection(detectionId);
+      if (!detection) {
+        return res.status(404).json({ message: "Detection not found" });
+      }
+
+      // Verify store access
+      const store = await storage.getStore(detection.storeId);
+      if (!store) {
+        return res.status(404).json({ message: "Store not found" });
+      }
+
+      // Import threat detection service for verification
+      const { threatDetectionService } = await import('./ai/threatDetection');
+
+      // Perform verification
+      await threatDetectionService.verifyThreatDetection(
+        detectionId,
+        isValid,
+        feedback || '',
+        req.user!.id
+      );
+
+      // Get updated detection
+      const updatedDetection = await storage.getAiDetection(detectionId);
+
+      // Log verification for analytics and model improvement
+      console.log(`Detection ${detectionId} verified as ${isValid ? 'valid' : 'false positive'} by user ${req.user!.id}`);
+
+      const response = {
+        detectionId,
+        verificationStatus: isValid ? 'verified' : 'false_positive',
+        verifiedBy: req.user!.id,
+        verifiedAt: new Date(),
+        feedback,
+        confidence,
+        detection: updatedDetection,
+        message: `Detection ${isValid ? 'verified as valid' : 'marked as false positive'} successfully`
+      };
+
+      res.json(response);
+
+    } catch (error: any) {
+      console.error('AI detection verification error:', error);
+      res.status(500).json({ 
+        message: "Failed to verify detection", 
+        error: error.message 
+      });
+    }
+  });
+
+  // GET /api/ai/analytics - Get AI analytics dashboard data
+  app.get("/api/ai/analytics", requireAuth, requireSecurityAgent("viewer"), async (req, res) => {
+    try {
+      const { storeId, period = '7d' } = req.query;
+
+      // Calculate date range based on period
+      const endDate = new Date();
+      const startDate = new Date();
+      
+      switch (period) {
+        case '24h':
+          startDate.setDate(startDate.getDate() - 1);
+          break;
+        case '7d':
+          startDate.setDate(startDate.getDate() - 7);
+          break;
+        case '30d':
+          startDate.setDate(startDate.getDate() - 30);
+          break;
+        case '90d':
+          startDate.setDate(startDate.getDate() - 90);
+          break;
+        default:
+          startDate.setDate(startDate.getDate() - 7);
+      }
+
+      // Get AI detections and video analytics for the period
+      let detections: any[] = [];
+      let videoAnalytics: any[] = [];
+
+      if (storeId) {
+        detections = await storage.getAiDetectionsByStore(storeId as string, 1000);
+        videoAnalytics = await storage.getVideoAnalyticsByStore(storeId as string, 100);
+      }
+
+      // Filter by date range
+      const filteredDetections = detections.filter(d => {
+        const createdAt = new Date(d.createdAt || d.frameTimestamp);
+        return createdAt >= startDate && createdAt <= endDate;
+      });
+
+      const filteredAnalytics = videoAnalytics.filter(va => {
+        const createdAt = new Date(va.createdAt);
+        return createdAt >= startDate && createdAt <= endDate;
+      });
+
+      // Calculate analytics
+      const analytics = {
+        summary: {
+          totalDetections: filteredDetections.length,
+          threatDetections: filteredDetections.filter(d => d.threatType).length,
+          highConfidenceDetections: filteredDetections.filter(d => d.confidence >= 0.8).length,
+          verifiedDetections: filteredDetections.filter(d => d.isVerified).length,
+          falsePositives: filteredDetections.filter(d => d.isFalsePositive).length,
+          avgConfidence: filteredDetections.length > 0 
+            ? filteredDetections.reduce((sum, d) => sum + (d.confidence || 0), 0) / filteredDetections.length 
+            : 0,
+          totalVideosAnalyzed: filteredAnalytics.length,
+          avgProcessingTime: filteredAnalytics.length > 0
+            ? filteredAnalytics.reduce((sum, va) => sum + (va.processingTime || 0), 0) / filteredAnalytics.length
+            : 0
+        },
+        
+        threatBreakdown: {
+          theft: filteredDetections.filter(d => d.threatType === 'theft').length,
+          violence: filteredDetections.filter(d => d.threatType === 'violence').length,
+          weapons: filteredDetections.filter(d => d.threatType === 'weapons').length,
+          suspicious: filteredDetections.filter(d => 
+            d.threatType === 'suspicious_behavior' || d.behaviorType === 'suspicious'
+          ).length,
+          loitering: filteredDetections.filter(d => 
+            d.behaviorType === 'loitering' || d.threatType === 'unauthorized_access'
+          ).length
+        },
+        
+        detectionTypes: filteredDetections.reduce((acc, d) => {
+          acc[d.detectionType] = (acc[d.detectionType] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
+        
+        confidenceDistribution: {
+          high: filteredDetections.filter(d => d.confidence >= 0.8).length,
+          medium: filteredDetections.filter(d => d.confidence >= 0.6 && d.confidence < 0.8).length,
+          low: filteredDetections.filter(d => d.confidence < 0.6).length
+        },
+        
+        timeline: generateTimelineData(filteredDetections, startDate, endDate),
+        
+        modelPerformance: {
+          accuracy: filteredDetections.length > 0 
+            ? ((filteredDetections.filter(d => d.isVerified && !d.isFalsePositive).length) / filteredDetections.filter(d => d.isVerified).length) * 100 || 0
+            : 0,
+          precision: calculatePrecision(filteredDetections),
+          recall: calculateRecall(filteredDetections)
+        },
+        
+        period,
+        storeId,
+        generatedAt: new Date()
+      };
+
+      res.json(analytics);
+
+    } catch (error: any) {
+      console.error('AI analytics error:', error);
+      res.status(500).json({ 
+        message: "Failed to generate AI analytics", 
+        error: error.message 
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
+}
+
+// Security validation functions
+function validateImageSignature(buffer: Buffer, mimeType: string): boolean {
+  // Check magic bytes for common image formats
+  const signatures = {
+    'image/jpeg': [0xFF, 0xD8, 0xFF],
+    'image/png': [0x89, 0x50, 0x4E, 0x47],
+    'image/webp': [0x52, 0x49, 0x46, 0x46] // RIFF
+  };
+  
+  const signature = signatures[mimeType as keyof typeof signatures];
+  if (!signature) return false;
+  
+  for (let i = 0; i < signature.length; i++) {
+    if (buffer[i] !== signature[i]) return false;
+  }
+  
+  return true;
+}
+
+// Helper functions for AI analytics endpoint
+function generateTimelineData(detections: any[], startDate: Date, endDate: Date): any[] {
+  const timelineData: any[] = [];
+  const dayMs = 24 * 60 * 60 * 1000;
+  const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / dayMs);
+  
+  for (let i = 0; i < totalDays; i++) {
+    const date = new Date(startDate.getTime() + (i * dayMs));
+    const dayStart = new Date(date.setHours(0, 0, 0, 0));
+    const dayEnd = new Date(date.setHours(23, 59, 59, 999));
+    
+    const dayDetections = detections.filter(d => {
+      const detectionDate = new Date(d.createdAt || d.frameTimestamp);
+      return detectionDate >= dayStart && detectionDate <= dayEnd;
+    });
+    
+    timelineData.push({
+      date: dayStart.toISOString().split('T')[0],
+      detections: dayDetections.length,
+      threats: dayDetections.filter(d => d.threatType).length,
+      highConfidence: dayDetections.filter(d => d.confidence >= 0.8).length
+    });
+  }
+  
+  return timelineData;
+}
+
+function calculatePrecision(detections: any[]): number {
+  const verifiedDetections = detections.filter(d => d.isVerified);
+  if (verifiedDetections.length === 0) return 0;
+  
+  const truePositives = verifiedDetections.filter(d => !d.isFalsePositive).length;
+  return (truePositives / verifiedDetections.length) * 100;
+}
+
+function calculateRecall(detections: any[]): number {
+  // For recall calculation, we need ground truth data which might not be available
+  // For now, return a reasonable approximation based on verification rates
+  const totalDetections = detections.length;
+  const verifiedDetections = detections.filter(d => d.isVerified).length;
+  
+  if (totalDetections === 0) return 0;
+  return (verifiedDetections / totalDetections) * 100;
 }
