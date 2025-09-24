@@ -1,7 +1,7 @@
 // Penny Multi-Agent Platform Schema
 // Referenced from javascript_auth_all_persistance integration
-import { pgTable, varchar, text, timestamp, boolean, decimal, integer, jsonb } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
+import { pgTable, varchar, text, timestamp, boolean, decimal, integer, jsonb, foreignKey } from "drizzle-orm/pg-core";
+import { sql, relations } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -557,7 +557,7 @@ export const employees = pgTable("employees", {
   userId: varchar("user_id", { length: 255 }).references(() => users.id), // link to platform user
   employeeId: varchar("employee_id", { length: 100 }).notNull(), // company employee ID
   departmentId: varchar("department_id", { length: 255 }).references(() => departments.id),
-  managerId: varchar("manager_id", { length: 255 }).references(() => employees.id),
+  managerId: varchar("manager_id", { length: 255 }),
   firstName: varchar("first_name", { length: 255 }).notNull(),
   lastName: varchar("last_name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }).notNull(),
@@ -600,7 +600,14 @@ export const employees = pgTable("employees", {
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  // Self-referential foreign key constraint for manager relationship
+  managerFk: foreignKey({
+    columns: [table.managerId],
+    foreignColumns: [table.id],
+    name: "employees_manager_fk"
+  }).onDelete('set null'),
+}));
 
 export const performanceReviews = pgTable("performance_reviews", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
@@ -882,6 +889,40 @@ export const hrMetrics = pgTable("hr_metrics", {
   calculatedAt: timestamp("calculated_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// =====================================
+// Drizzle Relations - Employee Management Hierarchy
+// =====================================
+
+export const employeesRelations = relations(employees, ({ one, many }) => ({
+  // Many-to-one: Employee belongs to a manager
+  manager: one(employees, {
+    fields: [employees.managerId],
+    references: [employees.id],
+    relationName: "employee_manager"
+  }),
+  // One-to-many: Employee has many subordinates
+  subordinates: many(employees, {
+    relationName: "employee_manager"
+  }),
+  // Other relations
+  organization: one(organizations, {
+    fields: [employees.organizationId],
+    references: [organizations.id],
+  }),
+  department: one(departments, {
+    fields: [employees.departmentId],
+    references: [departments.id],
+  }),
+  user: one(users, {
+    fields: [employees.userId],
+    references: [users.id],
+  }),
+  performanceReviews: many(performanceReviews),
+  performanceGoals: many(performanceGoals),
+  trainingCompletions: many(trainingCompletions),
+  surveyResponses: many(surveyResponses),
+}));
 
 // =====================================
 // Zod Schemas for Validation
