@@ -153,7 +153,7 @@ export class ThreatDetectionService {
    */
   private async loadThreatClassifications(): Promise<void> {
     try {
-      const classifications = await storage.getThreatClassifications();
+      const classifications = await storage.getThreatClassificationsByStore('default') || [];
       for (const classification of classifications) {
         this.threatClassifications.set(classification.id, classification);
       }
@@ -255,7 +255,7 @@ export class ThreatDetectionService {
         analysisMetrics: {
           totalThreats: detectedThreats.length,
           highSeverityThreats: detectedThreats.filter(t => 
-            t.severity === 'high' || t.severity === 'critical' || t.severity === 'emergency'
+            t.severity === 'HIGH' || t.severity === 'CRITICAL' || t.severity === 'EMERGENCY'
           ).length,
           averageConfidence: detectedThreats.length > 0 
             ? detectedThreats.reduce((sum, t) => sum + t.confidence, 0) / detectedThreats.length 
@@ -415,15 +415,15 @@ Be thorough but precise. Err on the side of caution for high-severity threats.
    * Calculate overall risk level from detected threats
    */
   private calculateOverallRisk(threats: ThreatDetection[]): keyof typeof SEVERITY_LEVELS {
-    if (threats.length === 0) return 'info';
+    if (threats.length === 0) return 'INFO';
 
     const severityScores = {
-      'info': 0,
-      'low': 1,
-      'medium': 2, 
-      'high': 3,
-      'critical': 4,
-      'emergency': 5
+      'INFO': 0,
+      'LOW': 1,
+      'MEDIUM': 2, 
+      'HIGH': 3,
+      'CRITICAL': 4,
+      'EMERGENCY': 5
     };
 
     let maxSeverity = 0;
@@ -438,13 +438,13 @@ Be thorough but precise. Err on the side of caution for high-severity threats.
     avgRiskScore /= threats.length;
 
     // Determine overall risk based on highest severity and average risk score
-    if (maxSeverity >= 5 || avgRiskScore >= 9) return 'emergency';
-    if (maxSeverity >= 4 || avgRiskScore >= 8) return 'critical';
-    if (maxSeverity >= 3 || avgRiskScore >= 6) return 'high';
-    if (maxSeverity >= 2 || avgRiskScore >= 4) return 'medium';
-    if (maxSeverity >= 1 || avgRiskScore >= 2) return 'low';
+    if (maxSeverity >= 5 || avgRiskScore >= 9) return 'EMERGENCY';
+    if (maxSeverity >= 4 || avgRiskScore >= 8) return 'CRITICAL';
+    if (maxSeverity >= 3 || avgRiskScore >= 6) return 'HIGH';
+    if (maxSeverity >= 2 || avgRiskScore >= 4) return 'MEDIUM';
+    if (maxSeverity >= 1 || avgRiskScore >= 2) return 'LOW';
     
-    return 'info';
+    return 'INFO';
   }
 
   /**
@@ -480,7 +480,7 @@ Be thorough but precise. Err on the side of caution for high-severity threats.
       actions.push(...analysis.recommendedActions);
     }
 
-    return [...new Set(actions)]; // Remove duplicates
+    return Array.from(new Set(actions)); // Remove duplicates
   }
 
   /**
@@ -490,7 +490,7 @@ Be thorough but precise. Err on the side of caution for high-severity threats.
     try {
       // Create alerts for high-priority threats
       for (const threat of assessment.detectedThreats) {
-        if (threat.severity === 'high' || threat.severity === 'critical' || threat.severity === 'emergency') {
+        if (threat.severity === 'HIGH' || threat.severity === 'CRITICAL' || threat.severity === 'EMERGENCY') {
           await this.createThreatAlert(threat, assessment);
         }
         
@@ -520,13 +520,12 @@ Be thorough but precise. Err on the side of caution for high-severity threats.
         storeId: assessment.storeId,
         cameraId: assessment.cameraId,
         type: threat.category as any,
-        severity: threat.severity === 'emergency' ? 'critical' : threat.severity as any,
+        severity: threat.severity === 'EMERGENCY' ? 'CRITICAL' : threat.severity as any,
         title: alertTitle,
         message: alertMessage,
         isRead: false,
         isActive: true,
         metadata: {
-          threatId: threat.id,
           assessmentId: assessment.assessmentId,
           riskScore: threat.riskScore,
           confidence: threat.confidence,
@@ -555,12 +554,11 @@ Be thorough but precise. Err on the side of caution for high-severity threats.
         behaviorType: threat.subcategory as any,
         confidence: threat.confidence,
         boundingBox: threat.boundingBox,
-        modelName: AI_MODELS.GPT_5,
+        modelName: AI_MODELS.GPT_4O,
         modelVersion: '1.0',
         processingTime: assessment.analysisMetrics.processingTime,
         frameTimestamp: new Date(threat.timestamp),
         metadata: {
-          severity: threat.severity,
           riskScore: threat.riskScore,
           priorityLevel: threat.priorityLevel,
           description: threat.description,
@@ -587,20 +585,16 @@ Be thorough but precise. Err on the side of caution for high-severity threats.
     // Implementation would store in video_analytics table or create new threat_assessments table
     // For now, we'll use the video_analytics table
     try {
-      await storage.createVideoAnalytics({
+      await storage.createVideoAnalysis({
         storeId: assessment.storeId,
         cameraId: assessment.cameraId,
-        segmentId: assessment.assessmentId,
-        startTime: assessment.timestamp,
-        endTime: assessment.timestamp,
-        duration: 0, // Single frame analysis
-        originalFilePath: `threat_analysis_${assessment.assessmentId}`,
-        processingStatus: 'completed',
-        totalDetections: assessment.detectedThreats.length,
-        threatDetections: assessment.analysisMetrics.highSeverityThreats,
-        qualityScore: assessment.analysisMetrics.averageConfidence,
+        videoFilePath: `threat_analysis_${assessment.assessmentId}`,
+        analysisStatus: 'completed',
+        detectedFaces: [],
+        matchedOffenders: [],
+        confidenceScores: { average: assessment.analysisMetrics.averageConfidence },
         modelsUsed: [{
-          name: AI_MODELS.GPT_5,
+          name: AI_MODELS.GPT_4O,
           version: '1.0',
           purpose: 'threat_detection'
         }],

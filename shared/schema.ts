@@ -567,13 +567,6 @@ export const facialRecognition = pgTable("facial_recognition", {
   modelVersion: varchar("model_version", { length: 100 }).notNull(),
   processingTime: integer("processing_time"), // in milliseconds
   // Legal and audit trail
-  accessLog: jsonb("access_log").$type<Array<{
-    userId: string;
-    action: string;
-    timestamp: string;
-    ipAddress?: string;
-    userAgent?: string;
-  }>>().default([]),
   legalBasis: varchar("legal_basis", { length: 100 }), // legitimate_interest, consent, legal_obligation
   dataSource: varchar("data_source", { length: 100 }).default("live_detection"), // live_detection, manual_upload, batch_import
   createdAt: timestamp("created_at").defaultNow(),

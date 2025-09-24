@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import Stripe from "stripe";
 import rateLimit from "express-rate-limit";
 import { randomUUID } from "crypto";
+import { promises as fs } from "fs";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess, requireSecurityAgent, requireFinanceAgent, requireSalesAgent, requireOperationsAgent, requireHRAgent, requirePlatformRole, requireOrganizationAccess } from "./auth";
 import { ObjectStorageService, SecurityFileCategory, ObjectNotFoundError } from "./objectStorage";
@@ -2239,6 +2240,12 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Invalid image file or corrupted data" });
       }
 
+      // Extract image dimensions for coordinate system validation
+      const imageDimensions = extractImageDimensions(imageBuffer, mimeType);
+      if (!imageDimensions) {
+        return res.status(400).json({ message: "Could not determine image dimensions" });
+      }
+
       // Import AI services
       const { aiVideoAnalyticsService } = await import('./ai/videoAnalytics');
       const { threatDetectionService } = await import('./ai/threatDetection');
@@ -2263,8 +2270,21 @@ export function registerRoutes(app: Express): Server {
       const detectionResult = aiVideoAnalyticsService.convertToDetectionResult(
         cameraId,
         frameAnalysis.detections,
-        threatAssessment.detectedThreats
+        threatAssessment.detectedThreats,
+        imageDimensions.width,
+        imageDimensions.height
       );
+
+      // Validate DetectionResult before sending response (security requirement)
+      const detectionValidationResult = detectionResultSchema.safeParse(detectionResult);
+      if (!detectionValidationResult.success) {
+        console.error('DetectionResult validation failed:', detectionValidationResult.error.errors);
+        return res.status(500).json({ 
+          message: "Detection result validation failed", 
+          error: "Internal processing error - invalid detection format",
+          validationErrors: detectionValidationResult.error.errors
+        });
+      }
 
       // Combine results with overlay-ready detection data
       const response = {
@@ -2434,12 +2454,7 @@ export function registerRoutes(app: Express): Server {
         res.json(response);
 
       } catch (analysisError) {
-        // Clean up temp file on analysis failure
-        try {
-          await fs.unlink(tempVideoPath);
-        } catch (cleanupError) {
-          console.warn('Failed to clean up temp video file after analysis error:', cleanupError);
-        }
+        // Note: No temp file cleanup needed since we use Object Storage
         throw analysisError;
       }
 
@@ -2790,17 +2805,47 @@ export function registerRoutes(app: Express): Server {
 }
 
 // Security validation functions
+function extractImageDimensions(buffer: Buffer, mimeType: string): { width: number; height: number } | null {
+  try {
+    if (mimeType === 'image/jpeg') {
+      // JPEG dimensions extraction from SOF0 marker
+      for (let i = 0; i < buffer.length - 10; i++) {
+        if (buffer[i] === 0xFF && buffer[i + 1] === 0xC0) { // SOF0 marker
+          const height = (buffer[i + 5] << 8) | buffer[i + 6];
+          const width = (buffer[i + 7] << 8) | buffer[i + 8];
+          return { width, height };
+        }
+      }
+    } else if (mimeType === 'image/png') {
+      // PNG dimensions from IHDR chunk (bytes 16-23)
+      if (buffer.length >= 24) {
+        const width = (buffer[16] << 24) | (buffer[17] << 16) | (buffer[18] << 8) | buffer[19];
+        const height = (buffer[20] << 24) | (buffer[21] << 16) | (buffer[22] << 8) | buffer[23];
+        return { width, height };
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to extract image dimensions:', error);
+    return null;
+  }
+}
+
 function validateImageSignature(buffer: Buffer, mimeType: string): boolean {
-  // Check magic bytes for common image formats
+  // Check magic bytes for common image formats with complete signatures
   const signatures = {
-    'image/jpeg': [0xFF, 0xD8, 0xFF],
-    'image/png': [0x89, 0x50, 0x4E, 0x47],
-    'image/webp': [0x52, 0x49, 0x46, 0x46] // RIFF
+    'image/jpeg': [0xFF, 0xD8, 0xFF], // JPEG signature (first 3 bytes)
+    'image/png': [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], // Complete PNG signature (8 bytes)
+    'image/webp': [0x52, 0x49, 0x46, 0x46] // RIFF header for WebP
   };
   
   const signature = signatures[mimeType as keyof typeof signatures];
   if (!signature) return false;
   
+  // Ensure buffer has enough bytes for the signature
+  if (buffer.length < signature.length) return false;
+  
+  // Check each byte of the magic signature
   for (let i = 0; i < signature.length; i++) {
     if (buffer[i] !== signature[i]) return false;
   }

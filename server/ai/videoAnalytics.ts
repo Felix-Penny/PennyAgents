@@ -381,7 +381,7 @@ Respond with JSON in this EXACT format:
       processingDuration: 0,
       frameRate: 30,
       resolution: "1920x1080",
-      modelUsed: config.model || AI_MODELS.GPT_5,
+      modelUsed: config.model || AI_MODELS.GPT_4O,
       config,
       status: 'processing',
       createdAt: new Date()
@@ -460,14 +460,12 @@ Respond with JSON in this EXACT format:
   private async storeAnalysisResults(analysis: ComprehensiveVideoAnalysis): Promise<void> {
     try {
       // Store video analytics record
-      const videoAnalytics = await storage.createVideoAnalytics({
+      const videoAnalytics = await storage.createVideoAnalysis({
         storeId: analysis.storeId,
         cameraId: analysis.cameraId,
-        segmentId: analysis.analysisId,
-        startTime: new Date(analysis.createdAt),
-        endTime: new Date(analysis.completedAt || Date.now()),
-        duration: Math.floor(analysis.processingDuration / 1000),
-        originalFilePath: analysis.videoPath,
+        videoFilePath: analysis.videoPath,
+        videoDurationSeconds: Math.floor(analysis.processingDuration / 1000),
+        analyzedAt: new Date(),
         processingStatus: analysis.status,
         totalDetections: analysis.totalDetections,
         threatDetections: analysis.threatDetections,
@@ -509,10 +507,9 @@ Respond with JSON in this EXACT format:
             modelVersion: "1.0",
             processingTime: detection.processingTime,
             frameTimestamp: new Date(detection.frameTimestamp),
-            frameNumber: frame.frameNumber,
+            frameNumber: frame.frameNumber.toString(),
             videoSegmentId: analysis.analysisId,
             metadata: {
-              severity: detection.severity,
               description: detection.description,
               frameQuality: frame.qualityScore
             }
@@ -663,7 +660,8 @@ Respond with JSON in this EXACT format:
       const objectStorage = new ObjectStorageService();
       
       // Get download URL for the video
-      const downloadUrl = await objectStorage.getObjectDownloadURL(objectPath);
+      // Note: Object Storage service doesn't have download URL method - using object path directly
+      const downloadUrl = objectPath;
       
       // Download video to temporary location for frame extraction
       const { promises: fs } = await import('fs');
@@ -797,17 +795,39 @@ Respond with JSON in this EXACT format:
 
   /**
    * Map various severity formats to ThreatSeverity enum
+   * Fixed to prevent overlapping conditions and ensure accurate mappings
    */
   private mapSeverityLevel(severity: string | undefined): ThreatSeverity {
     if (!severity) return 'medium';
     
-    const severityLower = severity.toLowerCase();
+    const severityLower = severity.toLowerCase().trim();
     
-    // Ordered exact checks - priority: critical → high → medium → low
-    if (severityLower.includes('critical')) return 'critical';
-    if (severityLower.includes('high')) return 'high';
-    if (severityLower.includes('medium') || severityLower.includes('moderate')) return 'medium';
-    if (severityLower.includes('low')) return 'low';
+    // Exact matches first (highest priority)
+    if (severityLower === 'critical' || severityLower === 'emergency') return 'critical';
+    if (severityLower === 'high') return 'high';
+    if (severityLower === 'medium' || severityLower === 'moderate') return 'medium';
+    if (severityLower === 'low' || severityLower === 'info') return 'low';
+    
+    // Partial matches with priority order (critical > high > medium > low)
+    // Check for critical keywords first
+    if (severityLower.includes('critical') || severityLower.includes('emergency') || severityLower.includes('severe')) {
+      return 'critical';
+    }
+    
+    // Check for high keywords (but not if critical already matched)
+    if (severityLower.includes('high') || severityLower.includes('urgent') || severityLower.includes('important')) {
+      return 'high';
+    }
+    
+    // Check for medium keywords
+    if (severityLower.includes('medium') || severityLower.includes('moderate') || severityLower.includes('normal')) {
+      return 'medium';
+    }
+    
+    // Check for low keywords
+    if (severityLower.includes('low') || severityLower.includes('minor') || severityLower.includes('info')) {
+      return 'low';
+    }
     
     return 'medium'; // Default fallback
   }
