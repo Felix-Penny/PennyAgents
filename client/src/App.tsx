@@ -119,16 +119,16 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <PermissionsProvider>
-          <WebSocketProvider>
+        <WebSocketProvider>
+          <PermissionsProvider>
             <TooltipProvider>
               <div className="dark">
                 <Toaster />
                 <Router />
               </div>
             </TooltipProvider>
-          </WebSocketProvider>
-        </PermissionsProvider>
+          </PermissionsProvider>
+        </WebSocketProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

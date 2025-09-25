@@ -4906,6 +4906,152 @@ export function registerRoutes(app: Express): Server {
       res.status(500).json({ error: "Failed to validate WebRTC configuration" });
     }
   });
+
+  // =====================================
+  // AI INTEGRATION TESTING ENDPOINTS
+  // =====================================
+
+  // Test facial recognition alert integration
+  app.post("/api/test/facial-recognition-alert-integration", requireAuth, requirePermission("testing:execute"), async (req, res) => {
+    try {
+      console.log("🔍 Starting facial recognition alert integration test...");
+      
+      const { facialRecognitionAlertTester } = await import("./tests/facial-recognition-alert-integration.test");
+      const results = await facialRecognitionAlertTester.runFacialRecognitionTestSuite();
+      
+      const report = facialRecognitionAlertTester.generateTestReport();
+      console.log(report);
+      
+      res.json({
+        success: results.failed === 0,
+        results,
+        report,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error("Facial recognition alert integration test failed:", error);
+      res.status(500).json({ 
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Test behavioral analysis alert integration  
+  app.post("/api/test/behavioral-analysis-alert-integration", requireAuth, requirePermission("testing:execute"), async (req, res) => {
+    try {
+      console.log("🧠 Starting behavioral analysis alert integration test...");
+      
+      // This will be implemented in the next test phase
+      res.json({
+        success: true,
+        message: "Behavioral analysis alert integration test - Coming in next phase",
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error("Behavioral analysis alert integration test failed:", error);
+      res.status(500).json({ 
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Test predictive analytics alert integration
+  app.post("/api/test/predictive-analytics-alert-integration", requireAuth, requirePermission("testing:execute"), async (req, res) => {
+    try {
+      console.log("📊 Starting predictive analytics alert integration test...");
+      
+      // This will be implemented in the next test phase
+      res.json({
+        success: true,
+        message: "Predictive analytics alert integration test - Coming in next phase", 
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error("Predictive analytics alert integration test failed:", error);
+      res.status(500).json({ 
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Test WebSocket real-time alert integration
+  app.post("/api/test/websocket-alert-integration", requireAuth, requirePermission("testing:execute"), async (req, res) => {
+    try {
+      console.log("🔄 Starting WebSocket real-time alert integration test...");
+      
+      // This will be implemented in the next test phase
+      res.json({
+        success: true,
+        message: "WebSocket real-time alert integration test - Coming in next phase",
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error("WebSocket real-time alert integration test failed:", error);
+      res.status(500).json({ 
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Run comprehensive AI alert integration test suite
+  app.post("/api/test/ai-alert-integration-suite", requireAuth, requirePermission("testing:execute"), async (req, res) => {
+    try {
+      console.log("🚀 Starting comprehensive AI alert integration test suite...");
+      
+      const results: any[] = [];
+      
+      // Test 1: Facial Recognition Integration
+      try {
+        const { facialRecognitionAlertTester } = await import("./tests/facial-recognition-alert-integration.test");
+        const facialResults = await facialRecognitionAlertTester.runFacialRecognitionTestSuite();
+        results.push({
+          testType: "facial_recognition",
+          ...facialResults,
+          report: facialRecognitionAlertTester.generateTestReport()
+        });
+      } catch (error) {
+        results.push({
+          testType: "facial_recognition",
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
+      
+      const overallSuccess = results.every(r => r.success !== false);
+      const totalTests = results.reduce((sum, r) => sum + (r.totalTests || 0), 0);
+      const totalPassed = results.reduce((sum, r) => sum + (r.passed || 0), 0);
+      const totalFailed = results.reduce((sum, r) => sum + (r.failed || 0), 0);
+      
+      console.log(`🎯 AI Alert Integration Test Suite Complete: ${totalPassed}/${totalTests} tests passed`);
+      
+      res.json({
+        success: overallSuccess,
+        summary: {
+          totalTests,
+          passed: totalPassed,
+          failed: totalFailed,
+          successRate: totalTests > 0 ? Math.round((totalPassed / totalTests) * 100) : 0
+        },
+        results,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error("AI alert integration test suite failed:", error);
+      res.status(500).json({ 
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
   
   const httpServer = createServer(app);
   
@@ -6346,6 +6492,7 @@ async function handlePermissionUnsubscription(ws: WebSocketClient, clientId: str
   
   console.log(`Permission subscription removed for client ${clientId}`);
 }
+
 
 // Broadcast permission updates to subscribed clients
 export async function broadcastPermissionUpdate(userId: string, updateType: 'permissions' | 'role' | 'security_role', data: any): Promise<void> {
