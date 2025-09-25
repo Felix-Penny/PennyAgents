@@ -44,7 +44,6 @@ import {
   type Store,
   type InsertAlert,
   type Alert,
-  type AlertInsert,
   type AlertAcknowledgment,
   type AlertAcknowledgmentInsert,
   type AlertEscalationRule,
@@ -496,6 +495,8 @@ export interface IStorage {
   getPredictiveModelPerformanceByModel(modelName: string, modelVersion?: string): Promise<PredictiveModelPerformance[]>;
   getLatestModelPerformance(modelName: string): Promise<PredictiveModelPerformance | null>;
   getAllModelPerformance(modelType?: string): Promise<PredictiveModelPerformance[]>;
+  getStaffingRecommendation(id: string): Promise<StaffingRecommendation | null>;
+  updateStaffingRecommendation(id: string, updates: Partial<InsertStaffingRecommendation>): Promise<StaffingRecommendation>;
   updatePredictiveModelPerformance(id: string, updates: Partial<InsertPredictiveModelPerformance>): Promise<PredictiveModelPerformance>;
   deleteModelPerformance(id: string): Promise<void>;
 
@@ -2829,14 +2830,7 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  // User and Store Helper Methods
-  async getStoreUsers(storeId: string): Promise<User[]> {
-    return await db
-      .select()
-      .from(users)
-      .where(eq(users.storeId, storeId))
-      .orderBy(users.username);
-  }
+  // User and Store Helper Methods - Duplicate removed
 
   async getUserById(userId: string): Promise<User | null> {
     const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -3571,6 +3565,84 @@ export class DatabaseStorage implements IStorage {
         sql`JSON_EXTRACT(${advancedFeatureAuditLog.details}, '$.personId') = ${personId}`
       ))
       .orderBy(desc(advancedFeatureAuditLog.timestamp));
+  }
+
+  // Missing Predictive Analytics Storage Methods
+  async getLatestRiskAssessment(storeId: string): Promise<RiskAssessment | null> {
+    const result = await db
+      .select()
+      .from(riskAssessments)
+      .where(eq(riskAssessments.storeId, storeId))
+      .orderBy(desc(riskAssessments.createdAt))
+      .limit(1);
+    return result[0] || null;
+  }
+
+  async getLatestSeasonalAnalysis(timespan: string): Promise<SeasonalAnalysis | null> {
+    const result = await db
+      .select()
+      .from(seasonalAnalyses)
+      .where(eq(seasonalAnalyses.timespan, timespan))
+      .orderBy(desc(seasonalAnalyses.createdAt))
+      .limit(1);
+    return result[0] || null;
+  }
+
+  async getActiveStaffingRecommendations(storeId: string): Promise<StaffingRecommendation[]> {
+    return await db
+      .select()
+      .from(staffingRecommendations)
+      .where(and(
+        eq(staffingRecommendations.storeId, storeId),
+        eq(staffingRecommendations.isActive, true)
+      ))
+      .orderBy(desc(staffingRecommendations.createdAt));
+  }
+
+  async getIncidentForecastsByStore(storeId: string, limit: number = 5): Promise<IncidentForecast[]> {
+    return await db
+      .select()
+      .from(incidentForecasts)
+      .where(eq(incidentForecasts.storeId, storeId))
+      .orderBy(desc(incidentForecasts.createdAt))
+      .limit(limit);
+  }
+
+  async getAllModelPerformance(modelType?: string): Promise<PredictiveModelPerformance[]> {
+    const query = db.select().from(predictiveModelPerformance);
+    if (modelType) {
+      return await query.where(eq(predictiveModelPerformance.modelType, modelType));
+    }
+    return await query.orderBy(desc(predictiveModelPerformance.evaluatedAt));
+  }
+
+  async getLatestModelPerformance(modelName: string): Promise<PredictiveModelPerformance | null> {
+    const result = await db
+      .select()
+      .from(predictiveModelPerformance)
+      .where(eq(predictiveModelPerformance.modelName, modelName))
+      .orderBy(desc(predictiveModelPerformance.evaluatedAt))
+      .limit(1);
+    return result[0] || null;
+  }
+
+  // Additional Missing Storage Methods for Routes
+  async getStaffingRecommendation(id: string): Promise<StaffingRecommendation | null> {
+    const result = await db
+      .select()
+      .from(staffingRecommendations)
+      .where(eq(staffingRecommendations.id, id))
+      .limit(1);
+    return result[0] || null;
+  }
+
+  async updateStaffingRecommendation(id: string, updates: Partial<InsertStaffingRecommendation>): Promise<StaffingRecommendation> {
+    const [updated] = await db
+      .update(staffingRecommendations)
+      .set(updates)
+      .where(eq(staffingRecommendations.id, id))
+      .returning();
+    return updated;
   }
 }
 

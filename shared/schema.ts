@@ -4040,7 +4040,7 @@ export const analyticsReports = pgTable("analytics_reports", {
     security: Record<string, number>;
     performance: Record<string, number>;
     financial: Record<string, number>;
-  }>().default({}),
+  }>().default({ security: {}, performance: {}, financial: {} }),
   charts: jsonb("charts").$type<Array<{
     type: string;
     title: string;
@@ -4073,7 +4073,7 @@ export const analyticsReports = pgTable("analytics_reports", {
 // =====================================
 
 // Security Roles - Enhanced role hierarchy for granular security permissions
-export const securityRoles = pgTable("security_roles", {
+export const securityRoles: any = pgTable("security_roles", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   name: varchar("name", { length: 100 }).notNull().unique(), // admin, security_personnel, safety_coordinator, guest
   displayName: varchar("display_name", { length: 255 }).notNull(), // Security Manager, Guard/Officer, Safety Coordinator, Visitor
@@ -4081,7 +4081,8 @@ export const securityRoles = pgTable("security_roles", {
   category: varchar("category", { length: 100 }).notNull(), // security, safety, administrative, visitor
   // Hierarchical role system
   level: integer("level").notNull(), // 1=admin, 2=security_personnel, 3=safety_coordinator, 4=guest
-  parentRoleId: varchar("parent_role_id", { length: 255 }).references(() => securityRoles.id),
+  parentRoleId: varchar("parent_role_id", { length: 255 }),
+  // parentRoleId references securityRoles.id - defined in relations below to avoid circular reference
   inheritsFrom: jsonb("inherits_from").$type<string[]>().default([]), // role IDs this role inherits permissions from
   // Access scope and boundaries
   scope: varchar("scope", { length: 100 }).default("store"), // store, organization, network, global
@@ -4828,6 +4829,16 @@ export const predictiveModelPerformance = pgTable("predictive_model_performance"
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Access Permission schemas  
+export const insertAccessPermissionSchema = createInsertSchema(accessPermissions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const selectAccessPermissionSchema = createSelectSchema(accessPermissions);
+export type InsertAccessPermission = z.infer<typeof insertAccessPermissionSchema>;
+export type AccessPermission = z.infer<typeof selectAccessPermissionSchema>;
 
 // Predictive Analytics Zod Schemas
 export const insertRiskAssessmentSchema = createInsertSchema(riskAssessments);
