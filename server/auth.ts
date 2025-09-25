@@ -787,6 +787,7 @@ export function getDefaultPermissions(userRole?: string): UserPermissions {
 
   // Map legacy roles to security permissions with advanced AI features
   switch (userRole) {
+    case 'admin':
     case 'penny_admin':
       return {
         cameras: { view: true, control: true, configure: true, history: true },
@@ -796,7 +797,7 @@ export function getDefaultPermissions(userRole?: string): UserPermissions {
         analytics: { executive: true, operational: true, safety: true, public: true, reports: true, export: true },
         users: { view: true, create: true, edit: true, delete: true, assign_roles: true },
         system: { configure: true, audit: true, backup: true, maintenance: true },
-        // Full access to advanced AI features for penny_admin
+        // Full access to advanced AI features for admin/penny_admin
         security: {
           behavior: { read: true, write: true, analyze: true },
           face: { manage: true, search: true, template_access: true, match: true },
@@ -863,6 +864,7 @@ export function getDefaultSecurityRoles(userRole?: string): SecurityRole[] {
   const roles: SecurityRole[] = [];
 
   switch (userRole) {
+    case 'admin':
     case 'penny_admin':
       roles.push({
         id: 'admin',
