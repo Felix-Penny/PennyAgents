@@ -39,6 +39,7 @@ import {
   broadcastCameraStatusUpdate,
   type CameraWebSocketClient 
 } from "./websocket-camera-handlers";
+import { aiIntegrationService } from "./ai-integration";
 
 // Initialize Stripe if keys are available
 let stripe: Stripe | null = null;

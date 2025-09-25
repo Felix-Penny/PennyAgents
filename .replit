@@ -1,10 +1,10 @@
-modules = ["nodejs-20", "web", "postgresql-16"]
+modules = ["nodejs-20", "web", "postgresql-16", "python-3.11"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["ffmpeg"]
+packages = ["ffmpeg", "ffmpeg-full", "freetype", "lcms2", "libGL", "libGLU", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "tcl", "tk", "zlib"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -47,6 +47,10 @@ localPort = 32803
 externalPort = 3003
 
 [[ports]]
+localPort = 35609
+externalPort = 6800
+
+[[ports]]
 localPort = 36109
 externalPort = 4200
 
@@ -65,10 +69,6 @@ externalPort = 5000
 [[ports]]
 localPort = 37737
 externalPort = 3001
-
-[[ports]]
-localPort = 41231
-externalPort = 6800
 
 [[ports]]
 localPort = 42059
