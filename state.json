@@ -1,0 +1,45 @@
+{
+  "cookies": [
+    {
+      "name": "__cf_bm",
+      "value": "NkntPcXR9wanhzM7aqiJ5uSWJRtgxATNXWaDzM_mpsM-1758772877-1.0.1.1-a18RCTYUm.hs2wcIBTYOpJnzjNgjy5DV3SkH_6gSOda1NBbp4YDxK6EKXCzBU1WLu3Ui4DjHbfu.WokA63lcXSBvs4.dU5keTksqVDADFxA",
+      "domain": ".replit.com",
+      "path": "/",
+      "expires": 1758774677.387069,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "_cfuvid",
+      "value": "5wlQInI3xxv5PTd2NBVTOJDdOKmE7RU1wkjxKf5dqiI-1758772877382-0.0.1.1-604800000",
+      "domain": ".replit.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "connect.sid",
+      "value": "s%3Acib6pLZpylnD7CNvu1MF209zF05vnhTB.B%2F%2FfejQlIywe5pxNaU4tKPwBE1EL2oZYoov0GbrwsEc",
+      "domain": "7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev",
+      "path": "/",
+      "expires": 1758859326.394094,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev",
+      "localStorage": [
+        {
+          "name": "replitDevBannerClosed-7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

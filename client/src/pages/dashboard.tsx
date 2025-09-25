@@ -85,7 +85,7 @@ export default function Dashboard() {
         <AlertTriangle className="h-4 w-4 text-red-600" />
         <AlertDescription className="text-red-700">
           <strong>{stats.activeAlerts} Active Security Alerts</strong> - {stats.activeAlerts > 0 ? 'Requires immediate attention' : 'No active alerts'}
-          <Link href="/alerts">
+          <Link href="/security/alerts">
             <Button variant="link" className="p-0 h-auto text-red-700 underline ml-2" data-testid="link-alerts">
               View Details
             </Button>
@@ -209,7 +209,7 @@ export default function Dashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/live-feeds">
+            <Link href="/security/live-feeds">
               <Button className="w-full" data-testid="button-live-feeds">
                 Open Live Feeds
               </Button>
@@ -228,7 +228,7 @@ export default function Dashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/alerts">
+            <Link href="/security/alerts">
               <Button className="w-full" data-testid="button-alerts">
                 Manage Alerts
               </Button>
@@ -247,7 +247,7 @@ export default function Dashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/offenders">
+            <Link href="/security/offenders">
               <Button className="w-full" data-testid="button-offenders">
                 View Database
               </Button>
