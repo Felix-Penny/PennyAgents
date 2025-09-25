@@ -1,18 +1,90 @@
 /**
- * Predictive Analytics - AI-powered prediction and forecasting
- * Uses historical data patterns to predict future security risks and trends
+ * Comprehensive Predictive Analytics Engine for Physical Security Agent System
+ * Provides intelligent risk scoring, seasonal analysis, staffing optimization, and incident forecasting
  */
 
 import { storage } from "../storage";
 import { db } from "../db";
-import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
+import { eq, and, gte, lte, sql, desc, count } from "drizzle-orm";
 import { 
   analyticsTemporalPatterns,
   incidents,
   alerts,
+  stores,
+  cameras,
   type AnalyticsContext,
-  type InsertAnalyticsTemporalPatterns 
+  type InsertAnalyticsTemporalPatterns,
+  type InsertRiskAssessment,
+  type InsertSeasonalAnalysis,
+  type InsertStaffingRecommendation,
+  type InsertIncidentForecast,
+  type InsertPredictiveModelPerformance,
+  type RiskAssessment,
+  type SeasonalAnalysis,
+  type StaffingRecommendation,
+  type IncidentForecast,
+  type PredictiveModelPerformance,
+  type PredictiveAnalyticsDashboard
 } from "@shared/schema";
+import { addDays, subDays, startOfDay, endOfDay, differenceInDays, format, getDay, getHours, startOfMonth, endOfMonth, startOfWeek, endOfWeek } from "date-fns";
+import { randomUUID } from "crypto";
+
+// Time window interface for analysis
+export interface TimeWindow {
+  start: Date;
+  end: Date;
+  granularity?: 'hour' | 'day' | 'week' | 'month';
+}
+
+// Historical pattern analysis interfaces
+export interface HistoricalPattern {
+  timeframe: string;
+  incidentCount: number;
+  incidentTypes: Record<string, number>;
+  averageSeverity: number;
+  responseTime: number;
+  trends: {
+    direction: 'increasing' | 'decreasing' | 'stable';
+    magnitude: number;
+    confidence: number;
+  };
+}
+
+// Machine learning model configurations
+export interface ModelConfiguration {
+  modelType: 'risk_scoring' | 'seasonal_analysis' | 'staffing_optimization' | 'incident_forecasting';
+  algorithm: string;
+  hyperparameters: Record<string, any>;
+  featureWeights: Record<string, number>;
+  trainingConfig: {
+    minDataPoints: number;
+    validationSplit: number;
+    confidenceThreshold: number;
+  };
+}
+
+// Staffing constraints for optimization
+export interface StaffingConstraints {
+  minStaffPerShift: number;
+  maxStaffPerShift: number;
+  maxBudget?: number;
+  skillRequirements: string[];
+  priorityAreas: string[];
+  shiftPreferences?: Record<string, number>;
+}
+
+// Performance prediction interface
+export interface PerformancePrediction {
+  predictedMetrics: {
+    incidentCount: number;
+    responseTime: number;
+    detectionAccuracy: number;
+    falsePositiveRate: number;
+  };
+  confidence: number;
+  factors: Record<string, number>;
+  recommendations: string[];
+}
 
 export interface PredictiveInsights {
   nextHighRiskPeriod: string | null;
@@ -57,7 +129,376 @@ export interface TemporalPattern {
   }>;
 }
 
-export class PredictiveAnalytics {
+export class ComprehensivePredictiveAnalyticsService {
+  private modelConfigurations: Map<string, ModelConfiguration> = new Map();
+  private cacheStorage: Map<string, { data: any; timestamp: Date; ttl: number }> = new Map();
+
+  constructor() {
+    this.initializeModels();
+  }
+
+  /**
+   * Initialize machine learning model configurations
+   */
+  private initializeModels(): void {
+    // Risk scoring model configuration
+    this.modelConfigurations.set('risk_scoring', {
+      modelType: 'risk_scoring',
+      algorithm: 'RandomForest',
+      hyperparameters: {
+        n_estimators: 100,
+        max_depth: 10,
+        min_samples_split: 2,
+        min_samples_leaf: 1
+      },
+      featureWeights: {
+        historicalIncidents: 0.25,
+        timeOfDay: 0.15,
+        dayOfWeek: 0.15,
+        seasonalPattern: 0.20,
+        staffingLevel: 0.15,
+        recentTrends: 0.10
+      },
+      trainingConfig: {
+        minDataPoints: 100,
+        validationSplit: 0.2,
+        confidenceThreshold: 0.7
+      }
+    });
+
+    // Seasonal analysis model configuration
+    this.modelConfigurations.set('seasonal_analysis', {
+      modelType: 'seasonal_analysis',
+      algorithm: 'ARIMA',
+      hyperparameters: {
+        p: 1, d: 1, q: 1,
+        seasonal_p: 1, seasonal_d: 1, seasonal_q: 1,
+        seasonal_periods: 12
+      },
+      featureWeights: {
+        seasonality: 0.4,
+        trend: 0.3,
+        cyclical: 0.2,
+        residual: 0.1
+      },
+      trainingConfig: {
+        minDataPoints: 365,
+        validationSplit: 0.2,
+        confidenceThreshold: 0.8
+      }
+    });
+
+    // Staffing optimization model configuration
+    this.modelConfigurations.set('staffing_optimization', {
+      modelType: 'staffing_optimization',
+      algorithm: 'LinearProgramming',
+      hyperparameters: {
+        objective: 'minimize_cost',
+        constraints: 'coverage_requirements',
+        tolerance: 0.01
+      },
+      featureWeights: {
+        workload: 0.35,
+        cost: 0.25,
+        coverage: 0.25,
+        satisfaction: 0.15
+      },
+      trainingConfig: {
+        minDataPoints: 50,
+        validationSplit: 0.15,
+        confidenceThreshold: 0.75
+      }
+    });
+
+    // Incident forecasting model configuration
+    this.modelConfigurations.set('incident_forecasting', {
+      modelType: 'incident_forecasting',
+      algorithm: 'Prophet',
+      hyperparameters: {
+        growth: 'linear',
+        seasonality_mode: 'additive',
+        daily_seasonality: true,
+        weekly_seasonality: true,
+        yearly_seasonality: true
+      },
+      featureWeights: {
+        historical: 0.4,
+        seasonal: 0.3,
+        external: 0.2,
+        realtime: 0.1
+      },
+      trainingConfig: {
+        minDataPoints: 200,
+        validationSplit: 0.25,
+        confidenceThreshold: 0.8
+      }
+    });
+  }
+
+  /**
+   * Calculate comprehensive risk score for a location and timeframe
+   */
+  async calculateRiskScore(storeId: string, timeframe: TimeWindow): Promise<RiskAssessment> {
+    try {
+      // Get historical incident data
+      const historicalData = await this.getHistoricalData(storeId, timeframe);
+      
+      // Calculate contributing factors
+      const contributingFactors = await this.calculateRiskFactors(storeId, historicalData, timeframe);
+      
+      // Calculate overall risk score (weighted average)
+      const weights = this.modelConfigurations.get('risk_scoring')?.featureWeights || {};
+      const overallScore = Object.entries(contributingFactors).reduce((total, [factor, value]) => {
+        const weight = weights[factor] || 0;
+        return total + (value * weight);
+      }, 0) * 100; // Convert to 0-100 scale
+      
+      // Determine risk level
+      const riskLevel = this.getRiskLevel(overallScore);
+      
+      // Generate recommendations
+      const recommendations = await this.generateRiskRecommendations(contributingFactors, riskLevel);
+      
+      // Calculate confidence score
+      const confidence = this.calculateConfidence(historicalData.length, timeframe);
+      
+      // Create risk assessment
+      const riskAssessment: InsertRiskAssessment = {
+        storeId,
+        overallRiskScore: overallScore,
+        riskLevel,
+        contributingFactors,
+        confidence,
+        recommendations,
+        nextReviewDate: this.calculateNextReviewDate(riskLevel),
+        modelVersion: "1.0.0"
+      };
+
+      // Store the assessment
+      return await storage.createRiskAssessment(riskAssessment);
+    } catch (error) {
+      console.error('Error calculating risk score:', error);
+      throw new Error('Failed to calculate risk score');
+    }
+  }
+
+  /**
+   * Analyze seasonal trends and patterns
+   */
+  async analyzeSeasonalTrends(timespan: string): Promise<SeasonalAnalysis> {
+    try {
+      // Get comprehensive historical data
+      const historicalData = await this.getHistoricalDataForTrends(timespan);
+      
+      // Analyze seasonal patterns
+      const seasonalPatterns = this.analyzeSeasonalPatterns(historicalData);
+      const weeklyPatterns = this.analyzeWeeklyPatterns(historicalData);
+      const dailyPatterns = this.analyzeDailyPatterns(historicalData);
+      const holidayPatterns = this.analyzeHolidayPatterns(historicalData);
+      
+      const patterns = {
+        seasonal: seasonalPatterns,
+        weekly: weeklyPatterns,
+        daily: dailyPatterns,
+        holiday: holidayPatterns
+      };
+      
+      // Generate predictions
+      const predictions = this.generateSeasonalPredictions(patterns);
+      
+      // Calculate confidence and data quality
+      const confidence = this.calculateSeasonalConfidence(historicalData, patterns);
+      const dataQuality = this.assessDataQuality(historicalData);
+      
+      // Create seasonal analysis
+      const seasonalAnalysis: InsertSeasonalAnalysis = {
+        timespan,
+        patterns,
+        predictions,
+        confidence,
+        dataQuality,
+        storesAnalyzed: await this.getAnalyzedStores()
+      };
+
+      return await storage.createSeasonalAnalysis(seasonalAnalysis);
+    } catch (error) {
+      console.error('Error analyzing seasonal trends:', error);
+      throw new Error('Failed to analyze seasonal trends');
+    }
+  }
+
+  /**
+   * Optimize staffing based on predictive analytics
+   */
+  async optimizeStaffing(storeId: string, timeframe: TimeWindow, constraints: StaffingConstraints): Promise<StaffingRecommendation> {
+    try {
+      // Get current staffing data
+      const currentStaffing = await this.getCurrentStaffing(storeId);
+      
+      // Predict workload for the timeframe
+      const predictedWorkload = await this.predictWorkload(storeId, timeframe);
+      
+      // Calculate optimal staffing levels
+      const recommendedStaffing = this.calculateOptimalStaffing(
+        predictedWorkload,
+        constraints,
+        currentStaffing
+      );
+      
+      // Generate optimization rationale
+      const optimizationRationale = this.generateOptimizationRationale(
+        predictedWorkload,
+        currentStaffing,
+        recommendedStaffing
+      );
+      
+      // Calculate expected outcomes
+      const expectedOutcomes = this.calculateExpectedOutcomes(
+        currentStaffing,
+        recommendedStaffing,
+        predictedWorkload
+      );
+      
+      // Create implementation plan
+      const implementationPlan = this.createImplementationPlan(
+        currentStaffing,
+        recommendedStaffing,
+        timeframe
+      );
+      
+      // Create staffing recommendation
+      const staffingRecommendation: InsertStaffingRecommendation = {
+        storeId,
+        timeframeStart: timeframe.start,
+        timeframeEnd: timeframe.end,
+        currentStaffing,
+        recommendedStaffing,
+        optimizationRationale,
+        expectedOutcomes,
+        implementationPlan
+      };
+
+      return await storage.createStaffingRecommendation(staffingRecommendation);
+    } catch (error) {
+      console.error('Error optimizing staffing:', error);
+      throw new Error('Failed to optimize staffing');
+    }
+  }
+
+  /**
+   * Forecast incidents for a specific time period
+   */
+  async forecastIncidents(storeId: string, daysAhead: number): Promise<IncidentForecast> {
+    try {
+      const forecastPeriodStart = startOfDay(new Date());
+      const forecastPeriodEnd = endOfDay(addDays(new Date(), daysAhead));
+      
+      // Get historical patterns for forecasting
+      const historicalData = await this.getHistoricalData(storeId, {
+        start: subDays(new Date(), 365),
+        end: new Date()
+      });
+      
+      // Apply time series forecasting
+      const predictedIncidents = this.applyTimeSeriesForecasting(historicalData, daysAhead);
+      
+      // Calculate confidence intervals
+      const confidenceIntervals = this.calculateConfidenceIntervals(predictedIncidents, historicalData);
+      
+      // Generate recommendations
+      const recommendations = this.generateForecastRecommendations(predictedIncidents);
+      
+      // Calculate model accuracy based on recent predictions
+      const modelAccuracy = await this.calculateModelAccuracy(storeId, 'incident_forecasting');
+      
+      // Create incident forecast
+      const incidentForecast: InsertIncidentForecast = {
+        storeId,
+        forecastPeriodStart,
+        forecastPeriodEnd,
+        predictedIncidents,
+        confidenceIntervals,
+        modelAccuracy,
+        recommendations
+      };
+
+      return await storage.createIncidentForecast(incidentForecast);
+    } catch (error) {
+      console.error('Error forecasting incidents:', error);
+      throw new Error('Failed to forecast incidents');
+    }
+  }
+
+  /**
+   * Predict performance metrics based on current conditions
+   */
+  async predictPerformanceMetrics(storeId: string, currentConditions: any): Promise<PerformancePrediction> {
+    try {
+      // Get baseline performance data
+      const historicalPerformance = await this.getHistoricalPerformance(storeId);
+      
+      // Apply machine learning prediction models
+      const predictedMetrics = this.applyPerformancePredictionModel(
+        currentConditions,
+        historicalPerformance
+      );
+      
+      // Calculate confidence based on data quality and model performance
+      const confidence = this.calculatePredictionConfidence(currentConditions, historicalPerformance);
+      
+      // Identify contributing factors
+      const factors = this.identifyPerformanceFactors(currentConditions, predictedMetrics);
+      
+      // Generate actionable recommendations
+      const recommendations = this.generatePerformanceRecommendations(predictedMetrics, factors);
+      
+      return {
+        predictedMetrics,
+        confidence,
+        factors,
+        recommendations
+      };
+    } catch (error) {
+      console.error('Error predicting performance metrics:', error);
+      throw new Error('Failed to predict performance metrics');
+    }
+  }
+
+  /**
+   * Get comprehensive predictive analytics dashboard data
+   */
+  async getPredictiveAnalyticsDashboard(storeId: string): Promise<PredictiveAnalyticsDashboard> {
+    try {
+      // Get latest risk assessment
+      const latestRiskAssessment = await storage.getLatestRiskAssessment(storeId);
+      
+      // Get latest seasonal analysis
+      const latestSeasonalAnalysis = await storage.getLatestSeasonalAnalysis('monthly');
+      
+      // Get active staffing recommendations
+      const activeStaffingRecommendations = await storage.getActiveStaffingRecommendations(storeId);
+      
+      // Get recent incident forecasts
+      const recentForecasts = await storage.getIncidentForecastsByStore(storeId, 5);
+      
+      // Get model performance metrics
+      const modelPerformance = await storage.getAllModelPerformance();
+      
+      // Compile dashboard data
+      const dashboard: PredictiveAnalyticsDashboard = {
+        riskAssessment: this.compileRiskAssessmentData(latestRiskAssessment),
+        seasonalTrends: this.compileSeasonalTrendsData(latestSeasonalAnalysis),
+        staffingOptimization: this.compileStaffingOptimizationData(activeStaffingRecommendations),
+        incidentForecasting: this.compileIncidentForecastingData(recentForecasts),
+        modelPerformance: this.compileModelPerformanceData(modelPerformance)
+      };
+      
+      return dashboard;
+    } catch (error) {
+      console.error('Error generating predictive analytics dashboard:', error);
+      throw new Error('Failed to generate dashboard');
+    }
+  }
 
   /**
    * Generate temporal patterns for predictive analysis

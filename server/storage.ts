@@ -189,6 +189,22 @@ import {
   type RiskScore,
   type InsertAdvancedFeatureAuditLog,
   type AdvancedFeatureAuditLog,
+  // Predictive Analytics types
+  riskAssessments,
+  seasonalAnalyses,
+  staffingRecommendations,
+  incidentForecasts,
+  predictiveModelPerformance,
+  type InsertRiskAssessment,
+  type RiskAssessment,
+  type InsertSeasonalAnalysis,
+  type SeasonalAnalysis,
+  type InsertStaffingRecommendation,
+  type StaffingRecommendation,
+  type InsertIncidentForecast,
+  type IncidentForecast,
+  type InsertPredictiveModelPerformance,
+  type PredictiveModelPerformance,
 } from "@shared/schema";
 
 const PostgresSessionStore = connectPg(session);
@@ -440,6 +456,48 @@ export interface IStorage {
   getAdvancedFeatureAuditLogsByUser(userId: string, featureType?: string): Promise<AdvancedFeatureAuditLog[]>;
   getAdvancedFeatureAuditLogsByStore(storeId: string, featureType?: string): Promise<AdvancedFeatureAuditLog[]>;
   getAdvancedFeatureAuditLogsByResource(resourceType: string, resourceId: string): Promise<AdvancedFeatureAuditLog[]>;
+
+  // Predictive Analytics - Risk Assessments
+  createRiskAssessment(assessment: InsertRiskAssessment): Promise<RiskAssessment>;
+  getRiskAssessment(id: string): Promise<RiskAssessment | null>;
+  getRiskAssessmentsByStore(storeId: string, limit?: number): Promise<RiskAssessment[]>;
+  getLatestRiskAssessment(storeId: string): Promise<RiskAssessment | null>;
+  updateRiskAssessment(id: string, updates: Partial<InsertRiskAssessment>): Promise<RiskAssessment>;
+  deleteRiskAssessment(id: string): Promise<void>;
+
+  // Predictive Analytics - Seasonal Analyses
+  createSeasonalAnalysis(analysis: InsertSeasonalAnalysis): Promise<SeasonalAnalysis>;
+  getSeasonalAnalysis(id: string): Promise<SeasonalAnalysis | null>;
+  getSeasonalAnalysesByTimespan(timespan: string, limit?: number): Promise<SeasonalAnalysis[]>;
+  getLatestSeasonalAnalysis(timespan: string): Promise<SeasonalAnalysis | null>;
+  updateSeasonalAnalysis(id: string, updates: Partial<InsertSeasonalAnalysis>): Promise<SeasonalAnalysis>;
+  deleteSeasonalAnalysis(id: string): Promise<void>;
+
+  // Predictive Analytics - Staffing Recommendations
+  createStaffingRecommendation(recommendation: InsertStaffingRecommendation): Promise<StaffingRecommendation>;
+  getStaffingRecommendation(id: string): Promise<StaffingRecommendation | null>;
+  getStaffingRecommendationsByStore(storeId: string, status?: string, limit?: number): Promise<StaffingRecommendation[]>;
+  getActiveStaffingRecommendations(storeId: string): Promise<StaffingRecommendation[]>;
+  updateStaffingRecommendation(id: string, updates: Partial<InsertStaffingRecommendation>): Promise<StaffingRecommendation>;
+  deleteStaffingRecommendation(id: string): Promise<void>;
+
+  // Predictive Analytics - Incident Forecasts
+  createIncidentForecast(forecast: InsertIncidentForecast): Promise<IncidentForecast>;
+  getIncidentForecast(id: string): Promise<IncidentForecast | null>;
+  getIncidentForecastsByStore(storeId: string, limit?: number): Promise<IncidentForecast[]>;
+  getActiveIncidentForecasts(storeId: string): Promise<IncidentForecast[]>;
+  getIncidentForecastsByDateRange(storeId: string, startDate: Date, endDate: Date): Promise<IncidentForecast[]>;
+  updateIncidentForecast(id: string, updates: Partial<InsertIncidentForecast>): Promise<IncidentForecast>;
+  deleteIncidentForecast(id: string): Promise<void>;
+
+  // Predictive Analytics - Model Performance
+  createPredictiveModelPerformance(performance: InsertPredictiveModelPerformance): Promise<PredictiveModelPerformance>;
+  getPredictiveModelPerformance(id: string): Promise<PredictiveModelPerformance | null>;
+  getPredictiveModelPerformanceByModel(modelName: string, modelVersion?: string): Promise<PredictiveModelPerformance[]>;
+  getLatestModelPerformance(modelName: string): Promise<PredictiveModelPerformance | null>;
+  getAllModelPerformance(modelType?: string): Promise<PredictiveModelPerformance[]>;
+  updatePredictiveModelPerformance(id: string, updates: Partial<InsertPredictiveModelPerformance>): Promise<PredictiveModelPerformance>;
+  deleteModelPerformance(id: string): Promise<void>;
 
   // Session store
   sessionStore: any;

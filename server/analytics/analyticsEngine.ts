@@ -7,7 +7,7 @@ import { storage } from "../storage";
 import { IncidentAnalytics } from "./incidentAnalytics";
 import { PerformanceMetrics } from "./performanceMetrics"; 
 import { SpatialAnalytics } from "./spatialAnalytics";
-import { PredictiveAnalytics } from "./predictiveAnalytics";
+import { ComprehensivePredictiveAnalyticsService as PredictiveAnalytics } from "./predictiveAnalytics";
 import { ReportGenerator } from "./reportGenerator";
 import type { SecurityAnalyticsDashboard } from "@shared/schema";
 
@@ -218,7 +218,7 @@ export class AnalyticsEngine {
    */
   private async getRecentActivity(context: AnalyticsContext) {
     const recentAlerts = await storage.getActiveAlerts(context.storeId);
-    const recentIncidents = await storage.getIncidentsByStore(context.storeId || "", 10);
+    const recentIncidents = await storage.getIncidentsByStore(context.storeId || "");
 
     return {
       alerts: recentAlerts.slice(0, 10).map(alert => ({
@@ -235,7 +235,7 @@ export class AnalyticsEngine {
         type: incident.type,
         severity: incident.severity || "medium",
         status: incident.status || "open",
-        assignedTo: incident.assignedTo,
+        assignedTo: incident.assignedTo ?? undefined,
         createdAt: incident.createdAt?.toISOString() || ""
       }))
     };

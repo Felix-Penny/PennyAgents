@@ -20,6 +20,7 @@ import Incidents from "./pages/incidents";
 import IncidentDetails from "./pages/incident-details";
 import Offenders from "./pages/offenders";
 import Analytics from "./pages/analytics";
+import PredictiveAnalytics from "./pages/predictive-analytics";
 import Network from "./pages/network";
 import Settings from "./pages/settings";
 import LoginPage from "./pages/login";
@@ -58,6 +59,7 @@ function Router() {
           <ProtectedRoute path="/security/incidents/:id" component={IncidentDetails} permissions={["incidents:view", "incidents:investigate"]} requireAll={false} />
           <ProtectedRoute path="/security/offenders" component={Offenders} permissions={["incidents:view", "analytics:operational"]} requireAll={false} />
           <ProtectedRoute path="/security/analytics" component={Analytics} permissions={["analytics:operational", "analytics:executive"]} requireAll={false} />
+          <ProtectedRoute path="/security/predictive-analytics" component={PredictiveAnalytics} permissions={["analytics:operational"]} />
           <ProtectedRoute path="/security/facial-recognition" component={FacialRecognitionDashboard} permissions={["analytics:operational", "facial_recognition:view"]} requireAll={false} />
           <ProtectedRoute path="/security/network" component={Network} permissions={["system:configure"]} />
           <ProtectedRoute path="/security/settings" component={Settings} permissions={["system:configure", "users:edit"]} requireAll={false} />

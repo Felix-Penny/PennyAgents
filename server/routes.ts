@@ -12,7 +12,8 @@ import { storage } from "./storage";
 import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess, requireSecurityAgent, requireFinanceAgent, requireSalesAgent, requireOperationsAgent, requireHRAgent, requirePlatformRole, requireOrganizationAccess, requirePermission, PermissionEngine, PermissionContext, getDefaultPermissions, getDefaultSecurityRoles } from "./auth";
 import { ObjectStorageService, SecurityFileCategory, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
-import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema, offenders, frameAnalysisRequestSchema, FRAME_SIZE_LIMITS, detectionResultSchema, insertBehaviorEventSchema, insertAreaBaselineProfileSchema, insertAnomalyEventSchema, insertFaceTemplateSchema, insertWatchlistEntrySchema, insertConsentPreferenceSchema, insertPredictiveModelSnapshotSchema, insertRiskScoreSchema, insertAdvancedFeatureAuditLogSchema } from "../shared/schema";
+import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema, offenders, frameAnalysisRequestSchema, FRAME_SIZE_LIMITS, detectionResultSchema, insertBehaviorEventSchema, insertAreaBaselineProfileSchema, insertAnomalyEventSchema, insertFaceTemplateSchema, insertWatchlistEntrySchema, insertConsentPreferenceSchema, insertPredictiveModelSnapshotSchema, insertRiskScoreSchema, insertAdvancedFeatureAuditLogSchema, insertRiskAssessmentSchema, insertSeasonalAnalysisSchema, insertStaffingRecommendationSchema, insertIncidentForecastSchema, insertPredictiveModelPerformanceSchema } from "../shared/schema";
+import { addDays, subDays } from "date-fns";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 import { 
@@ -63,6 +64,223 @@ export function registerRoutes(app: Express): Server {
     message: { error: "Too many download requests, please try again later." },
     standardHeaders: true, 
     legacyHeaders: false,
+  });
+
+  // =====================================
+  // PREDICTIVE ANALYTICS ENDPOINTS
+  // =====================================
+
+  // Risk Assessment endpoints
+  app.get("/api/predictive/risk-assessment/:storeId", requireAuth, requirePermission("analytics:operational"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const timeframe = {
+        start: req.query.startDate ? new Date(req.query.startDate as string) : subDays(new Date(), 30),
+        end: req.query.endDate ? new Date(req.query.endDate as string) : new Date()
+      };
+      
+      const { ComprehensivePredictiveAnalyticsService } = await import("./analytics/predictiveAnalytics");
+      const service = new ComprehensivePredictiveAnalyticsService();
+      const riskAssessment = await service.calculateRiskScore(storeId, timeframe);
+      res.json(riskAssessment);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/predictive/risk-assessment/:storeId/latest", requireAuth, requirePermission("analytics:operational"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const latestAssessment = await storage.getLatestRiskAssessment(storeId);
+      res.json(latestAssessment);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Seasonal Analysis endpoints
+  app.get("/api/predictive/seasonal-analysis", requireAuth, requirePermission("analytics:operational"), async (req, res) => {
+    try {
+      const timespan = req.query.timespan as string || 'monthly';
+      const { ComprehensivePredictiveAnalyticsService } = await import("./analytics/predictiveAnalytics");
+      const service = new ComprehensivePredictiveAnalyticsService();
+      const seasonalAnalysis = await service.analyzeSeasonalTrends(timespan);
+      res.json(seasonalAnalysis);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/predictive/seasonal-analysis/latest", requireAuth, requirePermission("analytics:operational"), async (req, res) => {
+    try {
+      const timespan = req.query.timespan as string || 'monthly';
+      const latestAnalysis = await storage.getLatestSeasonalAnalysis(timespan);
+      res.json(latestAnalysis);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Staffing Optimization endpoints
+  app.get("/api/predictive/staffing-optimization/:storeId", requireAuth, requirePermission("analytics:operational"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const timeframe = {
+        start: req.query.startDate ? new Date(req.query.startDate as string) : new Date(),
+        end: req.query.endDate ? new Date(req.query.endDate as string) : addDays(new Date(), 7)
+      };
+      const constraints = {
+        minStaffPerShift: parseInt(req.query.minStaff as string) || 2,
+        maxStaffPerShift: parseInt(req.query.maxStaff as string) || 10,
+        skillRequirements: req.query.skills ? (req.query.skills as string).split(',') : [],
+        priorityAreas: req.query.areas ? (req.query.areas as string).split(',') : []
+      };
+      
+      const { ComprehensivePredictiveAnalyticsService } = await import("./analytics/predictiveAnalytics");
+      const service = new ComprehensivePredictiveAnalyticsService();
+      const staffingRecommendation = await service.optimizeStaffing(storeId, timeframe, constraints);
+      res.json(staffingRecommendation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/predictive/staffing-optimization/:storeId/active", requireAuth, requirePermission("analytics:operational"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const activeRecommendations = await storage.getActiveStaffingRecommendations(storeId);
+      res.json(activeRecommendations);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Incident Forecasting endpoints
+  app.get("/api/predictive/incident-forecast/:storeId", requireAuth, requirePermission("analytics:operational"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const daysAhead = parseInt(req.query.daysAhead as string) || 7;
+      
+      const { ComprehensivePredictiveAnalyticsService } = await import("./analytics/predictiveAnalytics");
+      const service = new ComprehensivePredictiveAnalyticsService();
+      const incidentForecast = await service.forecastIncidents(storeId, daysAhead);
+      res.json(incidentForecast);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/predictive/incident-forecast/:storeId/recent", requireAuth, requirePermission("analytics:operational"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const limit = parseInt(req.query.limit as string) || 5;
+      const recentForecasts = await storage.getIncidentForecastsByStore(storeId, limit);
+      res.json(recentForecasts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Model Performance endpoints
+  app.get("/api/predictive/model-performance", requireAuth, requirePermission("analytics:operational"), async (req, res) => {
+    try {
+      const modelType = req.query.modelType as string;
+      const modelPerformance = await storage.getAllModelPerformance(modelType);
+      res.json(modelPerformance);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/predictive/model-performance/:modelName/latest", requireAuth, requirePermission("analytics:operational"), async (req, res) => {
+    try {
+      const { modelName } = req.params;
+      const latestPerformance = await storage.getLatestModelPerformance(modelName);
+      res.json(latestPerformance);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Comprehensive Predictive Analytics Dashboard
+  app.get("/api/predictive/dashboard/:storeId", requireAuth, requirePermission("analytics:operational"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const { ComprehensivePredictiveAnalyticsService } = await import("./analytics/predictiveAnalytics");
+      const service = new ComprehensivePredictiveAnalyticsService();
+      const dashboard = await service.getPredictiveAnalyticsDashboard(storeId);
+      res.json(dashboard);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Historical Patterns endpoint
+  app.get("/api/predictive/historical-patterns/:storeId", requireAuth, requirePermission("analytics:operational"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const timeframe = {
+        start: req.query.startDate ? new Date(req.query.startDate as string) : subDays(new Date(), 90),
+        end: req.query.endDate ? new Date(req.query.endDate as string) : new Date()
+      };
+      
+      const { ComprehensivePredictiveAnalyticsService } = await import("./analytics/predictiveAnalytics");
+      const service = new ComprehensivePredictiveAnalyticsService();
+      const patterns = await service.analyzeHistoricalPatterns(storeId, timeframe);
+      res.json(patterns);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Performance Prediction endpoint
+  app.post("/api/predictive/performance-prediction/:storeId", requireAuth, requirePermission("analytics:operational"), requireStoreAccess, async (req, res) => {
+    try {
+      const { storeId } = req.params;
+      const currentConditions = req.body;
+      
+      const { ComprehensivePredictiveAnalyticsService } = await import("./analytics/predictiveAnalytics");
+      const service = new ComprehensivePredictiveAnalyticsService();
+      const prediction = await service.predictPerformanceMetrics(storeId, currentConditions);
+      res.json(prediction);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Model Training endpoint (restricted to admins)
+  app.post("/api/predictive/retrain-models", requireAuth, requirePermission("system:configure"), async (req, res) => {
+    try {
+      const { modelType } = req.body;
+      // Implement model retraining logic here
+      res.json({ message: "Model retraining initiated", modelType });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Staffing Feedback endpoint
+  app.put("/api/predictive/staffing-feedback/:recommendationId", requireAuth, requirePermission("analytics:operational"), async (req, res) => {
+    try {
+      const { recommendationId } = req.params;
+      const feedback = req.body;
+      
+      const recommendation = await storage.getStaffingRecommendation(recommendationId);
+      if (!recommendation) {
+        return res.status(404).json({ message: "Recommendation not found" });
+      }
+      
+      const updatedRecommendation = await storage.updateStaffingRecommendation(recommendationId, {
+        feedback: {
+          ...recommendation.feedback,
+          ...feedback
+        }
+      });
+      
+      res.json(updatedRecommendation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
   });
 
   // =====================================

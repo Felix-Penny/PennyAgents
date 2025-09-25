@@ -4603,6 +4603,343 @@ export type InsertAnalyticsSpatialData = typeof analyticsSpatialData.$inferInser
 export type InsertAnalyticsTemporalPatterns = typeof analyticsTemporalPatterns.$inferInsert;
 export type InsertAnalyticsReports = typeof analyticsReports.$inferInsert;
 
+// =====================================
+// Predictive Analytics Tables
+// =====================================
+
+export const riskAssessments = pgTable("risk_assessments", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  assessmentDate: timestamp("assessment_date").defaultNow(),
+  overallRiskScore: real("overall_risk_score").notNull(),
+  riskLevel: varchar("risk_level", { length: 50 }).notNull(), // very_low, low, medium, high, critical
+  contributingFactors: jsonb("contributing_factors").$type<{
+    historicalIncidents: number;
+    timeOfDay: number;
+    dayOfWeek: number;
+    seasonalPattern: number;
+    staffingLevel: number;
+    recentTrends: number;
+  }>().notNull(),
+  confidence: real("confidence_score"),
+  recommendations: jsonb("recommendations").$type<Array<{
+    type: 'staffing' | 'surveillance' | 'training' | 'policy';
+    priority: 'low' | 'medium' | 'high' | 'urgent';
+    description: string;
+    estimatedImpact: number;
+    implementationCost: 'low' | 'medium' | 'high';
+    timeframe: string;
+  }>>().default([]),
+  nextReviewDate: timestamp("next_review_date"),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  modelVersion: varchar("model_version", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const seasonalAnalyses = pgTable("seasonal_analyses", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  analysisDate: timestamp("analysis_date").defaultNow(),
+  timespan: varchar("timespan", { length: 50 }).notNull(), // yearly, quarterly, monthly, weekly
+  patterns: jsonb("patterns").$type<{
+    seasonal: Array<{
+      period: string;
+      incidentRate: number;
+      commonIncidentTypes: string[];
+      peakTimes: string[];
+      riskFactors: string[];
+      mitigationStrategies: string[];
+    }>;
+    weekly: Array<{
+      dayOfWeek: string;
+      averageIncidents: number;
+      peakHours: string[];
+      riskLevel: string;
+    }>;
+    daily: Array<{
+      timeSlot: string;
+      incidentProbability: number;
+      staffingNeeds: number;
+      riskFactors: string[];
+    }>;
+    holiday: Array<{
+      holiday: string;
+      incidentMultiplier: number;
+      specificRisks: string[];
+      preparationNeeds: string[];
+    }>;
+  }>().notNull(),
+  predictions: jsonb("predictions").$type<{
+    nextPeakPeriod: string;
+    expectedIncidentIncrease: number;
+    recommendedPreparations: string[];
+    confidenceInterval: { lower: number; upper: number };
+  }>().notNull(),
+  confidence: real("confidence_score").notNull(),
+  dataQuality: varchar("data_quality", { length: 20 }).notNull(), // excellent, good, fair, poor
+  storesAnalyzed: varchar("stores_analyzed", { length: 255 }).array(),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const staffingRecommendations = pgTable("staffing_recommendations", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  recommendationDate: timestamp("recommendation_date").defaultNow(),
+  timeframeStart: timestamp("timeframe_start").notNull(),
+  timeframeEnd: timestamp("timeframe_end").notNull(),
+  currentStaffing: jsonb("current_staffing").$type<Array<{
+    timeSlot: string;
+    dayOfWeek: string;
+    currentOfficers: number;
+    skillLevels: string[];
+    areas: string[];
+  }>>().notNull(),
+  recommendedStaffing: jsonb("recommended_staffing").$type<Array<{
+    timeSlot: string;
+    dayOfWeek: string;
+    recommendedOfficers: number;
+    skillRequirements: string[];
+    priorityAreas: string[];
+    reasoning: string;
+  }>>().notNull(),
+  optimizationRationale: jsonb("optimization_rationale").$type<{
+    predictedIncidentVolume: number;
+    historicalWorkload: number;
+    seasonalAdjustments: number;
+    costEfficiencyScore: number;
+    riskFactors: string[];
+  }>().notNull(),
+  expectedOutcomes: jsonb("expected_outcomes").$type<{
+    incidentReductionPercent: number;
+    responseTimeImprovement: number;
+    costSavings: number;
+    staffSatisfactionImpact: number;
+    coverageImprovement: number;
+  }>().notNull(),
+  implementationPlan: jsonb("implementation_plan").$type<Array<{
+    phase: string;
+    actions: string[];
+    timeline: string;
+    resources: string[];
+    successMetrics: string[];
+  }>>().default([]),
+  implementationStatus: varchar("implementation_status", { length: 20 }).default("pending"), // pending, in_progress, completed, cancelled
+  feedback: jsonb("feedback").$type<{
+    managerApproval: boolean;
+    staffFeedback: string[];
+    actualOutcomes: {
+      incidentReduction?: number;
+      responseTimeChange?: number;
+      costImpact?: number;
+      staffSatisfaction?: number;
+    };
+  }>(),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const incidentForecasts = pgTable("incident_forecasts", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  forecastDate: timestamp("forecast_date").defaultNow(),
+  forecastPeriodStart: timestamp("forecast_period_start").notNull(),
+  forecastPeriodEnd: timestamp("forecast_period_end").notNull(),
+  predictedIncidents: jsonb("predicted_incidents").$type<Array<{
+    incidentType: string;
+    probability: number;
+    expectedCount: number;
+    severity: string;
+    timeOfDay: string;
+    location: string;
+    contributingFactors: string[];
+  }>>().notNull(),
+  confidenceIntervals: jsonb("confidence_intervals").$type<{
+    overall: { lower: number; upper: number };
+    byType: Record<string, { lower: number; upper: number }>;
+    byTimeOfDay: Record<string, { lower: number; upper: number }>;
+    byLocation: Record<string, { lower: number; upper: number }>;
+  }>().notNull(),
+  modelAccuracy: real("model_accuracy"),
+  actualVsPredicted: jsonb("actual_vs_predicted").$type<{
+    actualIncidents: Array<{
+      incidentType: string;
+      actualCount: number;
+      timeOfDay: string;
+      location: string;
+    }>;
+    accuracyMetrics: {
+      overallAccuracy: number;
+      precisionByType: Record<string, number>;
+      recallByType: Record<string, number>;
+      f1ScoreByType: Record<string, number>;
+    };
+  }>(),
+  recommendations: jsonb("recommendations").$type<Array<{
+    type: 'preventive' | 'preparatory' | 'response';
+    action: string;
+    priority: 'low' | 'medium' | 'high' | 'urgent';
+    targetDate: string;
+    expectedImpact: string;
+  }>>().default([]),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const predictiveModelPerformance = pgTable("predictive_model_performance", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  modelName: varchar("model_name", { length: 100 }).notNull(),
+  modelVersion: varchar("model_version", { length: 50 }).notNull(),
+  modelType: varchar("model_type", { length: 50 }).notNull(), // risk_scoring, seasonal_analysis, staffing_optimization, incident_forecasting
+  evaluationDate: timestamp("evaluation_date").defaultNow(),
+  accuracyMetrics: jsonb("accuracy_metrics").$type<{
+    accuracy: number;
+    precision: number;
+    recall: number;
+    f1Score: number;
+    rocAuc?: number;
+    mse?: number;
+    mae?: number;
+    r2Score?: number;
+    confidenceScore: number;
+  }>().notNull(),
+  performanceBenchmarks: jsonb("performance_benchmarks").$type<{
+    industryAverage: number;
+    previousVersion: number;
+    targetAccuracy: number;
+    benchmarkDate: string;
+    comparisonMetrics: Record<string, number>;
+  }>(),
+  trainingDataSize: integer("training_data_size"),
+  evaluationDataSize: integer("evaluation_data_size"),
+  hyperparameters: jsonb("hyperparameters"),
+  featureImportance: jsonb("feature_importance").$type<Record<string, number>>(),
+  deploymentStatus: varchar("deployment_status", { length: 20 }).default("development"), // development, testing, staging, production, deprecated
+  lastRetrainDate: timestamp("last_retrain_date"),
+  nextRetrainDate: timestamp("next_retrain_date"),
+  modelArtifacts: jsonb("model_artifacts").$type<{
+    configPath?: string;
+    weightsPath?: string;
+    metricsPath?: string;
+    modelSize?: number;
+    trainingDuration?: number;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Predictive Analytics Zod Schemas
+export const insertRiskAssessmentSchema = createInsertSchema(riskAssessments);
+export const insertSeasonalAnalysisSchema = createInsertSchema(seasonalAnalyses);
+export const insertStaffingRecommendationSchema = createInsertSchema(staffingRecommendations);
+export const insertIncidentForecastSchema = createInsertSchema(incidentForecasts);
+export const insertPredictiveModelPerformanceSchema = createInsertSchema(predictiveModelPerformance);
+
+// Predictive Analytics Types
+export type RiskAssessment = typeof riskAssessments.$inferSelect;
+export type SeasonalAnalysis = typeof seasonalAnalyses.$inferSelect;
+export type StaffingRecommendation = typeof staffingRecommendations.$inferSelect;
+export type IncidentForecast = typeof incidentForecasts.$inferSelect;
+export type PredictiveModelPerformance = typeof predictiveModelPerformance.$inferSelect;
+
+export type InsertRiskAssessment = typeof riskAssessments.$inferInsert;
+export type InsertSeasonalAnalysis = typeof seasonalAnalyses.$inferInsert;
+export type InsertStaffingRecommendation = typeof staffingRecommendations.$inferInsert;
+export type InsertIncidentForecast = typeof incidentForecasts.$inferInsert;
+export type InsertPredictiveModelPerformance = typeof predictiveModelPerformance.$inferInsert;
+
+// Predictive Analytics Dashboard Types
+export interface PredictiveAnalyticsDashboard {
+  riskAssessment: {
+    currentRiskScore: number;
+    riskLevel: string;
+    riskTrend: 'increasing' | 'decreasing' | 'stable';
+    contributingFactors: Array<{
+      factor: string;
+      impact: number;
+      trend: string;
+      recommendation: string;
+    }>;
+    recommendations: Array<{
+      type: string;
+      priority: string;
+      description: string;
+      estimatedImpact: number;
+      timeframe: string;
+    }>;
+  };
+  
+  seasonalTrends: {
+    currentSeason: string;
+    seasonalRiskMultiplier: number;
+    nextPeakPeriod: string;
+    historicalPatterns: Array<{
+      period: string;
+      incidentRate: number;
+      commonTypes: string[];
+      mitigation: string[];
+    }>;
+    predictions: {
+      nextWeek: { incidents: number; confidence: number };
+      nextMonth: { incidents: number; confidence: number };
+      nextQuarter: { incidents: number; confidence: number };
+    };
+  };
+  
+  staffingOptimization: {
+    currentEfficiency: number;
+    optimizationScore: number;
+    recommendations: Array<{
+      timeSlot: string;
+      currentStaff: number;
+      recommendedStaff: number;
+      reasoning: string;
+      expectedImpact: string;
+    }>;
+    costBenefitAnalysis: {
+      currentCost: number;
+      optimizedCost: number;
+      savings: number;
+      roi: number;
+    };
+  };
+  
+  incidentForecasting: {
+    forecastAccuracy: number;
+    upcomingRisks: Array<{
+      timeframe: string;
+      incidentType: string;
+      probability: number;
+      severity: string;
+      location: string;
+      preventiveMeasures: string[];
+    }>;
+    confidenceIntervals: {
+      daily: { lower: number; upper: number };
+      weekly: { lower: number; upper: number };
+      monthly: { lower: number; upper: number };
+    };
+  };
+  
+  modelPerformance: {
+    overallHealth: number;
+    modelAccuracies: Record<string, number>;
+    recentImprovements: Array<{
+      model: string;
+      metric: string;
+      improvement: number;
+      date: string;
+    }>;
+    alerts: Array<{
+      model: string;
+      issue: string;
+      severity: string;
+      recommendedAction: string;
+    }>;
+  };
+}
+
 // Analytics dashboard response types
 export interface SecurityAnalyticsDashboard {
   // Executive Summary
