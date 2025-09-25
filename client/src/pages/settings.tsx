@@ -20,6 +20,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import type { Camera as CameraType } from "@shared/schema";
+import { SecurityNavigation } from "@/components/SecurityNavigation";
 
 // Camera form schema for validation
 const cameraFormSchema = z.object({
@@ -75,28 +76,25 @@ export default function SettingsPage() {
 
   const createCameraMutation = useMutation({
     mutationFn: async (data: CameraFormData) => {
-      return apiRequest('/api/store/default/cameras', {
-        method: 'POST',
-        body: JSON.stringify({
-          ...data,
-          storeId: 'default',
-          streamConfig: {
-            [data.protocol]: {
-              url: data.streamUrl,
-              auth: data.username && data.password ? {
-                username: data.username,
-                password: data.password
-              } : undefined,
-              resolution: data.resolution,
-              quality: data.quality
-            }
-          },
-          authConfig: data.username && data.password ? {
-            type: 'basic',
-            username: data.username,
-            password: data.password
-          } : undefined
-        })
+      return apiRequest('POST', '/api/store/default/cameras', {
+        ...data,
+        storeId: 'default',
+        streamConfig: {
+          [data.protocol]: {
+            url: data.streamUrl,
+            auth: data.username && data.password ? {
+              username: data.username,
+              password: data.password
+            } : undefined,
+            resolution: data.resolution,
+            quality: data.quality
+          }
+        },
+        authConfig: data.username && data.password ? {
+          type: 'basic',
+          username: data.username,
+          password: data.password
+        } : undefined
       });
     },
     onSuccess: () => {
@@ -111,22 +109,19 @@ export default function SettingsPage() {
 
   const updateCameraMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<CameraFormData> }) => {
-      return apiRequest(`/api/cameras/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          ...data,
-          streamConfig: data.protocol && data.streamUrl ? {
-            [data.protocol]: {
-              url: data.streamUrl,
-              auth: data.username && data.password ? {
-                username: data.username,
-                password: data.password
-              } : undefined,
-              resolution: data.resolution,
-              quality: data.quality
-            }
-          } : undefined
-        })
+      return apiRequest('PUT', `/api/cameras/${id}`, {
+        ...data,
+        streamConfig: data.protocol && data.streamUrl ? {
+          [data.protocol]: {
+            url: data.streamUrl,
+            auth: data.username && data.password ? {
+              username: data.username,
+              password: data.password
+            } : undefined,
+            resolution: data.resolution,
+            quality: data.quality
+          }
+        } : undefined
       });
     },
     onSuccess: () => {
@@ -142,7 +137,7 @@ export default function SettingsPage() {
 
   const deleteCameraMutation = useMutation({
     mutationFn: async (id: string) => {
-      return apiRequest(`/api/cameras/${id}`, { method: 'DELETE' });
+      return apiRequest('DELETE', `/api/cameras/${id}`);
     },
     onSuccess: () => {
       toast({ title: "Camera deleted successfully" });
@@ -155,7 +150,7 @@ export default function SettingsPage() {
 
   const testConnectionMutation = useMutation({
     mutationFn: async (cameraId: string) => {
-      return apiRequest(`/api/cameras/${cameraId}/test-connection`, { method: 'POST' });
+      return apiRequest('POST', `/api/cameras/${cameraId}/test-connection`);
     },
     onSuccess: (data: any) => {
       toast({ 
@@ -172,7 +167,9 @@ export default function SettingsPage() {
   });
 
   return (
-    <div className="p-6 space-y-6">
+    <>
+      <SecurityNavigation />
+      <div className="pl-64 p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -834,7 +831,8 @@ export default function SettingsPage() {
           Save All Settings
         </Button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

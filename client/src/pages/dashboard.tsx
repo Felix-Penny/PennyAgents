@@ -6,6 +6,7 @@ import { AlertTriangle, Camera, Shield, Users, Activity, Eye, Brain, Target, Zap
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { SecurityNavigation } from "@/components/SecurityNavigation";
 
 // TypeScript interfaces for AI analytics data
 interface AIAnalyticsSummary {
@@ -66,7 +67,9 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <>
+      <SecurityNavigation />
+      <div className="pl-64 p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -255,6 +258,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

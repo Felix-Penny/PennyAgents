@@ -26,6 +26,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
+import { SecurityNavigation } from "@/components/SecurityNavigation";
 
 interface AIAnalysisResult {
   analysisId: string;
@@ -180,15 +181,9 @@ export default function VideoUploadPage() {
     try {
       // Step 1: Get signed URL for video upload
       setUploadProgress(10);
-      const signedUrlResponse = await apiRequest('/api/ai/video-upload-url', {
-        method: 'POST',
-        body: JSON.stringify({
-          storeId: storeId,
-          cameraId: 'video-upload'
-        }),
-        headers: {
-          'Content-Type': 'application/json'
-        }
+      const signedUrlResponse = await apiRequest('POST', '/api/ai/video-upload-url', {
+        storeId: storeId,
+        cameraId: 'video-upload'
       });
 
       if (!signedUrlResponse.ok) {
@@ -229,21 +224,15 @@ export default function VideoUploadPage() {
       const objectPath = uploadUrlObj.pathname; // This gives us the object path in Object Storage
 
       // Step 4: Send analysis request with object path (not video data)
-      const analysisResponse = await apiRequest('/api/ai/analyze-video', {
-        method: 'POST',
-        body: JSON.stringify({
-          objectPath: objectPath,
-          storeId: storeId,
-          cameraId: 'video-upload',
-          config: {
-            enableThreatDetection: true,
-            enableBehaviorAnalysis: true,
-            enableObjectDetection: true,
-            confidenceThreshold: 0.7
-          }
-        }),
-        headers: {
-          'Content-Type': 'application/json'
+      const analysisResponse = await apiRequest('POST', '/api/ai/analyze-video', {
+        objectPath: objectPath,
+        storeId: storeId,
+        cameraId: 'video-upload',
+        config: {
+          enableThreatDetection: true,
+          enableBehaviorAnalysis: true,
+          enableObjectDetection: true,
+          confidenceThreshold: 0.7
         }
       });
 
@@ -304,20 +293,14 @@ export default function VideoUploadPage() {
 
     try {
       // Send to frame analysis API
-      const response = await apiRequest('/api/ai/analyze-frame', {
-        method: 'POST',
-        body: JSON.stringify({
-          imageData: selectedFrame,
-          storeId: storeId,
-          cameraId: 'frame-upload',
-          config: {
-            enableThreatDetection: true,
-            enableBehaviorAnalysis: true,
-            confidenceThreshold: 0.7
-          }
-        }),
-        headers: {
-          'Content-Type': 'application/json'
+      const response = await apiRequest('POST', '/api/ai/analyze-frame', {
+        imageData: selectedFrame,
+        storeId: storeId,
+        cameraId: 'frame-upload',
+        config: {
+          enableThreatDetection: true,
+          enableBehaviorAnalysis: true,
+          confidenceThreshold: 0.7
         }
       });
       
@@ -415,8 +398,10 @@ export default function VideoUploadPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <>
+      <SecurityNavigation />
+      <div className="min-h-screen bg-background pl-64 p-6">
+        <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
@@ -898,7 +883,8 @@ export default function VideoUploadPage() {
             )}
           </TabsContent>
         </Tabs>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

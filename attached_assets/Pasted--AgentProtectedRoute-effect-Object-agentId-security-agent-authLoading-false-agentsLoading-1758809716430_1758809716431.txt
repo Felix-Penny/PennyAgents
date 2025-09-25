@@ -1,0 +1,25 @@
+🔐 AgentProtectedRoute effect: 
+Object {agentId: "security-agent", authLoading: false, agentsLoading: true, userCount: 0, user: "Felix.Hemsley"}
+WebSocket connected
+🎉 Rendering children for agent: security-agent
+🔐 AgentProtectedRoute effect: 
+Object {agentId: "security-agent", authLoading: false, agentsLoading: false, userCount: 6, user: "Felix.Hemsley"}
+🔍 Agent access check: 
+Object {agentId: "security-agent", agentAccess: true, agentData: {…}, userAgentsCount: 6}
+✅ Agent access granted, rendering children
+AI video analysis error: 
+TypeError {message: "Failed to execute 'fetch' on 'Window': '/api/ai/video-upload-url' is not a valid HTTP method."}
+
+🎉 Rendering children for agent: security-agent
+Failed to execute 'fetch' on 'Window': '/api/ai/video-upload-url' is not a valid HTTP method.
+at window.fetch (https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:218642)
+at Object.apply (https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev/__replco/static/devtools/injected.js:278:39)
+at apiRequest (https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev/src/lib/queryClient.ts:48:21)
+at analyzeVideo (https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev/src/pages/video-upload.tsx:88:39)
+at HTMLUnknownElement.callCallback2 (https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=a7a9f905:3674:22)
+at Object.invokeGuardedCallbackDev (https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=a7a9f905:3699:24)
+at invokeGuardedCallback (https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=a7a9f905:3733:39)
+at invokeGuardedCallbackAndCatchFirstError (https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=a7a9f905:3736:33)
+at executeDispatch (https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=a7a9f905:7014:11)
+at processDispatchQueueItemsInOrder (https://7ea17014-3163-4e87-a698-61bddab8746c-00-2vp7h9iunvuep.kirk.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=a7a9f905:7034:15)
+🎉 Rendering children for agent: security-agent
