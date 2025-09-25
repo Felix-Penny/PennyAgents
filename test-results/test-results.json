@@ -1,0 +1,129 @@
+{
+  "config": {
+    "configFile": "/home/runner/workspace/playwright.config.ts",
+    "rootDir": "/home/runner/workspace/tests",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": "/home/runner/workspace/tests/global-setup.ts",
+    "globalTeardown": "/home/runner/workspace/tests/global-teardown.ts",
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/test-results.json"
+        }
+      ],
+      [
+        "junit",
+        {
+          "outputFile": "test-results/junit.xml"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/home/runner/workspace/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {},
+        "id": "chromium-desktop",
+        "name": "chromium-desktop",
+        "testDir": "/home/runner/workspace/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/home/runner/workspace/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {},
+        "id": "firefox-desktop",
+        "name": "firefox-desktop",
+        "testDir": "/home/runner/workspace/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/home/runner/workspace/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {},
+        "id": "mobile-chrome",
+        "name": "mobile-chrome",
+        "testDir": "/home/runner/workspace/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/home/runner/workspace/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {},
+        "id": "high-dpi-chrome",
+        "name": "high-dpi-chrome",
+        "testDir": "/home/runner/workspace/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.55.1",
+    "workers": 1,
+    "webServer": {
+      "command": "npm run dev",
+      "url": "http://localhost:5000",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [],
+  "errors": [
+    {
+      "message": "Error: browserType.launch: \n╔══════════════════════════════════════════════════════╗\n║ Host system is missing dependencies to run browsers. ║\n║ Please install them with the following command:      ║\n║                                                      ║\n║     sudo npx playwright install-deps                 ║\n║                                                      ║\n║ Alternatively, use apt:                              ║\n║     sudo apt-get install libglib2.0-0t64\\            ║\n║         libnspr4\\                                    ║\n║         libnss3\\                                     ║\n║         libdbus-1-3\\                                 ║\n║         libatk1.0-0t64\\                              ║\n║         libatk-bridge2.0-0t64\\                       ║\n║         libatspi2.0-0t64\\                            ║\n║         libx11-6\\                                    ║\n║         libxcomposite1\\                              ║\n║         libxdamage1\\                                 ║\n║         libxext6\\                                    ║\n║         libxfixes3\\                                  ║\n║         libxrandr2\\                                  ║\n║         libgbm1\\                                     ║\n║         libxcb1\\                                     ║\n║         libxkbcommon0\\                               ║\n║         libasound2t64                                ║\n║                                                      ║\n║ <3 Playwright Team                                   ║\n╚══════════════════════════════════════════════════════╝",
+      "stack": "Error: browserType.launch: \n╔══════════════════════════════════════════════════════╗\n║ Host system is missing dependencies to run browsers. ║\n║ Please install them with the following command:      ║\n║                                                      ║\n║     sudo npx playwright install-deps                 ║\n║                                                      ║\n║ Alternatively, use apt:                              ║\n║     sudo apt-get install libglib2.0-0t64\\            ║\n║         libnspr4\\                                    ║\n║         libnss3\\                                     ║\n║         libdbus-1-3\\                                 ║\n║         libatk1.0-0t64\\                              ║\n║         libatk-bridge2.0-0t64\\                       ║\n║         libatspi2.0-0t64\\                            ║\n║         libx11-6\\                                    ║\n║         libxcomposite1\\                              ║\n║         libxdamage1\\                                 ║\n║         libxext6\\                                    ║\n║         libxfixes3\\                                  ║\n║         libxrandr2\\                                  ║\n║         libgbm1\\                                     ║\n║         libxcb1\\                                     ║\n║         libxkbcommon0\\                               ║\n║         libasound2t64                                ║\n║                                                      ║\n║ <3 Playwright Team                                   ║\n╚══════════════════════════════════════════════════════╝\n    at globalSetup (/home/runner/workspace/tests/global-setup.ts:14:34)",
+      "location": {
+        "file": "/home/runner/workspace/tests/global-setup.ts",
+        "column": 34,
+        "line": 14
+      },
+      "snippet": "\u001b[90m   at \u001b[39mglobal-setup.ts:14\n\n\u001b[0m \u001b[90m 12 |\u001b[39m   \n \u001b[90m 13 |\u001b[39m   \u001b[90m// Create browser instance for authentication setup\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 14 |\u001b[39m   \u001b[36mconst\u001b[39m browser \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m chromium\u001b[33m.\u001b[39mlaunch()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                  \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 15 |\u001b[39m   \u001b[36mconst\u001b[39m context \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m browser\u001b[33m.\u001b[39mnewContext()\u001b[33m;\u001b[39m\n \u001b[90m 16 |\u001b[39m   \u001b[36mconst\u001b[39m page \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m context\u001b[33m.\u001b[39mnewPage()\u001b[33m;\u001b[39m\n \u001b[90m 17 |\u001b[39m   \u001b[0m"
+    }
+  ],
+  "stats": {
+    "startTime": "2025-09-25T03:44:11.297Z",
+    "duration": 272.394,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
