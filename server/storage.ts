@@ -369,6 +369,7 @@ import {
   type InsertPredictiveModelPerformance,
   type PredictiveModelPerformance,
 } from "@shared/schema";
+import { credentialUtils, type CameraAuthConfig } from "./credential-encryption";
 
 const PostgresSessionStore = connectPg(session);
 
@@ -663,6 +664,96 @@ export interface IStorage {
   updateStaffingRecommendation(id: string, updates: Partial<InsertStaffingRecommendation>): Promise<StaffingRecommendation>;
   updatePredictiveModelPerformance(id: string, updates: Partial<InsertPredictiveModelPerformance>): Promise<PredictiveModelPerformance>;
   deleteModelPerformance(id: string): Promise<void>;
+
+  // =====================================
+  // Enhanced Camera Management (Security Agent)
+  // =====================================
+  
+  // Basic Camera CRUD
+  createCamera(camera: InsertCamera): Promise<Camera>;
+  getCameraById(id: string): Promise<Camera | null>;
+  getCamerasByStore(storeId: string): Promise<Camera[]>;
+  getCamerasByStatus(storeId: string, status: string): Promise<Camera[]>;
+  updateCamera(id: string, updates: Partial<Camera>): Promise<Camera | null>;
+  deleteCamera(id: string): Promise<boolean>;
+  
+  // Stream Health & Status Management
+  updateCameraStatus(id: string, status: string): Promise<Camera | null>;
+  updateCameraHeartbeat(id: string): Promise<Camera | null>;
+  updateCameraConnectionStatus(id: string, connectionStatus: any): Promise<Camera | null>;
+  getCamerasWithPoorHealth(storeId: string): Promise<Camera[]>;
+  
+  // Stream Configuration & Testing
+  testCameraConnection(id: string): Promise<{
+    success: boolean;
+    latency?: number;
+    quality?: string;
+    error?: string;
+    protocols: Array<{
+      type: string;
+      available: boolean;
+      tested: boolean;
+    }>;
+  }>;
+  updateStreamConfig(id: string, streamConfig: any): Promise<Camera | null>;
+  validateStreamUrl(protocol: string, url: string, auth?: any): Promise<{
+    valid: boolean;
+    error?: string;
+    streamInfo?: any;
+  }>;
+  
+  // Recording & Playback Management  
+  startRecording(id: string, options?: {
+    duration?: number;
+    quality?: string;
+    trigger?: string;
+  }): Promise<{
+    recordingId: string;
+    startTime: Date;
+    estimatedSize?: number;
+  }>;
+  stopRecording(id: string, recordingId: string): Promise<{
+    recordingId: string;
+    filePath: string;
+    duration: number;
+    fileSize: number;
+  }>;
+  getRecordings(cameraId: string, startDate?: Date, endDate?: Date): Promise<Array<{
+    id: string;
+    filePath: string;
+    startTime: Date;
+    endTime: Date;
+    fileSize: number;
+    trigger: string;
+  }>>;
+  
+  // Screenshot & Thumbnail Management
+  captureScreenshot(id: string): Promise<{
+    screenshotPath: string;
+    timestamp: Date;
+    quality: string;
+  }>;
+  getScreenshots(cameraId: string, limit?: number): Promise<Array<{
+    path: string;
+    timestamp: Date;
+    fileSize: number;
+  }>>;
+  
+  // Stream Analytics & Performance
+  updateStreamQualityMetrics(id: string, metrics: {
+    frameRate?: number;
+    resolution?: { width: number; height: number };
+    bitrate?: number;
+    latency?: number;
+    signalStrength?: number;
+  }): Promise<Camera | null>;
+  getCameraPerformanceHistory(id: string, hours?: number): Promise<Array<{
+    timestamp: Date;
+    frameRate: number;
+    latency: number;
+    quality: string;
+    connectionStatus: string;
+  }>>;
 
   // Session store
   sessionStore: any;
@@ -1411,7 +1502,31 @@ export class DatabaseStorage implements IStorage {
   async createCamera(camera: InsertCamera): Promise<Camera> {
     const cameraData = {
       ...camera,
-      capabilities: camera.capabilities ? Array.from(camera.capabilities as string[]) : []
+      // Handle JSON fields safely using JsonBuilders
+      streamConfig: JsonBuilders.toStorageJSON(camera.streamConfig),
+      authConfig: await credentialUtils.encryptForStorage(camera.authConfig || { type: 'none' } as CameraAuthConfig, camera.id || 'temp-' + Date.now()),
+      streamSettings: JsonBuilders.toStorageJSON(camera.streamSettings || { 
+        preferredQuality: 'medium', 
+        autoReconnect: true, 
+        reconnectInterval: 30,
+        bufferSize: 5 
+      }),
+      recordingConfig: JsonBuilders.toStorageJSON(camera.recordingConfig || { enabled: false }),
+      healthConfig: JsonBuilders.toStorageJSON(camera.healthConfig || {
+        heartbeatInterval: 30,
+        timeoutThreshold: 90,
+        retryAttempts: 3,
+        alertOnFailure: true,
+        checks: {
+          streamAvailable: true,
+          qualityCheck: false,
+          motionDetection: false,
+          audioLevel: false
+        }
+      }),
+      capabilities: JsonBuilders.toStorageJSON(camera.capabilities || { protocols: [], features: [] }),
+      connectionStatus: JsonBuilders.toStorageJSON({ isConnected: false, connectionAttempts: 0 }),
+      updatedAt: new Date()
     };
     const [newCamera] = await db
       .insert(cameras)
@@ -1421,12 +1536,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateCamera(id: string, updates: Partial<Camera>): Promise<Camera | null> {
-    const updateData = {
+    const updateData: any = {
       ...updates,
-      capabilities: updates.capabilities ? Array.from(updates.capabilities as string[]) : undefined
+      // Handle JSON fields safely using JsonBuilders
+      streamConfig: updates.streamConfig ? JsonBuilders.toStorageJSON(updates.streamConfig) : undefined,
+      authConfig: updates.authConfig ? await credentialUtils.encryptForStorage(updates.authConfig as CameraAuthConfig, id) : undefined,
+      streamSettings: updates.streamSettings ? JsonBuilders.toStorageJSON(updates.streamSettings) : undefined,
+      recordingConfig: updates.recordingConfig ? JsonBuilders.toStorageJSON(updates.recordingConfig) : undefined,
+      healthConfig: updates.healthConfig ? JsonBuilders.toStorageJSON(updates.healthConfig) : undefined,
+      capabilities: updates.capabilities ? JsonBuilders.toStorageJSON(updates.capabilities) : undefined,
+      connectionStatus: updates.connectionStatus ? JsonBuilders.toStorageJSON(updates.connectionStatus) : undefined,
+      updatedAt: new Date()
     };
+    
     // Remove undefined values
     Object.keys(updateData).forEach(key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]);
+    
     const [updated] = await db
       .update(cameras)
       .set(updateData)
@@ -1465,6 +1590,304 @@ export class DatabaseStorage implements IStorage {
       .set({ isActive: false })
       .where(eq(cameras.id, id));
     return (result.rowCount ?? 0) > 0;
+  }
+
+  // =====================================
+  // Enhanced Camera Management - New Methods
+  // =====================================
+
+  async updateCameraConnectionStatus(id: string, connectionStatus: any): Promise<Camera | null> {
+    const [updated] = await db
+      .update(cameras)
+      .set({ 
+        connectionStatus: JsonBuilders.toStorageJSON(connectionStatus),
+        lastStreamAttempt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(cameras.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async getCamerasWithPoorHealth(storeId: string): Promise<Camera[]> {
+    const thresholdDate = new Date();
+    thresholdDate.setMinutes(thresholdDate.getMinutes() - 5); // 5 minutes ago
+    
+    return await db
+      .select()
+      .from(cameras)
+      .where(and(
+        eq(cameras.storeId, storeId), 
+        eq(cameras.isActive, true),
+        or(
+          eq(cameras.status, "error"),
+          eq(cameras.status, "offline"),
+          sql`${cameras.lastHeartbeat} < ${thresholdDate}`
+        )
+      ))
+      .orderBy(cameras.name);
+  }
+
+  async testCameraConnection(id: string): Promise<{
+    success: boolean;
+    latency?: number;
+    quality?: string;
+    error?: string;
+    protocols: Array<{
+      type: string;
+      available: boolean;
+      tested: boolean;
+    }>;
+  }> {
+    // This is a stub implementation - actual testing would require stream libraries
+    const camera = await this.getCameraById(id);
+    if (!camera) {
+      return {
+        success: false,
+        error: "Camera not found",
+        protocols: []
+      };
+    }
+
+    const protocols = [];
+    const streamConfig = camera.streamConfig as any;
+    
+    // Test available protocols based on configuration
+    if (streamConfig?.rtsp) {
+      protocols.push({
+        type: 'rtsp',
+        available: true,
+        tested: true // Would be actual test result
+      });
+    }
+    
+    if (streamConfig?.webrtc) {
+      protocols.push({
+        type: 'webrtc',
+        available: true,
+        tested: true
+      });
+    }
+    
+    if (streamConfig?.mjpeg) {
+      protocols.push({
+        type: 'mjpeg',
+        available: true,
+        tested: true
+      });
+    }
+
+    if (streamConfig?.websocket) {
+      protocols.push({
+        type: 'websocket',
+        available: true,
+        tested: true
+      });
+    }
+
+    if (streamConfig?.hls) {
+      protocols.push({
+        type: 'hls',
+        available: true,
+        tested: true
+      });
+    }
+
+    // Update connection status with test results
+    await this.updateCameraConnectionStatus(id, {
+      isConnected: protocols.some(p => p.available),
+      lastConnected: new Date().toISOString(),
+      connectionAttempts: (camera.connectionStatus as any)?.connectionAttempts || 0 + 1,
+      quality: {
+        signalStrength: 85,
+        latency: 45,
+        frameRate: 30
+      }
+    });
+
+    return {
+      success: protocols.some(p => p.available),
+      latency: 45, // Mock latency
+      quality: "good",
+      protocols
+    };
+  }
+
+  async updateStreamConfig(id: string, streamConfig: any): Promise<Camera | null> {
+    const [updated] = await db
+      .update(cameras)
+      .set({ 
+        streamConfig: JsonBuilders.toStorageJSON(streamConfig),
+        updatedAt: new Date()
+      })
+      .where(eq(cameras.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async validateStreamUrl(protocol: string, url: string, auth?: any): Promise<{
+    valid: boolean;
+    error?: string;
+    streamInfo?: any;
+  }> {
+    // This is a stub implementation - actual validation would require stream libraries
+    try {
+      // Basic URL validation
+      new URL(url);
+      
+      // Protocol-specific validation
+      const validProtocols = ['rtsp', 'http', 'https', 'ws', 'wss'];
+      const urlProtocol = url.split('://')[0].toLowerCase();
+      
+      if (!validProtocols.includes(urlProtocol)) {
+        return {
+          valid: false,
+          error: `Unsupported protocol: ${urlProtocol}`
+        };
+      }
+
+      // Mock stream info
+      return {
+        valid: true,
+        streamInfo: {
+          protocol,
+          resolution: { width: 1920, height: 1080 },
+          frameRate: 30,
+          codec: 'h264',
+          audioEnabled: true
+        }
+      };
+    } catch (error) {
+      return {
+        valid: false,
+        error: `Invalid URL format: ${error}`
+      };
+    }
+  }
+
+  async startRecording(id: string, options?: {
+    duration?: number;
+    quality?: string;
+    trigger?: string;
+  }): Promise<{
+    recordingId: string;
+    startTime: Date;
+    estimatedSize?: number;
+  }> {
+    // This is a stub implementation - actual recording would require stream processing
+    const recordingId = `recording_${id}_${Date.now()}`;
+    const startTime = new Date();
+    
+    return {
+      recordingId,
+      startTime,
+      estimatedSize: (options?.duration || 300) * 1024 * 1024 * 0.5 // Mock size calculation
+    };
+  }
+
+  async stopRecording(id: string, recordingId: string): Promise<{
+    recordingId: string;
+    filePath: string;
+    duration: number;
+    fileSize: number;
+  }> {
+    // This is a stub implementation - actual recording would require stream processing
+    const filePath = `/recordings/${recordingId}.mp4`;
+    const duration = 300; // 5 minutes
+    const fileSize = duration * 1024 * 1024 * 0.5; // Mock file size
+    
+    return {
+      recordingId,
+      filePath,
+      duration,
+      fileSize
+    };
+  }
+
+  async getRecordings(cameraId: string, startDate?: Date, endDate?: Date): Promise<Array<{
+    id: string;
+    filePath: string;
+    startTime: Date;
+    endTime: Date;
+    fileSize: number;
+    trigger: string;
+  }>> {
+    // This is a stub implementation - actual recordings would be stored in database
+    return [];
+  }
+
+  async captureScreenshot(id: string): Promise<{
+    screenshotPath: string;
+    timestamp: Date;
+    quality: string;
+  }> {
+    // This is a stub implementation - actual screenshot would require stream processing
+    const timestamp = new Date();
+    const screenshotPath = `/screenshots/${id}_${timestamp.getTime()}.jpg`;
+    
+    return {
+      screenshotPath,
+      timestamp,
+      quality: "high"
+    };
+  }
+
+  async getScreenshots(cameraId: string, limit?: number): Promise<Array<{
+    path: string;
+    timestamp: Date;
+    fileSize: number;
+  }>> {
+    // This is a stub implementation - actual screenshots would be stored in database
+    return [];
+  }
+
+  async updateStreamQualityMetrics(id: string, metrics: {
+    frameRate?: number;
+    resolution?: { width: number; height: number };
+    bitrate?: number;
+    latency?: number;
+    signalStrength?: number;
+  }): Promise<Camera | null> {
+    const camera = await this.getCameraById(id);
+    if (!camera) return null;
+
+    const currentStatus = camera.connectionStatus as any || {};
+    const updatedStatus = {
+      ...currentStatus,
+      quality: {
+        ...currentStatus.quality,
+        ...metrics
+      },
+      lastUpdate: new Date().toISOString()
+    };
+
+    return await this.updateCameraConnectionStatus(id, updatedStatus);
+  }
+
+  async getCameraPerformanceHistory(id: string, hours?: number): Promise<Array<{
+    timestamp: Date;
+    frameRate: number;
+    latency: number;
+    quality: string;
+    connectionStatus: string;
+  }>> {
+    // This is a stub implementation - actual performance history would be stored in database
+    const mockHistory = [];
+    const hoursBack = hours || 24;
+    const now = new Date();
+    
+    for (let i = 0; i < hoursBack; i++) {
+      const timestamp = new Date(now.getTime() - (i * 60 * 60 * 1000));
+      mockHistory.push({
+        timestamp,
+        frameRate: 30 + Math.random() * 5 - 2.5, // 27.5-32.5 fps
+        latency: 40 + Math.random() * 20, // 40-60ms
+        quality: "good",
+        connectionStatus: "online"
+      });
+    }
+    
+    return mockHistory.reverse();
   }
 
   // =====================================

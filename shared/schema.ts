@@ -279,11 +279,177 @@ export const cameras = pgTable("cameras", {
   name: text("name").notNull(),
   location: text("location").notNull(),
   ipAddress: text("ip_address"),
-  status: varchar("status", { length: 50 }).default("online"), // online, offline, maintenance, error
-  capabilities: jsonb("capabilities").$type<string[]>().default([]),
+  status: varchar("status", { length: 50 }).default("offline"), // online, offline, maintenance, error, connecting
+  
+  // Stream Configurations
+  streamConfig: jsonb("stream_config").$type<{
+    rtsp?: {
+      url: string;
+      port?: number;
+      path?: string;
+    };
+    webrtc?: {
+      url: string;
+      stunServers?: string[];
+      turnServers?: Array<{
+        urls: string;
+        username?: string;
+        credential?: string;
+      }>;
+    };
+    mjpeg?: {
+      url: string;
+      refreshRate?: number; // ms
+    };
+    websocket?: {
+      url: string;
+      protocol?: string;
+    };
+    hls?: {
+      url: string;
+      segments?: number;
+    };
+  }>(),
+  
+  // Authentication
+  authConfig: jsonb("auth_config").$type<{
+    type: 'none' | 'basic' | 'digest' | 'token' | 'oauth';
+    username?: string;
+    password?: string; // Should be encrypted
+    token?: string;
+    apiKey?: string;
+    oauth?: {
+      clientId: string;
+      clientSecret: string;
+      authUrl: string;
+      tokenUrl: string;
+    };
+  }>().default({ type: 'none' }),
+  
+  // Stream Quality & Settings
+  streamSettings: jsonb("stream_settings").$type<{
+    preferredQuality: 'low' | 'medium' | 'high' | 'auto';
+    resolution?: {
+      width: number;
+      height: number;
+    };
+    frameRate?: number;
+    bitrate?: number;
+    codec?: 'h264' | 'h265' | 'mjpeg' | 'vp8' | 'vp9';
+    audioEnabled?: boolean;
+    autoReconnect?: boolean;
+    reconnectInterval?: number; // seconds
+    bufferSize?: number; // seconds
+  }>().default({ 
+    preferredQuality: 'medium', 
+    autoReconnect: true, 
+    reconnectInterval: 30,
+    bufferSize: 5 
+  }),
+  
+  // Recording Configuration
+  recordingConfig: jsonb("recording_config").$type<{
+    enabled: boolean;
+    schedule?: {
+      always?: boolean;
+      timeRanges?: Array<{
+        dayOfWeek: number; // 0-6
+        startTime: string; // HH:MM
+        endTime: string;
+      }>;
+    };
+    retention?: {
+      days: number;
+      maxSize?: number; // GB
+    };
+    triggers?: Array<'motion' | 'alert' | 'manual' | 'schedule'>;
+    quality?: 'low' | 'medium' | 'high';
+    format?: 'mp4' | 'avi' | 'mkv';
+  }>().default({ enabled: false }),
+  
+  // Health Monitoring
+  healthConfig: jsonb("health_config").$type<{
+    heartbeatInterval: number; // seconds
+    timeoutThreshold: number; // seconds
+    retryAttempts: number;
+    alertOnFailure: boolean;
+    notificationContacts?: string[];
+    checks?: {
+      streamAvailable?: boolean;
+      qualityCheck?: boolean;
+      motionDetection?: boolean;
+      audioLevel?: boolean;
+    };
+  }>().default({
+    heartbeatInterval: 30,
+    timeoutThreshold: 90,
+    retryAttempts: 3,
+    alertOnFailure: true,
+    checks: {
+      streamAvailable: true,
+      qualityCheck: false,
+      motionDetection: false,
+      audioLevel: false
+    }
+  }),
+  
+  // Camera Capabilities & Features  
+  capabilities: jsonb("capabilities").$type<{
+    protocols: Array<'rtsp' | 'webrtc' | 'mjpeg' | 'websocket' | 'hls'>;
+    features: Array<'ptz' | 'zoom' | 'audio' | 'infrared' | 'motion' | 'recording'>;
+    ptz?: {
+      panRange: { min: number; max: number };
+      tiltRange: { min: number; max: number };
+      zoomRange: { min: number; max: number };
+      presets?: Array<{
+        id: string;
+        name: string;
+        position: { pan: number; tilt: number; zoom: number };
+      }>;
+    };
+    resolutions?: Array<{
+      width: number;
+      height: number;
+      fps: number[];
+    }>;
+  }>().default({ protocols: [], features: [] }),
+  
+  // Connection Status & Monitoring
+  connectionStatus: jsonb("connection_status").$type<{
+    isConnected: boolean;
+    lastConnected?: string;
+    connectionAttempts: number;
+    lastError?: {
+      message: string;
+      code?: string;
+      timestamp: string;
+    };
+    quality?: {
+      signalStrength?: number; // 0-100
+      latency?: number; // ms
+      frameRate?: number;
+      resolution?: { width: number; height: number };
+    };
+    bandwidth?: {
+      upload?: number; // kbps
+      download?: number; // kbps
+    };
+  }>().default({ isConnected: false, connectionAttempts: 0 }),
+  
+  // Maintenance & Management
   isActive: boolean("is_active").default(true),
+  manufacturer: varchar("manufacturer", { length: 100 }),
+  model: varchar("model", { length: 100 }),
+  firmware: varchar("firmware", { length: 50 }),
+  serialNumber: varchar("serial_number", { length: 100 }),
+  installDate: timestamp("install_date"),
+  lastMaintenance: timestamp("last_maintenance"),
+  
+  // Timestamps
   lastHeartbeat: timestamp("last_seen"), // Map lastHeartbeat to last_seen column
+  lastStreamAttempt: timestamp("last_stream_attempt"),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const incidents = pgTable("incidents", {
@@ -3320,6 +3486,54 @@ export type AgentConfiguration = z.infer<typeof selectAgentConfigurationSchema>;
 export const insertCameraSchema = createInsertSchema(cameras).omit({
   id: true,
   createdAt: true,
+  updatedAt: true,
+  lastHeartbeat: true,
+  lastStreamAttempt: true,
+}).extend({
+  // Add validation for stream configurations
+  streamConfig: z.object({
+    rtsp: z.object({
+      url: z.string().url(),
+      port: z.number().optional(),
+      path: z.string().optional()
+    }).optional(),
+    webrtc: z.object({
+      url: z.string().url(),
+      stunServers: z.array(z.string()).optional(),
+      turnServers: z.array(z.object({
+        urls: z.string(),
+        username: z.string().optional(),
+        credential: z.string().optional()
+      })).optional()
+    }).optional(),
+    mjpeg: z.object({
+      url: z.string().url(),
+      refreshRate: z.number().min(100).optional()
+    }).optional(),
+    websocket: z.object({
+      url: z.string(),
+      protocol: z.string().optional()
+    }).optional(),
+    hls: z.object({
+      url: z.string().url(),
+      segments: z.number().min(1).optional()
+    }).optional()
+  }).optional(),
+  
+  // Add validation for auth config
+  authConfig: z.object({
+    type: z.enum(['none', 'basic', 'digest', 'token', 'oauth']),
+    username: z.string().optional(),
+    password: z.string().optional(),
+    token: z.string().optional(),
+    apiKey: z.string().optional(),
+    oauth: z.object({
+      clientId: z.string(),
+      clientSecret: z.string(),
+      authUrl: z.string().url(),
+      tokenUrl: z.string().url()
+    }).optional()
+  }).optional(),
 });
 
 export const insertIncidentSchema = createInsertSchema(incidents).omit({

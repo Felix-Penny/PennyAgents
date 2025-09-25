@@ -27,6 +27,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCameraAnalysis } from "@/hooks/useCameraAnalysis";
 import { useCameraStatusSocket } from "@/hooks/useCameraStatusSocket";
 import { OverlayRenderer, DetectionStats } from "@/components/OverlayRenderer";
+import { CameraStreamCard } from "@/components/streaming/CameraStreamCard";
+import { StreamingEngine, StreamQualityMetrics } from "@/components/streaming/StreamingEngine";
 import type { Camera } from "@shared/schema";
 
 // Types
@@ -569,30 +571,25 @@ function CameraTile({ camera, isVisible = true }: CameraTileProps) {
           />
           
           {currentStatus === "online" ? (
-            <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center transition-all duration-500">
-              {tileState.hasError ? (
-                <div className="text-center text-red-400" data-testid={`error-state-${camera.id}`}>
-                  <AlertTriangle className="h-12 w-12 mx-auto mb-2" />
-                  <p className="text-sm">Stream Error</p>
-                </div>
-              ) : (
-                <div className="text-center text-white">
-                  <CameraIcon className="h-12 w-12 mx-auto mb-2 opacity-50" aria-hidden="true" />
-                  <p className="text-sm opacity-75">
-                    {tileState.isLoading ? "Loading..." : tileState.isPlaying ? "Live Feed" : "Paused"}
-                  </p>
-                  {tileState.isPlaying && !tileState.isLoading && (
-                    <div className="mt-2 w-16 h-1 bg-red-500 mx-auto animate-pulse rounded" aria-hidden="true" />
-                  )}
-                  {isWebSocketConnected && isVisible && (
-                    <div className="mt-2 flex items-center justify-center gap-1 text-xs opacity-60">
-                      <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-                      <span>Real-time</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            // Real streaming engine for online cameras
+            <StreamingEngine
+              camera={camera}
+              width={640}
+              height={360}
+              autoPlay={tileState.isPlaying}
+              muted={true}
+              className="w-full h-full"
+              onStreamStart={() => setTileState(prev => ({ ...prev, isLoading: false, hasError: false }))}
+              onStreamEnd={() => setTileState(prev => ({ ...prev, isLoading: false }))}
+              onStreamError={(error) => {
+                console.error(`Camera ${camera.id} stream error:`, error);
+                setTileState(prev => ({ ...prev, hasError: true, isLoading: false }));
+              }}
+              onStreamQualityUpdate={(metrics: StreamQualityMetrics) => {
+                // Update camera quality metrics on the server
+                console.log(`Camera ${camera.id} quality:`, metrics);
+              }}
+            />
           ) : (
             <div className="absolute inset-0 bg-gray-700 flex items-center justify-center transition-all duration-500">
               <div className="text-center text-gray-400" data-testid={`offline-state-${camera.id}`}>
