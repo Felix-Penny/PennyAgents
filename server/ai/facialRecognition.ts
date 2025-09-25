@@ -228,7 +228,6 @@ export class FacialRecognitionService {
 
       // Store encrypted template with privacy compliance
       await storage.storeFaceTemplate({
-        id: template.id,
         storeId,
         encryptedTemplate: template.templateData,
         keyId: template.keyId,
@@ -265,7 +264,7 @@ export class FacialRecognitionService {
         operation: 'extract_features',
         userId,
         storeId,
-        consentStatus: 'error',
+        consentStatus: 'denied',
         legalBasis: 'none',
         ipAddress: req?.ip,
         userAgent: req?.get('User-Agent'),
@@ -326,16 +325,16 @@ export class FacialRecognitionService {
           if (similarity >= this.DEFAULT_THRESHOLD) {
             matches.push({
               watchlistEntryId: entry.id,
-              personId: entry.personId,
-              name: entry.name,
+              personId: entry.personId || undefined,
+              name: entry.name || 'Unknown',
               watchlistType: entry.watchlistType as any,
               riskLevel: entry.riskLevel as any,
               confidence: similarity,
-              reason: entry.reason,
-              legalAuthorization: entry.legalAuthorization,
-              addedBy: entry.addedBy,
-              lastSeen: entry.lastSeen,
-              notifications: entry.notifications
+              reason: entry.reason || 'No reason provided',
+              legalAuthorization: entry.legalAuthorization || undefined,
+              addedBy: entry.addedBy || 'System',
+              lastSeen: entry.lastSeen || undefined,
+              notifications: entry.notifications || { email: false, sms: false, realtime: false }
             });
           }
         } catch (templateError) {
@@ -371,7 +370,7 @@ export class FacialRecognitionService {
         operation: 'watchlist_search',
         userId,
         storeId,
-        consentStatus: 'error',
+        consentStatus: 'denied',
         legalBasis: template.legalBasis,
         ipAddress: req?.ip,
         userAgent: req?.get('User-Agent'),
@@ -408,9 +407,7 @@ export class FacialRecognitionService {
     try {
       // Check for explicit facial recognition consent
       const consentRecord = await storage.getConsentPreference(
-        storeId, 
-        CONSENT_TYPES.FACIAL_RECOGNITION,
-        personId ? 'employee' : 'visitor'
+        `${storeId}_${CONSENT_TYPES.FACIAL_RECOGNITION}_${personId || 'visitor'}`
       );
 
       if (consentRecord && consentRecord.consentGiven && !consentRecord.withdrawnDate) {
@@ -493,8 +490,7 @@ export class FacialRecognitionService {
       for (const template of expiredTemplates) {
         // Check if there's still valid consent
         const consentRecord = await storage.getConsentPreference(
-          template.storeId, 
-          CONSENT_TYPES.FACIAL_RECOGNITION
+          `${template.storeId}_${CONSENT_TYPES.FACIAL_RECOGNITION}_general`
         );
 
         // If consent withdrawn or expired, delete template
@@ -545,7 +541,7 @@ export class FacialRecognitionService {
       const watchlistEntriesDeleted = await storage.deleteWatchlistEntriesByPerson(personId, storeId);
 
       // Update consent record to show withdrawal
-      await storage.updateConsentPreference(storeId, CONSENT_TYPES.FACIAL_RECOGNITION, {
+      await storage.updateConsentPreference(`${storeId}_${CONSENT_TYPES.FACIAL_RECOGNITION}_${personId}`, {
         consentGiven: false,
         withdrawnDate: new Date(),
         withdrawalMethod: 'right_to_erasure',
@@ -616,14 +612,14 @@ export class FacialRecognitionService {
         biometricTemplates: {
           count: templates.length,
           createdDates: templates.map(t => t.createdAt),
-          algorithms: [...new Set(templates.map(t => 'encrypted_template'))],
+          algorithms: Array.from(new Set(templates.map(t => 'encrypted_template'))),
           retentionExpiry: templates.map(t => t.retentionExpiry)
         },
         consentRecords: consentRecords.map(c => ({
           consentGiven: c.consentGiven,
           consentDate: c.consentDate,
           legalBasis: c.legalBasis,
-          withdrawnDate: c.withdrawnDate
+          withdrawnDate: c.withdrawnDate || undefined
         })),
         watchlistEntries: watchlistEntries.map(w => ({
           entryId: w.id,
@@ -633,9 +629,23 @@ export class FacialRecognitionService {
         })),
         recognitionEvents: {
           count: eventsSummary.count,
-          dateRange: eventsSummary.dateRange
+          dateRange: {
+            earliest: eventsSummary.dateRange?.earliest || new Date(),
+            latest: eventsSummary.dateRange?.latest || new Date()
+          }
         },
-        auditTrail
+        auditTrail: auditTrail.map((audit: any) => ({
+          operation: audit.action as any,
+          userId: audit.userId,
+          storeId: audit.storeId,
+          consentStatus: 'granted' as any,
+          legalBasis: audit.details?.legalBasis || 'legitimate_interest',
+          ipAddress: audit.ipAddress,
+          userAgent: audit.userAgent,
+          timestamp: audit.timestamp,
+          outcome: audit.outcome as any,
+          details: audit.details
+        }))
       };
 
     } catch (error) {

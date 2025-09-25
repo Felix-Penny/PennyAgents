@@ -382,6 +382,17 @@ interface UserPermissions {
   analytics: { executive: boolean; operational: boolean; safety: boolean; public: boolean; reports: boolean; export: boolean };
   users: { view: boolean; create: boolean; edit: boolean; delete: boolean; assign_roles: boolean };
   system: { configure: boolean; audit: boolean; backup: boolean; maintenance: boolean };
+  security: {
+    behavior: { read: boolean; write: boolean; analyze: boolean };
+    face: { manage: boolean; search: boolean; template_access: boolean; match: boolean };
+    privacy: { manage: boolean; consent_check: boolean; consent_grant: boolean; consent_withdraw: boolean };
+    predict: { read: boolean; generate: boolean; model_access: boolean };
+    audit: { read: boolean; export: boolean; manage: boolean };
+    watchlist: { view: boolean; add: boolean; remove: boolean; manage: boolean };
+    biometric: { encrypt: boolean; decrypt: boolean; access: boolean; manage: boolean };
+    advanced: { anomaly_detect: boolean; baseline_profile: boolean; risk_score: boolean };
+  };
+  [key: string]: any; // Allow dynamic property access
 }
 
 export interface PermissionContext {
@@ -466,7 +477,7 @@ export class PermissionEngine {
       // Log error and deny access
       await this.auditPermissionCheck(context, {
         granted: false,
-        reason: `Permission check failed: ${error.message}`,
+        reason: `Permission check failed: ${(error as Error).message || 'Unknown error'}`,
         restrictedBy: ['system_error'],
         auditRequired: true,
         processingTimeMs: Date.now() - startTime
@@ -474,7 +485,7 @@ export class PermissionEngine {
       
       return {
         granted: false,
-        reason: `Permission check failed: ${error.message}`,
+        reason: `Permission check failed: ${(error as Error).message || 'Unknown error'}`,
         restrictedBy: ['system_error'],
         auditRequired: true
       };
@@ -482,7 +493,7 @@ export class PermissionEngine {
   }
 
   // Get user's security roles with inheritance
-  private async getUserSecurityRoles(userId: string): Promise<SecurityRole[]> {
+  public async getUserSecurityRoles(userId: string): Promise<SecurityRole[]> {
     try {
       // For now, return a basic role until we implement the storage methods
       // This will be enhanced when storage.ts is updated with RBAC methods
@@ -566,9 +577,20 @@ export class PermissionEngine {
   // Merge permissions using OR logic
   private mergePermissions(target: UserPermissions, source: UserPermissions): void {
     Object.keys(target).forEach(resource => {
-      Object.keys(target[resource]).forEach(action => {
-        target[resource][action] = target[resource][action] || source[resource][action];
-      });
+      const targetResource = target[resource] as Record<string, any>;
+      const sourceResource = source[resource] as Record<string, any>;
+      if (targetResource && sourceResource && typeof targetResource === 'object' && typeof sourceResource === 'object') {
+        Object.keys(targetResource).forEach(action => {
+          if (typeof targetResource[action] === 'boolean' && typeof sourceResource[action] === 'boolean') {
+            targetResource[action] = targetResource[action] || sourceResource[action];
+          } else if (typeof targetResource[action] === 'object' && typeof sourceResource[action] === 'object') {
+            // Handle nested objects like security permissions
+            Object.keys(targetResource[action]).forEach(nestedAction => {
+              targetResource[action][nestedAction] = targetResource[action][nestedAction] || sourceResource[action][nestedAction];
+            });
+          }
+        });
+      }
     });
   }
 
@@ -619,7 +641,7 @@ export class PermissionEngine {
   }
 
   // Audit permission check
-  private async auditPermissionCheck(
+  public async auditPermissionCheck(
     context: PermissionContext, 
     result: Partial<PermissionCheckResult> & { processingTimeMs?: number }
   ): Promise<void> {
