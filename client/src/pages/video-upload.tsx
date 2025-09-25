@@ -161,8 +161,15 @@ export default function VideoUploadPage() {
 
 
   const analyzeVideo = async () => {
-    if (!selectedFile || !user?.storeId) {
-      setError('No video selected or missing store information');
+    if (!selectedFile) {
+      setError('Please select a video file to analyze');
+      return;
+    }
+    
+    // For super admins without store assignment, use default store
+    const storeId = user?.storeId || 'store-001';
+    if (!storeId) {
+      setError('Store configuration required. Please contact support.');
       return;
     }
 
@@ -176,7 +183,7 @@ export default function VideoUploadPage() {
       const signedUrlResponse = await apiRequest('/api/ai/video-upload-url', {
         method: 'POST',
         body: JSON.stringify({
-          storeId: user.storeId,
+          storeId: storeId,
           cameraId: 'video-upload'
         }),
         headers: {
@@ -226,7 +233,7 @@ export default function VideoUploadPage() {
         method: 'POST',
         body: JSON.stringify({
           objectPath: objectPath,
-          storeId: user.storeId,
+          storeId: storeId,
           cameraId: 'video-upload',
           config: {
             enableThreatDetection: true,
@@ -280,8 +287,15 @@ export default function VideoUploadPage() {
   };
 
   const analyzeFrame = async () => {
-    if (!selectedFrame || !user?.storeId) {
-      setError('No image selected or missing store information');
+    if (!selectedFrame) {
+      setError('Please select an image to analyze');
+      return;
+    }
+    
+    // For super admins without store assignment, use default store
+    const storeId = user?.storeId || 'store-001';
+    if (!storeId) {
+      setError('Store configuration required. Please contact support.');
       return;
     }
 
@@ -294,7 +308,7 @@ export default function VideoUploadPage() {
         method: 'POST',
         body: JSON.stringify({
           imageData: selectedFrame,
-          storeId: user.storeId,
+          storeId: storeId,
           cameraId: 'frame-upload',
           config: {
             enableThreatDetection: true,
