@@ -78,10 +78,7 @@ export default function Incidents() {
   // Create incident mutation
   const createIncidentMutation = useMutation({
     mutationFn: async (incidentData: any) => {
-      return apiRequest(`/api/store/${user?.storeId}/incidents`, {
-        method: 'POST',
-        body: JSON.stringify(incidentData),
-      });
+      return apiRequest('POST', `/api/store/${user?.storeId}/incidents`, incidentData);
     },
     onSuccess: () => {
       toast({ title: "Success", description: "Incident created successfully" });
@@ -101,10 +98,7 @@ export default function Incidents() {
   // Escalate alert to incident mutation
   const escalateAlertMutation = useMutation({
     mutationFn: async ({ alertId, data }: { alertId: string; data: any }) => {
-      return apiRequest(`/api/alerts/${alertId}/escalate-to-incident`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
+      return apiRequest('POST', `/api/alerts/${alertId}/escalate-to-incident`, data);
     },
     onSuccess: () => {
       toast({ title: "Success", description: "Alert escalated to incident successfully" });

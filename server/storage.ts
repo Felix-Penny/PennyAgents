@@ -4,6 +4,170 @@ import { db } from "./db";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { Pool } from "@neondatabase/serverless";
+
+// Type-safe JSON field handling utilities
+type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
+interface JSONObject {
+  [key: string]: JSONValue;
+}
+interface JSONArray extends Array<JSONValue> {}
+
+/**
+ * Type-safe JSON field builder functions to eliminate type assertions
+ */
+const JsonBuilders = {
+  /**
+   * Safely converts an object to JSON for storage, ensuring type safety
+   */
+  toStorageJSON<T extends Record<string, any>>(value: T | undefined | null): T | undefined {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    // Validate that the value is a proper object
+    if (typeof value !== 'object') {
+      throw new Error(`Expected object for JSON field, got ${typeof value}`);
+    }
+    return value;
+  },
+
+  /**
+   * Safely converts an array to JSON for storage
+   */
+  toStorageArray<T>(value: T[] | undefined | null): T[] | undefined {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    if (!Array.isArray(value)) {
+      throw new Error(`Expected array for JSON field, got ${typeof value}`);
+    }
+    return value;
+  },
+
+  /**
+   * Safely handles user profile data
+   */
+  buildUserProfile(profile: any): Record<string, any> {
+    if (!profile) return {};
+    return {
+      firstName: String(profile.firstName || ''),
+      lastName: String(profile.lastName || ''),
+      phone: String(profile.phone || ''),
+      role: String(profile.role || 'user'),
+      ...(typeof profile === 'object' ? profile : {})
+    };
+  },
+
+  /**
+   * Safely handles store agent settings
+   */
+  buildAgentSettings(settings: any): Record<string, any> {
+    if (!settings) return {};
+    return {
+      enabledAgents: Array.isArray(settings.enabledAgents) ? settings.enabledAgents : [],
+      agentConfigurations: typeof settings.agentConfigurations === 'object' ? settings.agentConfigurations : {},
+      ...(typeof settings === 'object' ? settings : {})
+    };
+  },
+
+  /**
+   * Safely handles alert location and metadata
+   */
+  buildAlertData(location: any, metadata: any): { location: Record<string, any>; metadata: Record<string, any> } {
+    return {
+      location: typeof location === 'object' && location ? location : {},
+      metadata: typeof metadata === 'object' && metadata ? metadata : {}
+    };
+  },
+
+  /**
+   * Safely handles contributing factors for risk assessments
+   */
+  buildContributingFactors(factors: any): Record<string, any> {
+    if (!factors) return {};
+    if (typeof factors !== 'object') {
+      throw new Error('Contributing factors must be an object');
+    }
+    return factors;
+  },
+
+  /**
+   * Safely handles offender data including arrays and physical description
+   */
+  buildOffenderData(offender: any): {
+    aliases: string[];
+    physicalDescription: Record<string, any>;
+    behaviorPatterns: string[];
+    thumbnails: string[];
+    confirmedIncidentIds: string[];
+  } {
+    return {
+      aliases: Array.isArray(offender.aliases) ? offender.aliases : [],
+      physicalDescription: typeof offender.physicalDescription === 'object' && offender.physicalDescription ? offender.physicalDescription : {},
+      behaviorPatterns: Array.isArray(offender.behaviorPatterns) ? offender.behaviorPatterns : [],
+      thumbnails: Array.isArray(offender.thumbnails) ? offender.thumbnails : [],
+      confirmedIncidentIds: Array.isArray(offender.confirmedIncidentIds) ? offender.confirmedIncidentIds : []
+    };
+  },
+
+  /**
+   * Safely handles configuration and settings objects
+   */
+  buildConfigurationData(config: any): Record<string, any> {
+    if (!config) return {};
+    return typeof config === 'object' ? config : {};
+  },
+
+  /**
+   * Safely handles incident data with complex JSON fields
+   */
+  buildIncidentData(incident: any): {
+    location: Record<string, any>;
+    evidenceFiles: string[];
+    witnessAccounts: string[];
+    metadata: Record<string, any>;
+  } {
+    return {
+      location: typeof incident.location === 'object' && incident.location ? incident.location : {},
+      evidenceFiles: Array.isArray(incident.evidenceFiles) ? incident.evidenceFiles : [],
+      witnessAccounts: Array.isArray(incident.witnessAccounts) ? incident.witnessAccounts : [],
+      metadata: typeof incident.metadata === 'object' && incident.metadata ? incident.metadata : {}
+    };
+  },
+
+  /**
+   * Safely handles metric data with thresholds
+   */
+  buildMetricData(metric: any): {
+    metadata: Record<string, any>;
+    threshold: Record<string, any>;
+  } {
+    return {
+      metadata: typeof metric.metadata === 'object' && metric.metadata ? metric.metadata : {},
+      threshold: typeof metric.threshold === 'object' && metric.threshold ? metric.threshold : {}
+    };
+  },
+
+  /**
+   * Safely handles billing information
+   */
+  buildBillingInfo(billingInfo: any): Record<string, any> {
+    if (!billingInfo) return {};
+    return typeof billingInfo === 'object' ? billingInfo : {};
+  },
+
+  /**
+   * Safely handles employee profile and diversity data
+   */
+  buildEmployeeData(employee: any): {
+    profile: Record<string, any>;
+    diversityInfo: Record<string, any>;
+  } {
+    return {
+      profile: typeof employee.profile === 'object' && employee.profile ? employee.profile : {},
+      diversityInfo: typeof employee.diversityInfo === 'object' && employee.diversityInfo ? employee.diversityInfo : {}
+    };
+  }
+};
 import {
   users,
   stores,
@@ -521,7 +685,7 @@ export class DatabaseStorage implements IStorage {
   async createUser(user: InsertUser): Promise<User> {
     const userData = {
       ...user,
-      profile: user.profile as any // Type assertion for JSON field
+      profile: JsonBuilders.buildUserProfile(user.profile)
     };
     const [newUser] = await db.insert(users).values([userData]).returning();
     return newUser;
@@ -546,7 +710,7 @@ export class DatabaseStorage implements IStorage {
     const updateData = {
       ...updates,
       updatedAt: new Date(),
-      profile: updates.profile as any // Type assertion for JSON field
+      profile: JsonBuilders.buildUserProfile(updates.profile)
     };
     const [updatedUser] = await db
       .update(users)
@@ -577,7 +741,7 @@ export class DatabaseStorage implements IStorage {
   async createStore(store: InsertStore): Promise<Store> {
     const storeData = {
       ...store,
-      agentSettings: store.agentSettings as any // Type assertion for JSON field
+      agentSettings: JsonBuilders.buildAgentSettings(store.agentSettings)
     };
     const [newStore] = await db.insert(stores).values([storeData]).returning();
     return newStore;
@@ -597,7 +761,7 @@ export class DatabaseStorage implements IStorage {
     const updateData = {
       ...updates,
       updatedAt: new Date(),
-      agentSettings: updates.agentSettings as any // Type assertion for JSON field
+      agentSettings: JsonBuilders.buildAgentSettings(updates.agentSettings)
     };
     const [updatedStore] = await db
       .update(stores)
@@ -618,8 +782,7 @@ export class DatabaseStorage implements IStorage {
   async createAlert(alert: InsertAlert): Promise<Alert> {
     const alertData = {
       ...alert,
-      location: alert.location as any, // Type assertion for JSON field
-      metadata: alert.metadata as any // Type assertion for JSON field
+      ...JsonBuilders.buildAlertData(alert.location, alert.metadata)
     };
     const [newAlert] = await db.insert(alerts).values([alertData]).returning();
     return newAlert;
@@ -655,8 +818,7 @@ export class DatabaseStorage implements IStorage {
   async updateAlert(id: string, updates: Partial<InsertAlert>): Promise<Alert> {
     const updateData = {
       ...updates,
-      location: updates.location as any, // Type assertion for JSON field
-      metadata: updates.metadata as any // Type assertion for JSON field
+      ...JsonBuilders.buildAlertData(updates.location, updates.metadata)
     };
     const [updatedAlert] = await db
       .update(alerts)
@@ -681,11 +843,7 @@ export class DatabaseStorage implements IStorage {
   async createOffender(offender: InsertOffender): Promise<Offender> {
     const offenderData = {
       ...offender,
-      aliases: offender.aliases ? Array.from(offender.aliases as string[]) : [],
-      physicalDescription: offender.physicalDescription as any,
-      behaviorPatterns: offender.behaviorPatterns ? Array.from(offender.behaviorPatterns as string[]) : [],
-      thumbnails: offender.thumbnails ? Array.from(offender.thumbnails as string[]) : [],
-      confirmedIncidentIds: offender.confirmedIncidentIds ? Array.from(offender.confirmedIncidentIds as string[]) : []
+      ...JsonBuilders.buildOffenderData(offender)
     };
     const [newOffender] = await db.insert(offenders).values([offenderData]).returning();
     return newOffender;
@@ -722,7 +880,7 @@ export class DatabaseStorage implements IStorage {
       ...updates,
       updatedAt: new Date(),
       aliases: updates.aliases ? Array.from(updates.aliases as string[]) : undefined,
-      physicalDescription: updates.physicalDescription as any,
+      physicalDescription: JsonBuilders.buildConfigurationData(updates.physicalDescription),
       behaviorPatterns: updates.behaviorPatterns ? Array.from(updates.behaviorPatterns as string[]) : undefined,
       thumbnails: updates.thumbnails ? Array.from(updates.thumbnails as string[]) : undefined,
       confirmedIncidentIds: updates.confirmedIncidentIds ? Array.from(updates.confirmedIncidentIds as string[]) : undefined
@@ -938,7 +1096,7 @@ export class DatabaseStorage implements IStorage {
         agents: Array.from(org.subscription.agents as string[]),
         limits: org.subscription.limits
       } : undefined,
-      billingInfo: org.billingInfo as any
+      billingInfo: JsonBuilders.buildBillingInfo(org.billingInfo)
     };
     Object.keys(orgData).forEach(key => orgData[key as keyof typeof orgData] === undefined && delete orgData[key as keyof typeof orgData]);
     const [newOrg] = await db.insert(organizations).values([orgData]).returning();
@@ -959,7 +1117,7 @@ export class DatabaseStorage implements IStorage {
         agents: Array.from(updates.subscription.agents as string[]),
         limits: updates.subscription.limits
       } : undefined,
-      billingInfo: updates.billingInfo as any
+      billingInfo: JsonBuilders.buildBillingInfo(updates.billingInfo)
     };
     Object.keys(updateData).forEach(key => updateData[key as keyof typeof updateData] === undefined && delete updateData[key as keyof typeof updateData]);
     const [updatedOrg] = await db
@@ -1085,7 +1243,7 @@ export class DatabaseStorage implements IStorage {
   async createAgentConfiguration(config: InsertAgentConfiguration): Promise<AgentConfiguration> {
     const configData = {
       ...config,
-      settings: config.settings as any // Type assertion for JSON field
+      settings: JsonBuilders.buildConfigurationData(config.settings)
     };
     const [newConfig] = await db.insert(agentConfigurations).values([configData]).returning();
     return newConfig;
@@ -1119,7 +1277,7 @@ export class DatabaseStorage implements IStorage {
     const updateData = {
       ...updates,
       updatedAt: new Date(),
-      settings: updates.settings as any // Type assertion for JSON field
+      settings: JsonBuilders.buildConfigurationData(updates.settings)
     };
     const [updatedConfig] = await db
       .update(agentConfigurations)
@@ -1349,10 +1507,7 @@ export class DatabaseStorage implements IStorage {
   async createIncident(incident: InsertIncident): Promise<Incident> {
     const incidentData = {
       ...incident,
-      location: incident.location as any, // Type assertion for JSON field
-      evidenceFiles: incident.evidenceFiles as any,
-      witnessAccounts: incident.witnessAccounts as any,
-      metadata: incident.metadata as any // Type assertion for JSON field
+      ...JsonBuilders.buildIncidentData(incident)
     };
     const [newIncident] = await db
       .insert(incidents)
@@ -1663,8 +1818,7 @@ export class DatabaseStorage implements IStorage {
   async createSystemMetric(metric: InsertSystemMetric): Promise<SystemMetric> {
     const metricData = {
       ...metric,
-      metadata: metric.metadata as any, // Type assertion for JSON field
-      threshold: metric.threshold as any // Type assertion for JSON field
+      ...JsonBuilders.buildMetricData(metric)
     };
     const [newMetric] = await db.insert(systemMetrics).values([metricData]).returning();
     return newMetric;
@@ -1696,8 +1850,7 @@ export class DatabaseStorage implements IStorage {
   async updateSystemMetric(id: string, updates: Partial<InsertSystemMetric>): Promise<SystemMetric> {
     const updateData = {
       ...updates,
-      metadata: updates.metadata as any, // Type assertion for JSON field
-      threshold: updates.threshold as any // Type assertion for JSON field
+      ...JsonBuilders.buildMetricData(updates)
     };
     const [updated] = await db
       .update(systemMetrics)
@@ -1711,8 +1864,8 @@ export class DatabaseStorage implements IStorage {
   async createProcess(process: InsertProcess): Promise<Process> {
     const processData = {
       ...process,
-      configuration: process.configuration as any, // Type assertion for JSON field
-      results: process.results as any // Type assertion for JSON field
+      configuration: JsonBuilders.buildConfigurationData(process.configuration),
+      results: JsonBuilders.buildConfigurationData(process.results)
     };
     const [newProcess] = await db.insert(processes).values([processData]).returning();
     return newProcess;
@@ -1760,8 +1913,8 @@ export class DatabaseStorage implements IStorage {
     const updateData = {
       ...updates,
       updatedAt: new Date(),
-      configuration: updates.configuration as any, // Type assertion for JSON field
-      results: updates.results as any // Type assertion for JSON field
+      configuration: JsonBuilders.buildConfigurationData(updates.configuration),
+      results: JsonBuilders.buildConfigurationData(updates.results)
     };
     const [updated] = await db
       .update(processes)
@@ -1805,7 +1958,7 @@ export class DatabaseStorage implements IStorage {
   async createInfrastructureComponent(component: InsertInfrastructureComponent): Promise<InfrastructureComponent> {
     const componentData = {
       ...component,
-      specifications: component.specifications as any // Type assertion for JSON field
+      specifications: JsonBuilders.buildConfigurationData(component.specifications)
     };
     const [newComponent] = await db.insert(infrastructureComponents).values([componentData]).returning();
     return newComponent;
@@ -1839,7 +1992,7 @@ export class DatabaseStorage implements IStorage {
     const updateData = {
       ...updates,
       updatedAt: new Date(),
-      specifications: updates.specifications as any // Type assertion for JSON field
+      specifications: JsonBuilders.buildConfigurationData(updates.specifications)
     };
     const [updated] = await db
       .update(infrastructureComponents)
@@ -2062,8 +2215,7 @@ export class DatabaseStorage implements IStorage {
   async createEmployee(employee: InsertEmployee): Promise<Employee> {
     const employeeData = {
       ...employee,
-      profile: employee.profile as any, // Type assertion for JSON field
-      diversityInfo: employee.diversityInfo as any // Type assertion for JSON field
+      ...JsonBuilders.buildEmployeeData(employee)
     };
     const [newEmployee] = await db.insert(employees).values([employeeData]).returning();
     return newEmployee;
@@ -2114,8 +2266,7 @@ export class DatabaseStorage implements IStorage {
     const updateData = {
       ...updates,
       updatedAt: new Date(),
-      profile: updates.profile as any, // Type assertion for JSON field
-      diversityInfo: updates.diversityInfo as any // Type assertion for JSON field
+      ...JsonBuilders.buildEmployeeData(updates)
     };
     const [updated] = await db
       .update(employees)
@@ -2796,8 +2947,8 @@ export class DatabaseStorage implements IStorage {
   async createEvidenceChain(evidence: InsertEvidenceChain): Promise<EvidenceChain> {
     const evidenceData = {
       ...evidence,
-      chainOfCustody: evidence.chainOfCustody as any,
-      metadata: evidence.metadata as any
+      chainOfCustody: JsonBuilders.toStorageJSON(evidence.chainOfCustody),
+      metadata: JsonBuilders.toStorageJSON(evidence.metadata)
     };
     const [newEvidence] = await db.insert(evidenceChain).values([evidenceData]).returning();
     return newEvidence;
@@ -2819,8 +2970,8 @@ export class DatabaseStorage implements IStorage {
   async updateEvidenceChain(id: string, updates: Partial<InsertEvidenceChain>): Promise<EvidenceChain> {
     const updateData = {
       ...updates,
-      chainOfCustody: updates.chainOfCustody as any,
-      metadata: updates.metadata as any
+      chainOfCustody: JsonBuilders.toStorageJSON(updates.chainOfCustody),
+      metadata: JsonBuilders.toStorageJSON(updates.metadata)
     };
     const [updated] = await db
       .update(evidenceChain)
@@ -2841,8 +2992,8 @@ export class DatabaseStorage implements IStorage {
   async createIncidentResponse(response: InsertIncidentResponse): Promise<IncidentResponse> {
     const responseData = {
       ...response,
-      response: response.response as any,
-      metadata: response.metadata as any
+      response: JsonBuilders.toStorageJSON(response.response),
+      metadata: JsonBuilders.toStorageJSON(response.metadata)
     };
     const [newResponse] = await db.insert(incidentResponse).values([responseData]).returning();
     return newResponse;
@@ -2864,8 +3015,8 @@ export class DatabaseStorage implements IStorage {
   async updateIncidentResponse(id: string, updates: Partial<InsertIncidentResponse>): Promise<IncidentResponse> {
     const updateData = {
       ...updates,
-      response: updates.response as any,
-      metadata: updates.metadata as any
+      response: JsonBuilders.toStorageJSON(updates.response),
+      metadata: JsonBuilders.toStorageJSON(updates.metadata)
     };
     const [updated] = await db
       .update(incidentResponse)
@@ -2882,7 +3033,7 @@ export class DatabaseStorage implements IStorage {
   async createBehaviorEvent(event: InsertBehaviorEvent): Promise<BehaviorEvent> {
     const eventData = {
       ...event,
-      metadata: event.metadata as any
+      metadata: JsonBuilders.toStorageJSON(event.metadata)
     };
     const [newEvent] = await db.insert(behaviorEvents).values([eventData]).returning();
     return newEvent;
@@ -2920,7 +3071,7 @@ export class DatabaseStorage implements IStorage {
   async updateBehaviorEvent(id: string, updates: Partial<InsertBehaviorEvent>): Promise<BehaviorEvent> {
     const updateData = {
       ...updates,
-      metadata: updates.metadata as any
+      metadata: JsonBuilders.toStorageJSON(updates.metadata)
     };
     const [updated] = await db
       .update(behaviorEvents)
@@ -3172,8 +3323,8 @@ export class DatabaseStorage implements IStorage {
   async createPredictiveModelSnapshot(snapshot: InsertPredictiveModelSnapshot): Promise<PredictiveModelSnapshot> {
     const snapshotData = {
       ...snapshot,
-      hyperparameters: snapshot.hyperparameters as any,
-      performance: snapshot.performance as any
+      hyperparameters: JsonBuilders.toStorageJSON(snapshot.hyperparameters),
+      performance: JsonBuilders.toStorageJSON(snapshot.performance)
     };
     const [newSnapshot] = await db.insert(predictiveModelSnapshots).values([snapshotData]).returning();
     return newSnapshot;
@@ -3208,8 +3359,8 @@ export class DatabaseStorage implements IStorage {
   async updatePredictiveModelSnapshot(id: string, updates: Partial<InsertPredictiveModelSnapshot>): Promise<PredictiveModelSnapshot> {
     const updateData = {
       ...updates,
-      hyperparameters: updates.hyperparameters as any,
-      performance: updates.performance as any
+      hyperparameters: JsonBuilders.toStorageJSON(updates.hyperparameters),
+      performance: JsonBuilders.toStorageJSON(updates.performance)
     };
     const [updated] = await db
       .update(predictiveModelSnapshots)
@@ -3222,7 +3373,7 @@ export class DatabaseStorage implements IStorage {
   async createRiskScore(score: InsertRiskScore): Promise<RiskScore> {
     const scoreData = {
       ...score,
-      contributingFactors: score.contributingFactors as any
+      contributingFactors: JsonBuilders.buildContributingFactors(score.contributingFactors)
     };
     const [newScore] = await db.insert(riskScores).values([scoreData]).returning();
     return newScore;
@@ -3265,7 +3416,7 @@ export class DatabaseStorage implements IStorage {
   async updateRiskScore(id: string, updates: Partial<InsertRiskScore>): Promise<RiskScore> {
     const updateData = {
       ...updates,
-      contributingFactors: updates.contributingFactors as any
+      contributingFactors: JsonBuilders.buildContributingFactors(updates.contributingFactors)
     };
     const [updated] = await db
       .update(riskScores)
@@ -3282,7 +3433,7 @@ export class DatabaseStorage implements IStorage {
   async createAdvancedFeatureAuditLog(log: InsertAdvancedFeatureAuditLog): Promise<AdvancedFeatureAuditLog> {
     const logData = {
       ...log,
-      details: log.details as any
+      details: JsonBuilders.toStorageJSON(log.details)
     };
     const [newLog] = await db.insert(advancedFeatureAuditLog).values([logData]).returning();
     return newLog;
@@ -3624,6 +3775,229 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(predictiveModelPerformance.evaluatedAt))
       .limit(1);
     return result[0] || null;
+  }
+
+  // =====================================
+  // Predictive Analytics - Risk Assessments Implementation
+  // =====================================
+
+  async createRiskAssessment(assessment: InsertRiskAssessment): Promise<RiskAssessment> {
+    const assessmentData = {
+      ...assessment,
+      contributingFactors: assessment.contributingFactors || {}
+    };
+    const [newAssessment] = await db.insert(riskAssessments).values([assessmentData]).returning();
+    return newAssessment;
+  }
+
+  async getRiskAssessment(id: string): Promise<RiskAssessment | null> {
+    const result = await db.select().from(riskAssessments).where(eq(riskAssessments.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getRiskAssessmentsByStore(storeId: string, limit: number = 10): Promise<RiskAssessment[]> {
+    return await db
+      .select()
+      .from(riskAssessments)
+      .where(eq(riskAssessments.storeId, storeId))
+      .orderBy(desc(riskAssessments.createdAt))
+      .limit(limit);
+  }
+
+  async updateRiskAssessment(id: string, updates: Partial<InsertRiskAssessment>): Promise<RiskAssessment> {
+    const updateData = {
+      ...updates,
+      contributingFactors: updates.contributingFactors || {},
+      updatedAt: new Date()
+    };
+    const [updated] = await db
+      .update(riskAssessments)
+      .set(updateData)
+      .where(eq(riskAssessments.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteRiskAssessment(id: string): Promise<void> {
+    await db.delete(riskAssessments).where(eq(riskAssessments.id, id));
+  }
+
+  // =====================================
+  // Predictive Analytics - Seasonal Analyses Implementation
+  // =====================================
+
+  async createSeasonalAnalysis(analysis: InsertSeasonalAnalysis): Promise<SeasonalAnalysis> {
+    const analysisData = {
+      ...analysis,
+      patterns: analysis.patterns || {},
+      storesAnalyzed: analysis.storesAnalyzed || []
+    };
+    const [newAnalysis] = await db.insert(seasonalAnalyses).values([analysisData]).returning();
+    return newAnalysis;
+  }
+
+  async getSeasonalAnalysis(id: string): Promise<SeasonalAnalysis | null> {
+    const result = await db.select().from(seasonalAnalyses).where(eq(seasonalAnalyses.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getSeasonalAnalysesByTimespan(timespan: string, limit: number = 10): Promise<SeasonalAnalysis[]> {
+    return await db
+      .select()
+      .from(seasonalAnalyses)
+      .where(eq(seasonalAnalyses.timespan, timespan))
+      .orderBy(desc(seasonalAnalyses.createdAt))
+      .limit(limit);
+  }
+
+  async updateSeasonalAnalysis(id: string, updates: Partial<InsertSeasonalAnalysis>): Promise<SeasonalAnalysis> {
+    const updateData = {
+      ...updates,
+      patterns: updates.patterns || {},
+      storesAnalyzed: updates.storesAnalyzed || [],
+      updatedAt: new Date()
+    };
+    const [updated] = await db
+      .update(seasonalAnalyses)
+      .set(updateData)
+      .where(eq(seasonalAnalyses.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteSeasonalAnalysis(id: string): Promise<void> {
+    await db.delete(seasonalAnalyses).where(eq(seasonalAnalyses.id, id));
+  }
+
+  // =====================================
+  // Predictive Analytics - Staffing Recommendations Implementation
+  // =====================================
+
+  async createStaffingRecommendation(recommendation: InsertStaffingRecommendation): Promise<StaffingRecommendation> {
+    const recommendationData = {
+      ...recommendation,
+      recommendation: recommendation.recommendation || {},
+      constraints: recommendation.constraints || {}
+    };
+    const [newRecommendation] = await db.insert(staffingRecommendations).values([recommendationData]).returning();
+    return newRecommendation;
+  }
+
+  async deleteStaffingRecommendation(id: string): Promise<void> {
+    await db.delete(staffingRecommendations).where(eq(staffingRecommendations.id, id));
+  }
+
+  // =====================================
+  // Predictive Analytics - Incident Forecasts Implementation
+  // =====================================
+
+  async createIncidentForecast(forecast: InsertIncidentForecast): Promise<IncidentForecast> {
+    const forecastData = {
+      ...forecast,
+      predictions: forecast.predictions || [],
+      factors: forecast.factors || {}
+    };
+    const [newForecast] = await db.insert(incidentForecasts).values([forecastData]).returning();
+    return newForecast;
+  }
+
+  async getIncidentForecast(id: string): Promise<IncidentForecast | null> {
+    const result = await db.select().from(incidentForecasts).where(eq(incidentForecasts.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getActiveIncidentForecasts(storeId: string): Promise<IncidentForecast[]> {
+    const now = new Date();
+    return await db
+      .select()
+      .from(incidentForecasts)
+      .where(and(
+        eq(incidentForecasts.storeId, storeId),
+        sql`${incidentForecasts.validFrom} <= ${now}`,
+        sql`${incidentForecasts.validTo} > ${now}`
+      ))
+      .orderBy(desc(incidentForecasts.createdAt));
+  }
+
+  async getIncidentForecastsByDateRange(storeId: string, startDate: Date, endDate: Date): Promise<IncidentForecast[]> {
+    return await db
+      .select()
+      .from(incidentForecasts)
+      .where(and(
+        eq(incidentForecasts.storeId, storeId),
+        sql`${incidentForecasts.validFrom} >= ${startDate}`,
+        sql`${incidentForecasts.validTo} <= ${endDate}`
+      ))
+      .orderBy(desc(incidentForecasts.createdAt));
+  }
+
+  async updateIncidentForecast(id: string, updates: Partial<InsertIncidentForecast>): Promise<IncidentForecast> {
+    const updateData = {
+      ...updates,
+      predictions: updates.predictions || [],
+      factors: updates.factors || {},
+      updatedAt: new Date()
+    };
+    const [updated] = await db
+      .update(incidentForecasts)
+      .set(updateData)
+      .where(eq(incidentForecasts.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteIncidentForecast(id: string): Promise<void> {
+    await db.delete(incidentForecasts).where(eq(incidentForecasts.id, id));
+  }
+
+  // =====================================
+  // Predictive Analytics - Model Performance Implementation
+  // =====================================
+
+  async createPredictiveModelPerformance(performance: InsertPredictiveModelPerformance): Promise<PredictiveModelPerformance> {
+    const performanceData = {
+      ...performance,
+      accuracyMetrics: performance.accuracyMetrics || {},
+      performanceData: performance.performanceData || {}
+    };
+    const [newPerformance] = await db.insert(predictiveModelPerformance).values([performanceData]).returning();
+    return newPerformance;
+  }
+
+  async getPredictiveModelPerformance(id: string): Promise<PredictiveModelPerformance | null> {
+    const result = await db.select().from(predictiveModelPerformance).where(eq(predictiveModelPerformance.id, id)).limit(1);
+    return result[0] || null;
+  }
+
+  async getPredictiveModelPerformanceByModel(modelName: string, modelVersion?: string): Promise<PredictiveModelPerformance[]> {
+    const conditions = [eq(predictiveModelPerformance.modelName, modelName)];
+    if (modelVersion) {
+      conditions.push(eq(predictiveModelPerformance.modelVersion, modelVersion));
+    }
+    return await db
+      .select()
+      .from(predictiveModelPerformance)
+      .where(and(...conditions))
+      .orderBy(desc(predictiveModelPerformance.evaluatedAt));
+  }
+
+  async updatePredictiveModelPerformance(id: string, updates: Partial<InsertPredictiveModelPerformance>): Promise<PredictiveModelPerformance> {
+    const updateData = {
+      ...updates,
+      accuracyMetrics: updates.accuracyMetrics || {},
+      performanceData: updates.performanceData || {},
+      updatedAt: new Date()
+    };
+    const [updated] = await db
+      .update(predictiveModelPerformance)
+      .set(updateData)
+      .where(eq(predictiveModelPerformance.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteModelPerformance(id: string): Promise<void> {
+    await db.delete(predictiveModelPerformance).where(eq(predictiveModelPerformance.id, id));
   }
 
   // Additional Missing Storage Methods for Routes

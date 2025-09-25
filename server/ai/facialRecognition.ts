@@ -764,7 +764,6 @@ export class FacialRecognitionService {
   private async auditOperation(audit: FacialRecognitionAudit): Promise<void> {
     try {
       await storage.logAdvancedFeatureAudit({
-        id: randomUUID(),
         userId: audit.userId,
         storeId: audit.storeId,
         featureType: 'facial_recognition',

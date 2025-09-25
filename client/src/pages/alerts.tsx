@@ -15,6 +15,7 @@ import { apiRequest } from "@/lib/queryClient";
 
 type AlertSeverity = "low" | "medium" | "high" | "critical";
 type AlertType = "theft_in_progress" | "known_offender_entry" | "aggressive_behavior" | "suspicious_activity" | "system_alert";
+type AlertStatus = "NEW" | "PENDING_REVIEW" | "CONFIRMED" | "DISMISSED";
 
 type DatabaseAlert = {
   id: string;

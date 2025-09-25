@@ -459,7 +459,9 @@ export class AnomalyDetector {
     const now = new Date();
     const maxAge = 3600000; // 1 hour
 
-    for (const [key, data] of this.hysteresisCache.entries()) {
+    // Convert Map entries to array for iteration to avoid downlevelIteration requirement
+    const entries = Array.from(this.hysteresisCache.entries());
+    for (const [key, data] of entries) {
       if (now.getTime() - data.lastAnomaly.getTime() > maxAge) {
         this.hysteresisCache.delete(key);
       }

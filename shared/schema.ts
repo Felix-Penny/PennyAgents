@@ -699,6 +699,24 @@ export const anomalyEvents = pgTable("anomaly_events", {
   deviationScore: real("deviation_score").notNull(), // Z-score or similar
   baselineProfileId: varchar("baseline_profile_id", { length: 255 }).references(() => areaBaselineProfiles.id),
   alertGenerated: boolean("alert_generated").default(false),
+  metadata: jsonb("metadata").$type<{
+    confidence?: number;
+    description?: string;
+    baselineValues?: {
+      mean: number;
+      standardDeviation: number;
+      sampleCount: number;
+    };
+    recommendedActions?: string[];
+    detectionTimestamp?: string;
+    feedback?: {
+      isFalsePositive?: boolean;
+      confidenceScore?: number;
+      thresholdAdjustment?: number;
+      updatedAt?: string;
+    };
+    [key: string]: any;
+  }>().default({}),
   timestamp: timestamp("timestamp").defaultNow().notNull()
 });
 
@@ -4861,6 +4879,17 @@ export type InsertIncidentForecast = typeof incidentForecasts.$inferInsert;
 export type InsertPredictiveModelPerformance = typeof predictiveModelPerformance.$inferInsert;
 
 // Predictive Analytics Dashboard Types
+// Analytics Context for predictive analytics calculations
+export interface AnalyticsContext {
+  storeId: string;
+  organizationId?: string;
+  period: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+  startDate: Date;
+  endDate: Date;
+  scope: 'store' | 'organization' | 'network';
+  userId: string;
+}
+
 export interface PredictiveAnalyticsDashboard {
   riskAssessment: {
     currentRiskScore: number;
