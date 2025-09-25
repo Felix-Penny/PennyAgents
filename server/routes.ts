@@ -10,6 +10,7 @@ import session from "express-session";
 import { IncomingMessage } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireStoreStaff, requireStoreAdmin, requirePennyAdmin, requireOffender, requireStoreAccess, requireOffenderAccess, requireSecurityAgent, requireFinanceAgent, requireSalesAgent, requireOperationsAgent, requireHRAgent, requirePlatformRole, requireOrganizationAccess, requirePermission, PermissionEngine, PermissionContext, getDefaultPermissions, getDefaultSecurityRoles } from "./auth";
+import { permissionBroadcaster } from "./permission-broadcaster";
 import { ObjectStorageService, SecurityFileCategory, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema, offenders, frameAnalysisRequestSchema, FRAME_SIZE_LIMITS, detectionResultSchema, insertBehaviorEventSchema, insertAreaBaselineProfileSchema, insertAnomalyEventSchema, insertFaceTemplateSchema, insertWatchlistEntrySchema, insertConsentPreferenceSchema, insertPredictiveModelSnapshotSchema, insertRiskScoreSchema, insertAdvancedFeatureAuditLogSchema, insertRiskAssessmentSchema, insertSeasonalAnalysisSchema, insertStaffingRecommendationSchema, insertIncidentForecastSchema, insertPredictiveModelPerformanceSchema } from "../shared/schema";
@@ -1994,6 +1995,163 @@ export function registerRoutes(app: Express): Server {
         reason: `Permission check failed: ${error.message}`,
         auditRequired: true 
       });
+    }
+  });
+
+  // =====================================
+  // User Role Management API Endpoints
+  // =====================================
+  
+  // Update user role (with automatic permission broadcasting)
+  app.put("/api/admin/users/:userId/role", requireAuth, requirePennyAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { newRole } = req.body;
+      
+      if (!newRole) {
+        return res.status(400).json({ message: "New role is required" });
+      }
+      
+      // Get current user data
+      const currentUser = await storage.getUser(userId);
+      if (!currentUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      const oldRole = currentUser.role;
+      
+      // Update user role
+      const updatedUser = await storage.updateUser(userId, { role: newRole });
+      
+      // Broadcast role change to user via WebSocket
+      await broadcastPermissionUpdate(userId, 'role', {
+        oldRole,
+        newRole
+      });
+      
+      console.log(`User ${userId} role updated from ${oldRole} to ${newRole}`);
+      
+      // Return sanitized user object
+      const { password: _, ...safeUser } = updatedUser;
+      res.json({
+        user: safeUser,
+        message: "User role updated successfully",
+        broadcastSent: true
+      });
+    } catch (error: any) {
+      console.error('Error updating user role:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
+  // Bulk role update (for multiple users)
+  app.put("/api/admin/users/bulk-role-update", requireAuth, requirePennyAdmin, async (req, res) => {
+    try {
+      const { userUpdates } = req.body; // Array of { userId, newRole }
+      
+      if (!Array.isArray(userUpdates) || userUpdates.length === 0) {
+        return res.status(400).json({ message: "User updates array is required" });
+      }
+      
+      const results = [];
+      const broadcastPromises = [];
+      
+      for (const update of userUpdates) {
+        const { userId, newRole } = update;
+        
+        try {
+          // Get current user data
+          const currentUser = await storage.getUser(userId);
+          if (!currentUser) {
+            results.push({ userId, success: false, error: "User not found" });
+            continue;
+          }
+          
+          const oldRole = currentUser.role;
+          
+          // Update user role
+          const updatedUser = await storage.updateUser(userId, { role: newRole });
+          
+          // Queue broadcast for this user
+          broadcastPromises.push(
+            broadcastPermissionUpdate(userId, 'role', { oldRole, newRole })
+          );
+          
+          results.push({ 
+            userId, 
+            success: true, 
+            oldRole, 
+            newRole,
+            user: { ...updatedUser, password: undefined }
+          });
+        } catch (error: any) {
+          results.push({ userId, success: false, error: error.message });
+        }
+      }
+      
+      // Send all broadcasts
+      await Promise.allSettled(broadcastPromises);
+      
+      console.log(`Bulk role update completed for ${results.filter(r => r.success).length} users`);
+      
+      res.json({
+        results,
+        successCount: results.filter(r => r.success).length,
+        failureCount: results.filter(r => !r.success).length,
+        broadcastsSent: broadcastPromises.length
+      });
+    } catch (error: any) {
+      console.error('Error in bulk role update:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
+  // Get all users with roles (for admin management)
+  app.get("/api/admin/users", requireAuth, requirePennyAdmin, async (req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      
+      // Return sanitized user objects without passwords
+      const safeUsers = users.map(user => {
+        const { password: _, ...safeUser } = user;
+        return safeUser;
+      });
+      
+      res.json(safeUsers);
+    } catch (error: any) {
+      console.error('Error fetching users:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
+  // Force permission refresh for a user (debugging/admin tool)
+  app.post("/api/admin/users/:userId/refresh-permissions", requireAuth, requirePennyAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      
+      // Verify user exists
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Broadcast permission refresh
+      await broadcastPermissionUpdate(userId, 'permissions', {
+        changes: 'force_refresh',
+        triggeredBy: req.user!.id,
+        timestamp: new Date()
+      });
+      
+      console.log(`Permission refresh triggered for user ${userId}`);
+      
+      res.json({
+        message: "Permission refresh broadcast sent",
+        userId,
+        timestamp: new Date()
+      });
+    } catch (error: any) {
+      console.error('Error refreshing user permissions:', error);
+      res.status(500).json({ message: error.message });
     }
   });
 
@@ -5009,6 +5167,15 @@ async function handleWebSocketMessage(ws: WebSocketClient, clientId: string, mes
       await handleBehavioralUnsubscription(ws, clientId, message);
       break;
 
+    // PERMISSION UPDATE WEBSOCKET SUPPORT - REAL-TIME PERMISSION CHANGES
+    case 'subscribe_permission_updates':
+      await handlePermissionSubscription(ws, clientId, message);
+      break;
+
+    case 'unsubscribe_permission_updates':
+      await handlePermissionUnsubscription(ws, clientId, message);
+      break;
+
     case 'ping':
       sendMessage(ws, { type: 'pong', timestamp: new Date().toISOString() });
       break;
@@ -6139,4 +6306,67 @@ export function broadcastBehavioralUpdate(storeId: string, cameraId: string, dat
   });
 
   console.log(`Broadcasted behavioral update to ${subscribers.size} clients for store ${storeId}`);
+}
+
+// =====================================
+// PERMISSION UPDATE WEBSOCKET HANDLERS
+// =====================================
+
+async function handlePermissionSubscription(ws: WebSocketClient, clientId: string, message: any) {
+  // CRITICAL SECURITY: Validate authentication
+  if (!ws.isAuthenticated || !ws.userId) {
+    sendErrorMessage(ws, 'Authentication required for permission subscriptions');
+    return;
+  }
+
+  const { userId } = message;
+  
+  // CRITICAL SECURITY: Users can only subscribe to their own permission updates
+  if (!userId || userId !== ws.userId) {
+    console.warn(`Client ${clientId} attempted unauthorized permission subscription for user ${userId}`);
+    sendErrorMessage(ws, 'Can only subscribe to your own permission updates');
+    return;
+  }
+
+  // Register client with permission broadcaster
+  permissionBroadcaster.registerClient(clientId, ws, userId);
+  
+  console.log(`Permission subscription registered for client ${clientId}, user ${userId}`);
+}
+
+async function handlePermissionUnsubscription(ws: WebSocketClient, clientId: string, message: any) {
+  // CRITICAL SECURITY: Validate authentication
+  if (!ws.isAuthenticated || !ws.userId) {
+    sendErrorMessage(ws, 'Authentication required');
+    return;
+  }
+
+  // Unregister client from permission broadcaster
+  permissionBroadcaster.unregisterClient(clientId);
+  
+  console.log(`Permission subscription removed for client ${clientId}`);
+}
+
+// Broadcast permission updates to subscribed clients
+export async function broadcastPermissionUpdate(userId: string, updateType: 'permissions' | 'role' | 'security_role', data: any): Promise<void> {
+  try {
+    switch (updateType) {
+      case 'permissions':
+        await permissionBroadcaster.broadcastUserPermissionUpdate(userId, data.changes);
+        break;
+        
+      case 'role':
+        await permissionBroadcaster.broadcastUserRoleChange(userId, data.oldRole, data.newRole);
+        break;
+        
+      case 'security_role':
+        await permissionBroadcaster.broadcastSecurityRoleUpdate(data.roleId, data.affectedUsers, data.changes);
+        break;
+        
+      default:
+        console.warn(`Unknown permission update type: ${updateType}`);
+    }
+  } catch (error) {
+    console.error('Failed to broadcast permission update:', error);
+  }
 }

@@ -126,6 +126,33 @@ export function useWebSocket() {
               queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
               break;
 
+            // PERMISSION UPDATE MESSAGE TYPES - REAL-TIME PERMISSION CHANGES
+            case 'user_permissions_updated':
+            case 'user_role_changed':
+            case 'role_permissions_updated':
+            case 'security_role_updated':
+              // Permission updates are handled by PermissionsProvider
+              // These will be caught by the permission WebSocket listener
+              console.log('Permission update received:', message.type);
+              break;
+              
+            case 'permission_subscription_confirmed':
+              console.log('Permission subscription confirmed');
+              break;
+              
+            case 'permission_unsubscription_confirmed':
+              console.log('Permission subscription removed');
+              break;
+              
+            case 'permission_update_error':
+              console.error('Permission update error:', message.error);
+              toast({
+                title: "Permission Update Error",
+                description: message.error || "Failed to update permissions",
+                variant: "destructive",
+              });
+              break;
+
             // Real-time alert system message types - handled by AlertManager
             case 'alert_subscription_confirmed':
             case 'alert_unsubscription_confirmed':
