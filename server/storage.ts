@@ -1039,9 +1039,19 @@ export class DatabaseStorage implements IStorage {
         isActive: userAgentAccess.isActive,
         grantedBy: userAgentAccess.grantedBy,
         grantedAt: userAgentAccess.grantedAt,
-        createdAt: userAgentAccess.createdAt
+        createdAt: userAgentAccess.createdAt,
+        agent: {
+          id: agents.id,
+          name: agents.name,
+          isActive: agents.isActive,
+          category: agents.sector,
+          description: agents.description,
+          baseRoute: agents.baseRoute,
+          minimumRole: agents.minimumRole
+        }
       })
       .from(userAgentAccess)
+      .innerJoin(agents, eq(userAgentAccess.agentId, agents.id))
       .where(and(eq(userAgentAccess.userId, userId), eq(userAgentAccess.isActive, true)))
       .orderBy(userAgentAccess.grantedAt);
       
