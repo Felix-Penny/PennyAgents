@@ -477,7 +477,6 @@ export class BehavioralAlertEngine {
     const alertData: AlertInsert = {
       storeId: anomalies[0].storeId,
       alertType: 'behavioral_pattern',
-      severity: 'high',
       title: `Behavioral Pattern Alert: ${eventType} in ${area}`,
       message: `Correlated behavioral anomalies detected: ${anomalies.length} events showing ${analysis.temporalCorrelation.pattern} pattern`,
       source: 'behavioral_correlation_engine',

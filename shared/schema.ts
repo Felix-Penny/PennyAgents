@@ -452,6 +452,244 @@ export const cameras = pgTable("cameras", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// =====================================
+// AI-Powered Security Features
+// =====================================
+
+// Gait profiles for person identification via walking patterns
+export const gaitProfiles = pgTable("gait_profiles", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  personId: varchar("person_id", { length: 255 }).references(() => persons.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  
+  // Gait characteristics
+  features: jsonb("features").$type<{
+    avgStrideLength: number;
+    strideVariance: number;
+    avgSpeed: number;
+    speedVariance: number;
+    stepFrequency: number;
+    bodySway: number;
+    avgKneeAngle: number;
+    kneeAngleVariance: number;
+    gaitAsymmetry: number;
+  }>().notNull(),
+  
+  // ML embeddings for similarity matching
+  embeddings: jsonb("embeddings").$type<number[]>().notNull(), // 128-dimensional feature vector
+  
+  // Analysis metadata
+  analysisFrames: integer("analysis_frames").notNull(), // number of frames analyzed
+  confidence: real("confidence").default(0.0),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Stream sessions for monitoring active camera streams
+export const streamSessions = pgTable("stream_sessions", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  cameraId: varchar("camera_id", { length: 255 }).references(() => cameras.id).notNull(),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  
+  // Session identification
+  sessionId: varchar("session_id", { length: 255 }).notNull(),
+  status: varchar("status", { length: 50 }).notNull(), // active, paused, error, completed, disconnected
+  
+  // Stream metrics
+  framesProcessed: integer("frames_processed").default(0),
+  detectionCount: integer("detection_count").default(0),
+  alertsGenerated: integer("alerts_generated").default(0),
+  
+  // Performance tracking
+  avgFrameRate: real("avg_frame_rate").default(0.0),
+  avgProcessingTime: real("avg_processing_time").default(0.0), // milliseconds per frame
+  
+  // Error tracking
+  errorCount: integer("error_count").default(0),
+  lastError: jsonb("last_error").$type<{
+    message: string;
+    code?: string;
+    timestamp: string;
+  }>(),
+  
+  // Session metadata
+  metadata: jsonb("metadata").$type<{
+    aiServices?: string[]; // which AI services are enabled
+    quality?: string;
+    resolution?: { width: number; height: number };
+    reconnectAttempts?: number;
+  }>(),
+  
+  // Timestamps
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+  lastFrameAt: timestamp("last_frame_at"),
+});
+
+// Evidence storage with S3 references for incidents and alerts
+export const evidence = pgTable("evidence", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  incidentId: varchar("incident_id", { length: 255 }).references(() => incidents.id),
+  alertId: varchar("alert_id", { length: 255 }).references(() => alerts.id),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  cameraId: varchar("camera_id", { length: 255 }).references(() => cameras.id),
+  
+  // File information
+  type: varchar("type", { length: 50 }).notNull(), // video, image, audio, document
+  filename: varchar("filename", { length: 255 }).notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull(),
+  fileSize: integer("file_size").notNull(), // bytes
+  
+  // Storage location
+  s3Bucket: varchar("s3_bucket", { length: 255 }).notNull(),
+  s3Key: varchar("s3_key", { length: 500 }).notNull(),
+  s3Region: varchar("s3_region", { length: 50 }).notNull(),
+  
+  // Thumbnails and previews
+  thumbnailKey: varchar("thumbnail_key", { length: 500 }),
+  previewKey: varchar("preview_key", { length: 500 }),
+  
+  // Content metadata
+  metadata: jsonb("metadata").$type<{
+    duration?: number; // for video/audio files
+    resolution?: { width: number; height: number };
+    frameRate?: number;
+    bitrate?: number;
+    codec?: string;
+    aiDetections?: any[]; // AI analysis results embedded in the file
+    timestamp?: string; // when the content was captured
+  }>(),
+  
+  // Access control
+  isPublic: boolean("is_public").default(false),
+  accessLevel: varchar("access_level", { length: 50 }).default("restricted"), // public, internal, restricted, confidential
+  
+  // Retention and compliance
+  retentionPolicy: jsonb("retention_policy").$type<{
+    deleteAfterDays?: number;
+    archiveAfterDays?: number;
+    legalHold?: boolean;
+    complianceReason?: string;
+  }>(),
+  
+  // Upload tracking
+  uploadedBy: varchar("uploaded_by", { length: 255 }).references(() => users.id),
+  uploadStatus: varchar("upload_status", { length: 50 }).default("pending"), // pending, uploading, completed, failed
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Enhanced AI detections table for all types of AI analysis results
+export const aiDetections = pgTable("ai_detections", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  cameraId: varchar("camera_id", { length: 255 }).references(() => cameras.id).notNull(),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  streamSessionId: varchar("stream_session_id", { length: 255 }).references(() => streamSessions.id),
+  
+  // Detection type and classification
+  detectionType: varchar("detection_type", { length: 50 }).notNull(), // object, face, behavior, gait, combined
+  aiService: varchar("ai_service", { length: 50 }).notNull(), // yolo, openai, aws_rekognition, custom
+  
+  // Detection results
+  confidence: real("confidence").notNull(),
+  boundingBoxes: jsonb("bounding_boxes").$type<Array<{
+    class: string;
+    confidence: number;
+    bbox: [number, number, number, number]; // x1, y1, x2, y2
+  }>>(),
+  
+  // AI analysis results
+  analysisResults: jsonb("analysis_results").$type<{
+    objects?: any[];
+    faces?: any[];
+    behaviors?: any[];
+    gait?: any;
+    threats?: any[];
+    recommendations?: string[];
+  }>().notNull(),
+  
+  // Threat assessment
+  threatLevel: varchar("threat_level", { length: 20 }).default("low"), // low, medium, high, critical
+  threatCategories: jsonb("threat_categories").$type<string[]>().default([]),
+  
+  // Frame information
+  frameId: varchar("frame_id", { length: 255 }),
+  frameTimestamp: timestamp("frame_timestamp").notNull(),
+  processingTime: real("processing_time"), // milliseconds
+  
+  // Related data
+  personIds: jsonb("person_ids").$type<string[]>().default([]), // if faces/gait matched to known persons
+  evidenceId: varchar("evidence_id", { length: 255 }).references(() => evidence.id),
+  
+  // Status
+  isActive: boolean("is_active").default(true),
+  reviewStatus: varchar("review_status", { length: 50 }).default("pending"), // pending, reviewed, validated, flagged
+  reviewedBy: varchar("reviewed_by", { length: 255 }).references(() => users.id),
+  reviewNotes: text("review_notes"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Persons table for facial recognition and gait matching
+export const persons = pgTable("persons", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
+  
+  // Basic information
+  name: varchar("name", { length: 255 }),
+  aliases: jsonb("aliases").$type<string[]>().default([]),
+  category: varchar("category", { length: 50 }).notNull(), // employee, customer, visitor, watchlist, unknown
+  
+  // Physical characteristics
+  estimatedAge: integer("estimated_age"),
+  estimatedGender: varchar("estimated_gender", { length: 20 }),
+  physicalDescription: text("physical_description"),
+  
+  // Facial recognition data
+  facialProfiles: jsonb("facial_profiles").$type<Array<{
+    encodings: number[];
+    confidence: number;
+    source: string; // camera_id or manual_upload
+    timestamp: string;
+  }>>().default([]),
+  
+  // Status and classification
+  isActive: boolean("is_active").default(true),
+  trustLevel: varchar("trust_level", { length: 50 }).default("neutral"), // trusted, neutral, suspicious, banned
+  watchlistStatus: varchar("watchlist_status", { length: 50 }).default("none"), // none, monitoring, banned, vip
+  
+  // Activity tracking
+  firstSeen: timestamp("first_seen"),
+  lastSeen: timestamp("last_seen"),
+  visitCount: integer("visit_count").default(0),
+  
+  // Notes and flags
+  notes: text("notes"),
+  flags: jsonb("flags").$type<string[]>().default([]), // shoplifting, aggressive, vip, etc.
+  
+  // Privacy and compliance
+  consentStatus: varchar("consent_status", { length: 50 }).default("unknown"), // granted, denied, unknown, not_required
+  dataRetentionDate: timestamp("data_retention_date"),
+  
+  // Metadata
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  metadata: jsonb("metadata").$type<{
+    source?: string;
+    confidence?: number;
+    tags?: string[];
+  }>(),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const incidents = pgTable("incidents", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
@@ -539,7 +777,7 @@ export const offenders = pgTable("offenders", {
 // AI Video Analytics
 // =====================================
 
-export const aiDetections = pgTable("ai_detections", {
+export const videoAnalyticsDetections = pgTable("ai_detections", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id", { length: 255 }).notNull().references(() => stores.id),
   cameraId: varchar("camera_id", { length: 255 }).notNull().references(() => cameras.id),
