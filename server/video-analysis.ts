@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { resolveModel, DEFAULT_OPENAI_MODEL } from "./ai/openaiConfig";
 import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
@@ -187,7 +188,7 @@ export class VideoAnalysisService {
       `;
 
       const response = await openai.chat.completions.create({
-        model: "gpt-5",
+  model: resolveModel(DEFAULT_OPENAI_MODEL),
         messages: [
           {
             role: "user",
@@ -258,7 +259,7 @@ export class VideoAnalysisService {
           `;
 
           const response = await openai.chat.completions.create({
-            model: "gpt-5",
+            model: resolveModel(DEFAULT_OPENAI_MODEL),
             messages: [
               {
                 role: "user",

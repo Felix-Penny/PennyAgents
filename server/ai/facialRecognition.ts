@@ -11,6 +11,7 @@
  */
 
 import OpenAI from "openai";
+import { resolveModel, DEFAULT_OPENAI_MODEL } from "./openaiConfig";
 import { randomUUID } from "crypto";
 import { storage } from "../storage";
 import { BiometricEncryption } from "../biometric-encryption";
@@ -20,10 +21,18 @@ import type { Request } from "express";
 import { alertBroadcasterInstance } from "../alerts/alertBroadcasterInstance";
 import type { FacialRecognitionEventData, WatchlistMatchData, FaceDetectionData } from "../alerts/alertBroadcaster";
 
-// Initialize OpenAI client for facial feature extraction
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Initialize OpenAI client for facial feature extraction (optional)
+let openai: OpenAI | null = null;
+
+try {
+  if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'sk-placeholder-key-will-replace-when-adding-credits') {
+    openai = new OpenAI({ 
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+} catch (error) {
+  console.warn('OpenAI initialization failed, facial recognition features will be limited:', error);
+}
 
 // Facial recognition algorithms supported
 export const FACIAL_ALGORITHMS = {
@@ -666,9 +675,13 @@ export class FacialRecognitionService {
     confidence: number;
     attributes?: any;
   }> {
+    if (!openai) {
+      throw new Error('OpenAI API key not configured. Facial recognition features unavailable.');
+    }
+    
     try {
       const response = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: resolveModel(DEFAULT_OPENAI_MODEL),
         messages: [
           {
             role: "user",
@@ -773,8 +786,7 @@ export class FacialRecognitionService {
         outcome: audit.outcome,
         details: audit.details,
         ipAddress: audit.ipAddress,
-        userAgent: audit.userAgent,
-        timestamp: audit.timestamp
+        userAgent: audit.userAgent
       });
     } catch (error) {
       console.error('Failed to audit facial recognition operation:', error);

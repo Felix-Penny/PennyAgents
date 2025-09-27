@@ -15,6 +15,7 @@ import { ObjectStorageService, SecurityFileCategory, ObjectNotFoundError } from 
 import { ObjectPermission, ObjectAccessGroupType, setObjectAclPolicy } from "./objectAcl";
 import { insertOrganizationSchema, insertAgentSchema, insertUserAgentAccessSchema, insertAgentConfigurationSchema, insertCameraSchema, insertIncidentSchema, offenders, frameAnalysisRequestSchema, FRAME_SIZE_LIMITS, detectionResultSchema, insertBehaviorEventSchema, insertAreaBaselineProfileSchema, insertAnomalyEventSchema, insertFaceTemplateSchema, insertWatchlistEntrySchema, insertConsentPreferenceSchema, insertPredictiveModelSnapshotSchema, insertRiskScoreSchema, insertAdvancedFeatureAuditLogSchema, insertRiskAssessmentSchema, insertSeasonalAnalysisSchema, insertStaffingRecommendationSchema, insertIncidentForecastSchema, insertPredictiveModelPerformanceSchema } from "../shared/schema";
 import { addDays, subDays } from "date-fns";
+import { DEFAULT_OPENAI_MODEL } from "./ai/openaiConfig";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 import { 
@@ -31,6 +32,9 @@ import { z } from "zod";
 import { registerAdvancedRoutes } from "./advanced-routes";
 import { registerStreamRoutes } from "./stream-routes";
 import { registerRecordingRoutes } from "./recording-endpoints";
+import { yoloRoutes } from "./ai/yoloRoutes";
+import { registerTestRoutes } from "./routes/testRoutes";
+import { wsManager } from "./websocket/socketHandlers";
 import { webRTCConfig, getWebRTCConfigForClient } from "./webrtc-config";
 import { 
   handleCameraStatusSubscription, 
@@ -76,6 +80,17 @@ export function registerRoutes(app: Express): Server {
     message: { error: "Too many download requests, please try again later." },
     standardHeaders: true, 
     legacyHeaders: false,
+  });
+
+  // =====================================
+  // SYSTEM HEALTH
+  // =====================================
+  app.get("/api/health", async (_req, res) => {
+    res.json({
+      status: "ok",
+      openaiDefaultModel: DEFAULT_OPENAI_MODEL,
+      time: new Date().toISOString(),
+    });
   });
 
   // =====================================
@@ -4866,11 +4881,17 @@ export function registerRoutes(app: Express): Server {
   // Register all privacy-compliant advanced AI features routes
   registerAdvancedRoutes(app);
   
+  // Register YOLO-enhanced AI analysis routes
+  app.use("/api/ai", yoloRoutes);
+  
   // Register secure stream routes with authentication and signed URLs
   registerStreamRoutes(app);
   
   // Register real recording and screenshot endpoints with proper file management
   registerRecordingRoutes(app);
+  
+  // Register test endpoints for WebSocket and AI analysis
+  registerTestRoutes(app);
 
   // =====================================
   // WEBRTC PRODUCTION CONFIGURATION
@@ -5192,6 +5213,9 @@ function setupWebSocketServer(httpServer: Server) {
     ws.subscribedCameras = new Set();
     ws.lastPing = Date.now();
     connectedClients.set(clientId, ws);
+    
+    // Add to our enhanced WebSocket manager for real-time features
+    wsManager.addClient(ws as any, sessionData.userId!, sessionData.storeId, sessionData.role);
     
     console.log(`WebSocket client authenticated: ${clientId}, user: ${ws.userId}, store: ${ws.storeId}, role: ${ws.userRole}`);
 

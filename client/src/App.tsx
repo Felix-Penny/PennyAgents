@@ -31,6 +31,7 @@ import RepaymentDashboard from "./pages/repayment-dashboard";
 import VideoUpload from "./pages/video-upload";
 import VideoTest from "./pages/video-test";
 import FacialRecognitionDashboard from "./pages/facial-recognition";
+import { LiveMonitoring } from "./components/LiveMonitoring";
 import { AgentProtectedRoute } from "@/lib/agent-protected-route";
 
 function Router() {
@@ -58,6 +59,7 @@ function Router() {
             }}
           />
           <ProtectedRoute path="/security/dashboard" component={Dashboard} permissions={["analytics:operational"]} />
+          <ProtectedRoute path="/security/live-monitoring" component={LiveMonitoring} permissions={["cameras:view"]} />
           <ProtectedRoute path="/security/live-feeds" component={LiveFeeds} permissions={["cameras:view"]} />
           <ProtectedRoute path="/security/alerts" component={Alerts} permissions={["alerts:receive"]} />
           <ProtectedRoute path="/security/incidents" component={Incidents} permissions={["incidents:view", "incidents:create"]} requireAll={false} />

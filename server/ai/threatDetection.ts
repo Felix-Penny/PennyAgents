@@ -6,7 +6,8 @@
 import OpenAI from "openai";
 import { randomUUID } from "crypto";
 import { storage } from "../storage";
-import { aiVideoAnalyticsService, type AIDetectionResult, type FrameAnalysisResult, AI_MODELS } from "./videoAnalytics";
+import { aiVideoAnalyticsService, type AIDetectionResult, type FrameAnalysisResult } from "./videoAnalytics";
+import { resolveModel, DEFAULT_OPENAI_MODEL, AI_MODELS } from "./openaiConfig";
 
 // Initialize OpenAI client
 const openai = new OpenAI({ 
@@ -184,7 +185,7 @@ export class ThreatDetectionService {
       const base64Image = imageBuffer.toString('base64');
 
       const response = await openai.chat.completions.create({
-        model: AI_MODELS.GPT_4O,
+  model: resolveModel(DEFAULT_OPENAI_MODEL),
         messages: [
           {
             role: "user",
@@ -554,7 +555,7 @@ Be thorough but precise. Err on the side of caution for high-severity threats.
         behaviorType: threat.subcategory as any,
         confidence: threat.confidence,
         boundingBox: threat.boundingBox,
-        modelName: AI_MODELS.GPT_4O,
+  modelName: resolveModel(DEFAULT_OPENAI_MODEL),
         modelVersion: '1.0',
         processingTime: assessment.analysisMetrics.processingTime,
         frameTimestamp: new Date(threat.timestamp),
@@ -586,26 +587,15 @@ Be thorough but precise. Err on the side of caution for high-severity threats.
     // For now, we'll use the video_analytics table
     try {
       await storage.createVideoAnalysis({
+        id: `threat_analysis_${assessment.assessmentId}`,
         storeId: assessment.storeId,
         cameraId: assessment.cameraId,
         videoFilePath: `threat_analysis_${assessment.assessmentId}`,
         analysisStatus: 'completed',
         detectedFaces: [],
         matchedOffenders: [],
-        confidenceScores: { average: assessment.analysisMetrics.averageConfidence },
-        modelsUsed: [{
-          name: AI_MODELS.GPT_4O,
-          version: '1.0',
-          purpose: 'threat_detection'
-        }],
-        processingTime: assessment.analysisMetrics.processingTime,
-        analyticsResults: {
-          overallRiskLevel: assessment.overallRiskLevel,
-          averageConfidence: assessment.analysisMetrics.averageConfidence,
-          averageRiskScore: assessment.analysisMetrics.averageRiskScore,
-          recommendedActions: assessment.recommendedActions,
-          contextualAnalysis: assessment.contextualAnalysis
-        }
+        confidenceScores: { average: assessment.analysisMetrics.averageConfidence }
+        // TODO: Add processingTime, modelsUsed and analyticsResults fields to schema
       });
 
     } catch (error) {

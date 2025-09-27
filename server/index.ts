@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { DEFAULT_OPENAI_MODEL } from "./ai/openaiConfig";
 import { setupVite, serveStatic, log } from "./vite";
 
 // Environment validation for Object Storage
@@ -70,6 +71,13 @@ app.use((req, res, next) => {
 (async () => {
   // Validate environment variables at startup
   validateEnvironment();
+
+  // OpenAI startup info
+  if (!process.env.OPENAI_API_KEY) {
+    log("Warning: OPENAI_API_KEY is not set. OpenAI-powered features will be unavailable.");
+  } else {
+    log(`[OpenAI] Default model: ${DEFAULT_OPENAI_MODEL}`);
+  }
   
   const server = await registerRoutes(app);
 

@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_DB: pennyprotect
+      POSTGRES_USER: ${DB_USER:-pennyprotect}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secure_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-pennyprotect}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  backend:
+    build: 
+      context: ./server
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://pennyprotect:secure_password@postgres:5432/pennyprotect}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-your-256-bit-secret}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-pennyprotect-evidence}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CLIENT_URL=${CLIENT_URL:-http://localhost:3000}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    restart: unless-stopped
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://pennyprotect:secure_password@postgres:5432/pennyprotect}
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./ai-service:/app
+      - ./models:/app/models
+      - ai_cache:/app/cache
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+      - VITE_WS_URL=${VITE_WS_URL:-ws://localhost:8000}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  ai_cache:

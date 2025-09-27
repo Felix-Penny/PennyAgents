@@ -1,641 +1,579 @@
 """
-AWS Rekognition AI Microservice
+Enhanced AI Microservice for PennyProtect
 FastAPI-based computer vision processing service for retail security
+Integrates facial recognition, gait detection, behavior analysis, and object detection
 """
 
-import asyncio
-import io
-import json
-import logging
-import os
-import time
-import uuid
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
-
-import boto3
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, BackgroundTasks
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-import ffmpeg
+from ultralytics import YOLO
+import io
+import json
+from datetime import datetime
+from typing import List, Optional, Dict, Any
+import asyncio
+import logging
 from PIL import Image
-import httpx
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Import our AI services
+from facial_recognition_simple import FacialRecognitionService
+from gait_detection import GaitDetectionService  
+from behavior_analysis import EnhancedBehaviorAnalysisService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="AI Security Microservice",
-    description="AWS Rekognition-powered computer vision for retail security",
-    version="1.0.0"
-)
+app = FastAPI(title="PennyProtect AI Service", version="1.0.0")
 
-# CORS middleware
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5000", "https://*.replit.dev", "https://*.repl.co"],
+    allow_origins=["*"],  # Configure based on your frontend domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# AWS Rekognition client
-try:
-    rekognition = boto3.client(
-        'rekognition',
-        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-        region_name=os.getenv('AWS_REGION', 'us-east-1')
-    )
-    logger.info("AWS Rekognition client initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize AWS Rekognition client: {e}")
-    rekognition = None
+# Initialize AI services
+facial_service = None
+gait_service = None
+behavior_service = None
+object_model = None
 
-# S3 client for face collections
-try:
-    s3 = boto3.client(
-        's3',
-        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-        region_name=os.getenv('AWS_REGION', 'us-east-1')
-    )
-    logger.info("AWS S3 client initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize AWS S3 client: {e}")
-    s3 = None
+# Service status tracking
+service_status = {
+    "facial_recognition": False,
+    "gait_detection": False, 
+    "behavior_analysis": False,
+    "object_detection": False,
+    "initialized_at": None
+}
 
-# Pydantic models
-class DetectionBox(BaseModel):
-    x: float = Field(..., description="X coordinate (normalized 0-1)")
-    y: float = Field(..., description="Y coordinate (normalized 0-1)")
-    width: float = Field(..., description="Width (normalized 0-1)")
-    height: float = Field(..., description="Height (normalized 0-1)")
-
-class ObjectDetection(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    type: str = Field(..., description="Object type (person, weapon, bag, etc.)")
-    confidence: float = Field(..., description="Confidence score 0-1")
-    bounding_box: DetectionBox
-    attributes: Dict[str, Any] = Field(default_factory=dict)
-
-class FaceDetection(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    confidence: float = Field(..., description="Face detection confidence 0-1")
-    bounding_box: DetectionBox
-    landmarks: List[Dict[str, float]] = Field(default_factory=list)
-    attributes: Dict[str, Any] = Field(default_factory=dict)
-    face_id: Optional[str] = None
-    person_id: Optional[str] = None
-    watchlist_match: bool = False
-    match_confidence: float = 0.0
-
-class ThreatAssessment(BaseModel):
-    threat_level: str = Field(..., description="low, medium, high, critical")
-    threat_types: List[str] = Field(default_factory=list)
-    risk_score: float = Field(..., description="Risk score 0-10")
-    description: str = Field(..., description="Threat description")
-    immediate_action_required: bool = False
-
-class FrameAnalysisResult(BaseModel):
-    analysis_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-    processing_time_ms: int
+@app.on_event("startup")
+async def startup_event():
+    """Initialize AI services on startup"""
+    global facial_service, gait_service, behavior_service, object_model, service_status
     
-    # Detections
-    objects: List[ObjectDetection] = Field(default_factory=list)
-    faces: List[FaceDetection] = Field(default_factory=list)
+    logger.info("🚀 Starting PennyProtect AI Service...")
     
-    # Analysis
-    threat_assessment: ThreatAssessment
-    quality_score: float = Field(..., description="Image quality 0-1")
-    
-    # Metadata
-    image_dimensions: Dict[str, int]
-    model_versions: Dict[str, str] = Field(default_factory=dict)
+    try:
+        # Initialize Object Detection Model (YOLO)
+        logger.info("Loading object detection model...")
+        object_model = YOLO('yolov8n.pt')
+        service_status["object_detection"] = True
+        logger.info("✅ Object detection model loaded")
+        
+        # Initialize Facial Recognition Service
+        logger.info("Initializing facial recognition service...")
+        facial_service = FacialRecognitionService()
+        await facial_service.initialize()
+        service_status["facial_recognition"] = True
+        logger.info("✅ Facial recognition service initialized")
+        
+        # Initialize Gait Detection Service
+        logger.info("Initializing gait detection service...")
+        gait_service = GaitDetectionService()
+        await gait_service.initialize()
+        service_status["gait_detection"] = True
+        logger.info("✅ Gait detection service initialized")
+        
+        # Initialize Behavior Analysis Service
+        logger.info("Initializing behavior analysis service...")
+        behavior_service = EnhancedBehaviorAnalysisService()
+        await behavior_service.initialize()
+        service_status["behavior_analysis"] = True
+        logger.info("✅ Behavior analysis service initialized")
+        
+        service_status["initialized_at"] = datetime.now().isoformat()
+        logger.info("🎉 All AI services initialized successfully!")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize AI services: {e}")
+        raise
 
-class VideoAnalysisRequest(BaseModel):
-    video_url: Optional[str] = None
-    store_id: str
-    camera_id: str
-    frame_interval: int = Field(default=2, description="Seconds between analyzed frames")
-    enable_facial_recognition: bool = True
-    enable_threat_detection: bool = True
-    watchlist_collection_id: Optional[str] = None
+@app.get("/")
+async def root():
+    """Health check endpoint"""
+    return {
+        "message": "PennyProtect AI Service",
+        "status": "running",
+        "services": service_status,
+        "timestamp": datetime.now().isoformat()
+    }
 
-class VideoAnalysisResult(BaseModel):
-    analysis_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    status: str = Field(default="completed")
-    total_frames_analyzed: int
-    total_detections: int
-    threat_detections: int
-    suspicious_activities: int
-    frames: List[FrameAnalysisResult] = Field(default_factory=list)
-    processing_duration_ms: int
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-# Health check endpoint
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    aws_status = "connected" if rekognition is not None else "disconnected"
+    """Detailed health check"""
     return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "services": {
-            "aws_rekognition": aws_status,
-            "aws_s3": "connected" if s3 is not None else "disconnected"
+        "status": "healthy" if all(service_status[k] for k in service_status if k != "initialized_at") else "degraded",
+        "services": service_status,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/analyze/comprehensive")
+async def comprehensive_analysis(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    camera_id: str = Form(...),
+    store_id: str = Form(...),
+    analysis_types: str = Form(default="all")  # JSON list of analysis types
+):
+    """
+    Comprehensive AI analysis of uploaded frames/video
+    Performs object detection, facial recognition, gait detection, and behavior analysis
+    """
+    try:
+        # Parse analysis types
+        try:
+            requested_analyses = json.loads(analysis_types)
+        except json.JSONDecodeError:
+            requested_analyses = ["all"]
+        
+        if "all" in requested_analyses:
+            requested_analyses = ["object_detection", "facial_recognition", "gait_detection", "behavior_analysis"]
+        
+        start_time = datetime.now()
+        
+        # Process uploaded files into frames
+        frames = []
+        frame_info = []
+        
+        for i, file in enumerate(files):
+            # Read file content
+            content = await file.read()
+            
+            # Convert to OpenCV format
+            nparr = np.frombuffer(content, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if frame is not None:
+                frames.append(frame)
+                frame_info.append({
+                    "index": i,
+                    "filename": file.filename,
+                    "size": frame.shape,
+                    "timestamp": (i / 30.0)  # Assuming 30 FPS
+                })
+            else:
+                logger.warning(f"Failed to decode frame from file: {file.filename}")
+        
+        if not frames:
+            raise HTTPException(status_code=400, detail="No valid frames found in uploaded files")
+        
+        # Initialize results
+        results = {
+            "camera_id": camera_id,
+            "store_id": store_id,
+            "analysis_timestamp": start_time.isoformat(),
+            "frames_processed": len(frames),
+            "analyses_performed": requested_analyses,
+            "results": {}
+        }
+        
+        # Perform requested analyses
+        analysis_tasks = []
+        
+        # 1. Object Detection
+        if "object_detection" in requested_analyses and object_model:
+            logger.info("🔍 Running object detection...")
+            object_results = await perform_object_detection(frames, camera_id, store_id)
+            results["results"]["object_detection"] = object_results
+        
+        # 2. Facial Recognition  
+        if "facial_recognition" in requested_analyses and facial_service:
+            logger.info("👤 Running facial recognition...")
+            facial_results = await facial_service.process_frames(frames, camera_id, store_id)
+            results["results"]["facial_recognition"] = facial_results
+        
+        # 3. Gait Detection
+        if "gait_detection" in requested_analyses and gait_service:
+            logger.info("🚶 Running gait detection...")
+            gait_results = await gait_service.analyze_gait_sequence(frames, camera_id, store_id)
+            results["results"]["gait_detection"] = gait_results
+        
+        # 4. Behavior Analysis
+        if "behavior_analysis" in requested_analyses and behavior_service:
+            logger.info("🧠 Running behavior analysis...")
+            behavior_results = await behavior_service.analyze_behavior(frames, camera_id, store_id)
+            results["results"]["behavior_analysis"] = behavior_results
+        
+        # Calculate processing summary
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        results["processing_summary"] = {
+            "total_processing_time_ms": processing_time * 1000,
+            "fps": len(frames) / max(processing_time, 0.001),
+            "analyses_completed": len(results["results"]),
+            "frame_info": frame_info
+        }
+        
+        # Extract high-priority alerts for immediate response
+        alerts = []
+        for analysis_type, analysis_result in results["results"].items():
+            if isinstance(analysis_result, dict) and "alerts" in analysis_result:
+                alerts.extend(analysis_result["alerts"])
+        
+        results["immediate_alerts"] = [
+            alert for alert in alerts 
+            if alert.get("threat_level") in ["high", "critical"]
+        ]
+        
+        logger.info(f"✅ Comprehensive analysis completed in {processing_time:.2f}s")
+        
+        return JSONResponse(content=results)
+        
+    except Exception as e:
+        logger.error(f"❌ Error in comprehensive analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+async def perform_object_detection(frames: List[np.ndarray], camera_id: str, store_id: str) -> Dict:
+    """Perform object detection on frames"""
+    try:
+        results = {
+            "camera_id": camera_id,
+            "store_id": store_id,
+            "detections": [],
+            "summary": {},
+            "alerts": [],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        all_detections = []
+        threat_objects = ["knife", "gun", "weapon", "scissors"]  # Configurable threat list
+        
+        for i, frame in enumerate(frames):
+            # Run YOLO detection
+            detection_results = object_model(frame, verbose=False)
+            
+            if detection_results and detection_results[0].boxes is not None:
+                boxes = detection_results[0].boxes
+                
+                frame_detections = []
+                for box in boxes:
+                    detection = {
+                        "frame_index": i,
+                        "timestamp": i / 30.0,
+                        "class_id": int(box.cls.item()),
+                        "class_name": object_model.names[int(box.cls.item())],
+                        "confidence": float(box.conf.item()),
+                        "bbox": box.xyxy[0].cpu().numpy().tolist(),
+                        "area": float((box.xyxy[0][2] - box.xyxy[0][0]) * (box.xyxy[0][3] - box.xyxy[0][1]))
+                    }
+                    
+                    # Check for threat objects
+                    if any(threat in detection["class_name"].lower() for threat in threat_objects):
+                        alert = {
+                            "id": f"threat_object_{camera_id}_{i}_{detection['class_id']}",
+                            "type": "threat_object_detected",
+                            "threat_level": "high",
+                            "confidence": detection["confidence"],
+                            "object_type": detection["class_name"],
+                            "location": {
+                                "x": float((detection["bbox"][0] + detection["bbox"][2]) / 2),
+                                "y": float((detection["bbox"][1] + detection["bbox"][3]) / 2)
+                            },
+                            "frame_index": i,
+                            "camera_id": camera_id,
+                            "store_id": store_id,
+                            "timestamp": datetime.now().isoformat(),
+                            "description": f"Potential threat object detected: {detection['class_name']}"
+                        }
+                        results["alerts"].append(alert)
+                    
+                    frame_detections.append(detection)
+                    all_detections.append(detection)
+                
+                results["detections"].append({
+                    "frame_index": i,
+                    "objects_found": len(frame_detections),
+                    "detections": frame_detections
+                })
+        
+        # Generate summary
+        if all_detections:
+            class_counts = {}
+            confidence_scores = []
+            
+            for detection in all_detections:
+                class_name = detection["class_name"]
+                class_counts[class_name] = class_counts.get(class_name, 0) + 1
+                confidence_scores.append(detection["confidence"])
+            
+            results["summary"] = {
+                "total_objects_detected": len(all_detections),
+                "unique_classes": len(class_counts),
+                "class_distribution": class_counts,
+                "average_confidence": float(np.mean(confidence_scores)),
+                "max_confidence": float(np.max(confidence_scores)),
+                "min_confidence": float(np.min(confidence_scores)),
+                "threat_objects_detected": len(results["alerts"])
+            }
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error in object detection: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+@app.post("/analyze/facial-recognition")
+async def facial_recognition_endpoint(
+    files: List[UploadFile] = File(...),
+    camera_id: str = Form(...),
+    store_id: str = Form(...)
+):
+    """Facial recognition analysis endpoint"""
+    if not facial_service:
+        raise HTTPException(status_code=503, detail="Facial recognition service not available")
+    
+    try:
+        # Process files to frames
+        frames = []
+        for file in files:
+            content = await file.read()
+            nparr = np.frombuffer(content, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if frame is not None:
+                frames.append(frame)
+        
+        if not frames:
+            raise HTTPException(status_code=400, detail="No valid frames found")
+        
+        results = await facial_service.process_frames(frames, camera_id, store_id)
+        return JSONResponse(content=results)
+        
+    except Exception as e:
+        logger.error(f"Error in facial recognition endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/analyze/gait-detection")
+async def gait_detection_endpoint(
+    files: List[UploadFile] = File(...),
+    camera_id: str = Form(...),
+    store_id: str = Form(...)
+):
+    """Gait detection analysis endpoint"""
+    if not gait_service:
+        raise HTTPException(status_code=503, detail="Gait detection service not available")
+    
+    try:
+        # Process files to frames
+        frames = []
+        for file in files:
+            content = await file.read()
+            nparr = np.frombuffer(content, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if frame is not None:
+                frames.append(frame)
+        
+        if not frames:
+            raise HTTPException(status_code=400, detail="No valid frames found")
+        
+        results = await gait_service.analyze_gait_sequence(frames, camera_id, store_id)
+        return JSONResponse(content=results)
+        
+    except Exception as e:
+        logger.error(f"Error in gait detection endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/analyze/behavior")
+async def behavior_analysis_endpoint(
+    files: List[UploadFile] = File(...),
+    camera_id: str = Form(...),
+    store_id: str = Form(...)
+):
+    """Behavior analysis endpoint"""
+    if not behavior_service:
+        raise HTTPException(status_code=503, detail="Behavior analysis service not available")
+    
+    try:
+        # Process files to frames
+        frames = []
+        for file in files:
+            content = await file.read()
+            nparr = np.frombuffer(content, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if frame is not None:
+                frames.append(frame)
+        
+        if not frames:
+            raise HTTPException(status_code=400, detail="No valid frames found")
+        
+        results = await behavior_service.analyze_behavior(frames, camera_id, store_id)
+        return JSONResponse(content=results)
+        
+    except Exception as e:
+        logger.error(f"Error in behavior analysis endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/analyze/object-detection") 
+async def object_detection_endpoint(
+    files: List[UploadFile] = File(...),
+    camera_id: str = Form(...),
+    store_id: str = Form(...)
+):
+    """Object detection analysis endpoint"""
+    if not object_model:
+        raise HTTPException(status_code=503, detail="Object detection service not available")
+    
+    try:
+        # Process files to frames
+        frames = []
+        for file in files:
+            content = await file.read()
+            nparr = np.frombuffer(content, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if frame is not None:
+                frames.append(frame)
+        
+        if not frames:
+            raise HTTPException(status_code=400, detail="No valid frames found")
+        
+        results = await perform_object_detection(frames, camera_id, store_id)
+        return JSONResponse(content=results)
+        
+    except Exception as e:
+        logger.error(f"Error in object detection endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/services/status")
+async def get_service_status():
+    """Get status of all AI services"""
+    return {
+        "services": service_status,
+        "facial_recognition": {
+            "available": facial_service is not None,
+            "watchlist_count": len(facial_service.watchlist) if facial_service else 0
+        },
+        "gait_detection": {
+            "available": gait_service is not None,
+            "profiles_tracked": len(gait_service.gait_profiles) if gait_service else 0
+        },
+        "behavior_analysis": {
+            "available": behavior_service is not None,
+            "people_tracked": len(behavior_service.behavior_history) if behavior_service else 0,
+            "rules_active": len(behavior_service.behavior_rules) if behavior_service else 0
+        },
+        "object_detection": {
+            "available": object_model is not None,
+            "classes_available": len(object_model.names) if object_model else 0
         }
     }
 
-# AWS Service status
-@app.get("/aws/status")
-async def aws_status():
-    """Check AWS service connectivity"""
-    if not rekognition:
-        raise HTTPException(status_code=503, detail="AWS Rekognition not available")
-    
-    try:
-        # Test connection with a simple list collections call
-        response = rekognition.list_collections()
-        return {
-            "rekognition": "connected",
-            "collections": len(response.get('CollectionIds', [])),
-            "region": os.getenv('AWS_REGION', 'us-east-1')
-        }
-    except Exception as e:
-        logger.error(f"AWS status check failed: {e}")
-        raise HTTPException(status_code=503, detail=f"AWS service error: {str(e)}")
-
-# Real-time frame analysis
-@app.post("/analyze/frame", response_model=FrameAnalysisResult)
-async def analyze_frame(
+@app.post("/facial/add-to-watchlist")
+async def add_to_watchlist(
     file: UploadFile = File(...),
-    store_id: str = "default",
-    camera_id: str = "cam_1",
-    enable_facial_recognition: bool = True,
-    enable_threat_detection: bool = True,
-    watchlist_collection_id: Optional[str] = None
+    person_name: str = Form(...),
+    person_id: str = Form(...),
+    alert_level: str = Form(default="medium")
 ):
-    """Analyze a single frame for objects, faces, and threats"""
-    
-    if not rekognition:
-        raise HTTPException(status_code=503, detail="AWS Rekognition not available")
-    
-    start_time = time.time()
+    """Add person to facial recognition watchlist"""
+    if not facial_service:
+        raise HTTPException(status_code=503, detail="Facial recognition service not available")
     
     try:
-        # Read and validate image
-        image_data = await file.read()
-        image = Image.open(io.BytesIO(image_data))
+        # Process uploaded image
+        content = await file.read()
+        nparr = np.frombuffer(content, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
-        # Convert to RGB if necessary
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
+        if image is None:
+            raise HTTPException(status_code=400, detail="Invalid image file")
         
-        image_dimensions = {"width": image.width, "height": image.height}
+        # Add to watchlist
+        result = await facial_service.add_to_watchlist(image, person_name, person_id, alert_level)
         
-        # Convert back to bytes for AWS
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='JPEG')
-        img_byte_arr = img_byte_arr.getvalue()
-        
-        # Initialize result
-        result = FrameAnalysisResult(
-            processing_time_ms=0,
-            threat_assessment=ThreatAssessment(
-                threat_level="low",
-                risk_score=0.0,
-                description="No threats detected"
-            ),
-            quality_score=0.8,  # Default quality score
-            image_dimensions=image_dimensions,
-            model_versions={
-                "rekognition": "2024.1",
-                "object_detection": "v1.0",
-                "face_detection": "v1.0"
-            }
-        )
-        
-        # Object detection using AWS Rekognition
-        objects = await detect_objects(img_byte_arr)
-        result.objects = objects
-        
-        # Face detection and recognition
-        if enable_facial_recognition:
-            faces = await detect_faces(img_byte_arr, watchlist_collection_id)
-            result.faces = faces
-        
-        # Threat assessment
-        if enable_threat_detection:
-            threat_assessment = await assess_threats(objects, result.faces)
-            result.threat_assessment = threat_assessment
-        
-        # Calculate processing time
-        processing_time = int((time.time() - start_time) * 1000)
-        result.processing_time_ms = processing_time
-        
-        # Log analysis results
-        logger.info(f"Frame analysis completed in {processing_time}ms - Objects: {len(result.objects)}, Faces: {len(result.faces)}, Threat: {result.threat_assessment.threat_level}")
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Frame analysis failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
-async def detect_objects(image_bytes: bytes) -> List[ObjectDetection]:
-    """Detect objects using AWS Rekognition"""
-    try:
-        response = rekognition.detect_labels(
-            Image={'Bytes': image_bytes},
-            MaxLabels=50,
-            MinConfidence=70
-        )
-        
-        objects = []
-        for label in response['Labels']:
-            # Focus on security-relevant objects
-            relevant_objects = ['Person', 'Weapon', 'Knife', 'Gun', 'Bag', 'Backpack', 
-                              'Handbag', 'Suitcase', 'Vehicle', 'Car', 'Bicycle']
-            
-            if label['Name'] in relevant_objects and label['Instances']:
-                for instance in label['Instances']:
-                    bbox = instance['BoundingBox']
-                    detection = ObjectDetection(
-                        type=label['Name'].lower(),
-                        confidence=label['Confidence'] / 100.0,
-                        bounding_box=DetectionBox(
-                            x=bbox['Left'],
-                            y=bbox['Top'],
-                            width=bbox['Width'],
-                            height=bbox['Height']
-                        ),
-                        attributes={
-                            'parents': [p['Name'] for p in label.get('Parents', [])],
-                            'categories': [c['Name'] for c in label.get('Categories', [])]
-                        }
-                    )
-                    objects.append(detection)
-        
-        return objects
-        
-    except Exception as e:
-        logger.error(f"Object detection failed: {e}")
-        return []
-
-async def detect_faces(image_bytes: bytes, collection_id: Optional[str] = None) -> List[FaceDetection]:
-    """Detect and recognize faces using AWS Rekognition"""
-    try:
-        # Face detection
-        response = rekognition.detect_faces(
-            Image={'Bytes': image_bytes},
-            Attributes=['ALL']
-        )
-        
-        faces = []
-        for face_detail in response['FaceDetails']:
-            bbox = face_detail['BoundingBox']
-            
-            # Extract landmarks
-            landmarks = []
-            for landmark in face_detail.get('Landmarks', []):
-                landmarks.append({
-                    'type': landmark['Type'],
-                    'x': landmark['X'],
-                    'y': landmark['Y']
-                })
-            
-            # Extract attributes
-            attributes = {
-                'age_range': face_detail.get('AgeRange', {}),
-                'gender': face_detail.get('Gender', {}),
-                'emotions': face_detail.get('Emotions', []),
-                'quality': face_detail.get('Quality', {}),
-                'pose': face_detail.get('Pose', {}),
-                'eyeglasses': face_detail.get('Eyeglasses', {}),
-                'sunglasses': face_detail.get('Sunglasses', {}),
-                'beard': face_detail.get('Beard', {}),
-                'mustache': face_detail.get('Mustache', {}),
-                'eyes_open': face_detail.get('EyesOpen', {}),
-                'mouth_open': face_detail.get('MouthOpen', {})
-            }
-            
-            face_detection = FaceDetection(
-                confidence=face_detail['Confidence'] / 100.0,
-                bounding_box=DetectionBox(
-                    x=bbox['Left'],
-                    y=bbox['Top'],
-                    width=bbox['Width'],
-                    height=bbox['Height']
-                ),
-                landmarks=landmarks,
-                attributes=attributes
-            )
-            
-            # Face recognition against watchlist if collection provided
-            if collection_id:
-                try:
-                    search_response = rekognition.search_faces_by_image(
-                        CollectionId=collection_id,
-                        Image={'Bytes': image_bytes},
-                        MaxFaces=5,
-                        FaceMatchThreshold=80
-                    )
-                    
-                    if search_response.get('FaceMatches'):
-                        best_match = search_response['FaceMatches'][0]
-                        face_detection.watchlist_match = True
-                        face_detection.match_confidence = best_match['Similarity'] / 100.0
-                        face_detection.face_id = best_match['Face']['FaceId']
-                        # person_id would be stored in ExternalImageId
-                        face_detection.person_id = best_match['Face'].get('ExternalImageId')
-                        
-                except Exception as search_error:
-                    logger.warning(f"Face search failed: {search_error}")
-            
-            faces.append(face_detection)
-        
-        return faces
-        
-    except Exception as e:
-        logger.error(f"Face detection failed: {e}")
-        return []
-
-async def assess_threats(objects: List[ObjectDetection], faces: List[FaceDetection]) -> ThreatAssessment:
-    """Assess threat level based on detected objects and faces"""
-    
-    threat_types = []
-    risk_score = 0.0
-    threat_level = "low"
-    descriptions = []
-    
-    # Check for weapons
-    weapon_objects = [obj for obj in objects if obj.type in ['weapon', 'knife', 'gun']]
-    if weapon_objects:
-        threat_types.append("weapon_detected")
-        risk_score += 8.0
-        descriptions.append(f"Weapon detected with {weapon_objects[0].confidence:.1%} confidence")
-    
-    # Check for suspicious objects
-    suspicious_objects = [obj for obj in objects if obj.type in ['bag', 'backpack', 'suitcase']]
-    if len(suspicious_objects) > 2:
-        threat_types.append("multiple_bags")
-        risk_score += 3.0
-        descriptions.append(f"Multiple bags detected ({len(suspicious_objects)})")
-    
-    # Check for watchlist matches
-    watchlist_faces = [face for face in faces if face.watchlist_match]
-    if watchlist_faces:
-        threat_types.append("known_offender")
-        risk_score += 7.0
-        descriptions.append(f"Known offender detected with {watchlist_faces[0].match_confidence:.1%} confidence")
-    
-    # Check for unusual behavior patterns (basic heuristics)
-    if len(faces) > 5:  # Crowding
-        threat_types.append("crowding")
-        risk_score += 2.0
-        descriptions.append("High person density detected")
-    
-    # Determine threat level
-    if risk_score >= 8.0:
-        threat_level = "critical"
-    elif risk_score >= 6.0:
-        threat_level = "high"
-    elif risk_score >= 3.0:
-        threat_level = "medium"
-    else:
-        threat_level = "low"
-    
-    return ThreatAssessment(
-        threat_level=threat_level,
-        threat_types=threat_types,
-        risk_score=min(risk_score, 10.0),
-        description="; ".join(descriptions) if descriptions else "No threats detected",
-        immediate_action_required=risk_score >= 7.0
-    )
-
-# Video analysis endpoint
-@app.post("/analyze/video", response_model=VideoAnalysisResult)
-async def analyze_video(
-    background_tasks: BackgroundTasks,
-    request: VideoAnalysisRequest,
-    file: Optional[UploadFile] = File(None)
-):
-    """Analyze video file for security threats"""
-    
-    if not rekognition:
-        raise HTTPException(status_code=503, detail="AWS Rekognition not available")
-    
-    analysis_id = str(uuid.uuid4())
-    start_time = time.time()
-    
-    try:
-        # Save uploaded video temporarily
-        video_path = f"/tmp/video_{analysis_id}.mp4"
-        
-        if file:
-            with open(video_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
-        elif request.video_url:
-            # Download video from URL
-            async with httpx.AsyncClient() as client:
-                response = await client.get(request.video_url)
-                response.raise_for_status()
-                with open(video_path, "wb") as f:
-                    f.write(response.content)
+        if result["success"]:
+            return JSONResponse(content={
+                "message": f"Successfully added {person_name} to watchlist",
+                "person_id": person_id,
+                "encoding_id": result.get("encoding_id")
+            })
         else:
-            raise HTTPException(status_code=400, detail="No video file or URL provided")
-        
-        # Extract frames using FFmpeg
-        frames = await extract_video_frames(video_path, request.frame_interval)
-        
-        # Analyze each frame
-        frame_results = []
-        total_detections = 0
-        threat_detections = 0
-        suspicious_activities = 0
-        
-        for i, frame_data in enumerate(frames):
-            # Create temporary frame file
-            frame_path = f"/tmp/frame_{analysis_id}_{i}.jpg"
-            cv2.imwrite(frame_path, frame_data)
-            
-            # Analyze frame
-            with open(frame_path, "rb") as frame_file:
-                frame_content = frame_file.read()
-                
-            # Simulate UploadFile for frame analysis
-            image = Image.open(io.BytesIO(frame_content))
-            img_byte_arr = io.BytesIO()
-            image.save(img_byte_arr, format='JPEG')
-            img_byte_arr = img_byte_arr.getvalue()
-            
-            # Analyze frame
-            objects = await detect_objects(img_byte_arr)
-            faces = await detect_faces(img_byte_arr, request.watchlist_collection_id)
-            threat_assessment = await assess_threats(objects, faces)
-            
-            frame_result = FrameAnalysisResult(
-                processing_time_ms=50,  # Estimated
-                objects=objects,
-                faces=faces,
-                threat_assessment=threat_assessment,
-                quality_score=0.8,
-                image_dimensions={"width": image.width, "height": image.height}
-            )
-            
-            frame_results.append(frame_result)
-            total_detections += len(objects) + len(faces)
-            
-            if threat_assessment.threat_level in ['high', 'critical']:
-                threat_detections += 1
-                
-            if len(threat_assessment.threat_types) > 0:
-                suspicious_activities += 1
-            
-            # Cleanup temp frame
-            os.remove(frame_path)
-        
-        # Cleanup temp video
-        os.remove(video_path)
-        
-        processing_duration = int((time.time() - start_time) * 1000)
-        
-        result = VideoAnalysisResult(
-            analysis_id=analysis_id,
-            total_frames_analyzed=len(frames),
-            total_detections=total_detections,
-            threat_detections=threat_detections,
-            suspicious_activities=suspicious_activities,
-            frames=frame_results,
-            processing_duration_ms=processing_duration
-        )
-        
-        # Log results
-        logger.info(f"Video analysis completed: {len(frames)} frames, {total_detections} detections, {threat_detections} threats")
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Video analysis failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Video analysis failed: {str(e)}")
-
-async def extract_video_frames(video_path: str, interval: int = 2) -> List[np.ndarray]:
-    """Extract frames from video at specified intervals"""
+            raise HTTPException(status_code=400, detail=result["error"])
     
-    try:
-        # Get video info
-        probe = ffmpeg.probe(video_path)
-        video_info = next(s for s in probe['streams'] if s['codec_type'] == 'video')
-        duration = float(video_info['duration'])
-        
-        frames = []
-        current_time = 0
-        
-        while current_time < duration:
-            # Extract frame at current time
-            frame_data, _ = (
-                ffmpeg
-                .input(video_path, ss=current_time)
-                .output('pipe:', vframes=1, format='rawvideo', pix_fmt='bgr24')
-                .run(capture_stdout=True, quiet=True)
-            )
-            
-            # Convert to numpy array
-            width = int(video_info['width'])
-            height = int(video_info['height'])
-            frame = np.frombuffer(frame_data, np.uint8).reshape([height, width, 3])
-            frames.append(frame)
-            
-            current_time += interval
-            
-            # Limit to reasonable number of frames
-            if len(frames) >= 30:  # Max 30 frames
-                break
-        
-        return frames
-        
     except Exception as e:
-        logger.error(f"Frame extraction failed: {e}")
-        return []
-
-# Face collection management
-@app.post("/watchlist/collections")
-async def create_face_collection(collection_id: str):
-    """Create a new face collection for watchlist"""
-    
-    if not rekognition:
-        raise HTTPException(status_code=503, detail="AWS Rekognition not available")
-    
-    try:
-        response = rekognition.create_collection(CollectionId=collection_id)
-        return {
-            "collection_id": collection_id,
-            "status_code": response['StatusCode'],
-            "face_model_version": response['FaceModelVersion']
-        }
-    except rekognition.exceptions.ResourceAlreadyExistsException:
-        raise HTTPException(status_code=409, detail="Collection already exists")
-    except Exception as e:
-        logger.error(f"Collection creation failed: {e}")
+        logger.error(f"Error adding to watchlist: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/watchlist/faces")
-async def add_face_to_collection(
-    collection_id: str,
-    person_id: str,
-    file: UploadFile = File(...)
-):
-    """Add face to watchlist collection"""
-    
-    if not rekognition:
-        raise HTTPException(status_code=503, detail="AWS Rekognition not available")
+@app.delete("/facial/watchlist/{person_id}")
+async def remove_from_watchlist(person_id: str):
+    """Remove person from facial recognition watchlist"""
+    if not facial_service:
+        raise HTTPException(status_code=503, detail="Facial recognition service not available")
     
     try:
-        image_data = await file.read()
-        
-        response = rekognition.index_faces(
-            CollectionId=collection_id,
-            Image={'Bytes': image_data},
-            ExternalImageId=person_id,
-            MaxFaces=1,
-            QualityFilter='AUTO'
-        )
-        
-        if response['FaceRecords']:
-            face_record = response['FaceRecords'][0]
-            return {
-                "face_id": face_record['Face']['FaceId'],
-                "person_id": person_id,
-                "confidence": face_record['Face']['Confidence'],
-                "quality": face_record['FaceDetail']['Quality']
-            }
+        result = facial_service.remove_from_watchlist(person_id)
+        if result:
+            return JSONResponse(content={"message": f"Successfully removed {person_id} from watchlist"})
         else:
-            raise HTTPException(status_code=400, detail="No faces detected in image")
-            
+            raise HTTPException(status_code=404, detail="Person not found in watchlist")
+    
     except Exception as e:
-        logger.error(f"Face indexing failed: {e}")
+        logger.error(f"Error removing from watchlist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/facial/watchlist")
+async def get_watchlist():
+    """Get current facial recognition watchlist"""
+    if not facial_service:
+        raise HTTPException(status_code=503, detail="Facial recognition service not available")
+    
+    try:
+        watchlist_info = []
+        for person_id, person_data in facial_service.watchlist.items():
+            watchlist_info.append({
+                "person_id": person_id,
+                "name": person_data["name"],
+                "alert_level": person_data["alert_level"],
+                "encoding_count": len(person_data["encodings"]),
+                "added_date": person_data.get("added_date", "unknown")
+            })
+        
+        return JSONResponse(content={
+            "watchlist_count": len(watchlist_info),
+            "people": watchlist_info
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting watchlist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/test-upload")
+async def test_upload(files: List[UploadFile] = File(...)):
+    """Test endpoint for file uploads"""
+    try:
+        file_info = []
+        for file in files:
+            content = await file.read()
+            nparr = np.frombuffer(content, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            info = {
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "size_bytes": len(content),
+                "image_decoded": image is not None,
+                "image_shape": image.shape if image is not None else None
+            }
+            file_info.append(info)
+        
+        return JSONResponse(content={
+            "files_received": len(files),
+            "file_details": file_info
+        })
+    
+    except Exception as e:
+        logger.error(f"Error in test upload: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
-    
-    port = int(os.getenv("AI_SERVICE_PORT", "8001"))
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=True,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
