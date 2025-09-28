@@ -5,59 +5,37 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'url';
-import DatabaseManager from './database-manager.js';
+// Force PostgreSQL - Remove SQLite dependency
+// import DatabaseManager from './database-manager.js';
+import pkg from 'pg';
+const { Pool } = pkg;
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-// Version check - v1.0.1
-console.log('🚀 PennyAgent Server v1.0.1 - PostgreSQL Migration Build');
+// Version check - v1.0.2 - Direct PostgreSQL
+console.log('🚀 PennyAgent Server v1.0.2 - DIRECT PostgreSQL Connection');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Database Manager (handles both PostgreSQL and SQLite)
-const dbManager = new DatabaseManager();
+// Direct PostgreSQL connection - bypass DatabaseManager
+console.log('� FORCING PostgreSQL Connection...');
+console.log('🔍 DATABASE_URL exists:', !!process.env.DATABASE_URL);
+console.log('🌍 NODE_ENV:', process.env.NODE_ENV);
 
-console.log('🗄️ Database initialized with detection tracking');
-console.log('🔄 Using database type:', dbManager.usePostgres ? 'PostgreSQL' : 'SQLite');
-console.log('🔍 DATABASE_URL present:', !!process.env.DATABASE_URL);
-console.log('🌍 Environment:', process.env.NODE_ENV);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || "postgresql://postgres:NhZfosfcfrGdHaaEJqsTgLcOwMRfPtrJ@postgres.railway.internal:5432/railway",
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
-if (process.env.NODE_ENV === 'production' && !dbManager.usePostgres) {
-  console.error('⚠️ WARNING: Production environment should use PostgreSQL!');
-  console.error('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
-}
-
-// Add username column to existing users table if it doesn't exist (PostgreSQL compatible)
-async function ensureUsernameColumn() {
-  try {
-    if (dbManager.usePostgres) {
-      // PostgreSQL: Add username column if it doesn't exist
-      await dbManager.query(`
-        ALTER TABLE users 
-        ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE
-      `);
-      console.log('✅ Username column ensured in PostgreSQL');
-    } else {
-      // SQLite fallback
-      const tableInfo = await dbManager.query("PRAGMA table_info(users)");
-      const hasUsernameColumn = tableInfo.some(col => col.name === 'username');
-      
-      if (!hasUsernameColumn) {
-        console.log('📦 Adding username column to users table...');
-        await dbManager.query("ALTER TABLE users ADD COLUMN username TEXT UNIQUE");
-        console.log('✅ Username column added successfully');
-      } else {
-        console.log('✅ Username column already exists');
-      }
-    }
-  } catch (error) {
-    console.error('⚠️ Migration error:', error.message);
-  }
-}
-
-// Run the migration
-await ensureUsernameColumn();
+// Test PostgreSQL connection immediately
+pool.query('SELECT 1 as test')
+  .then(result => {
+    console.log('✅ PostgreSQL connection successful!', result.rows);
+  })
+  .catch(error => {
+    console.error('❌ PostgreSQL connection failed:', error.message);
+  });
 
 // JWT configuration
 const JWT_SECRET = process.env.JWT_SECRET || 'penny-dev-secret-change-in-production';
@@ -717,13 +695,13 @@ app.post('/api/register', async (req, res) => {
     }
 
     // Check if user already exists (case-insensitive email and username)
-    const existingUser = await dbManager.get(`
+    const existingUserResult = await pool.query(`
       SELECT id FROM users 
       WHERE LOWER(email) = LOWER($1) 
       OR (username IS NOT NULL AND LOWER(username) = LOWER($2))
     `, [normalizedEmail, normalizedUsername]);
     
-    if (existingUser) {
+    if (existingUserResult.rows.length > 0) {
       return res.status(409).json({
         error: 'User with this email or username already exists'
       });
@@ -733,12 +711,14 @@ app.post('/api/register', async (req, res) => {
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Create user
-    const result = await dbManager.run(
-      'INSERT INTO users (email, username, password_hash, agent_name, role) VALUES ($1, $2, $3, $4, $5)',
-      [normalizedEmail, normalizedUsername, passwordHash, actualAgentName, 'agent']
-    );
-    const userId = result[0]?.id || result.lastInsertRowid;
+    // Create user in PostgreSQL - using the correct schema
+    const result = await pool.query(`
+      INSERT INTO users (username, password, email, first_name, last_name, role, platform_role) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7) 
+      RETURNING id
+    `, [normalizedUsername, passwordHash, normalizedEmail, firstName || '', lastName || '', 'operator', 'agent']);
+    
+    const userId = result.rows[0].id;
 
     // Generate JWT token
     const token = jwt.sign(
@@ -827,11 +807,13 @@ app.post('/api/login', async (req, res) => {
     }
 
     // Find user - search by email OR username (case-insensitive)
-    const user = await dbManager.get(`
+    const userResult = await pool.query(`
       SELECT * FROM users 
       WHERE LOWER(email) = LOWER($1) 
       OR (username IS NOT NULL AND LOWER(username) = LOWER($2))
     `, [actualEmail, actualEmail]);
+    
+    const user = userResult.rows[0];
     
     if (!user) {
       console.log('User not found:', actualEmail);
@@ -840,21 +822,22 @@ app.post('/api/login', async (req, res) => {
       });
     }
 
-    // Verify password
-    const passwordValid = await bcrypt.compare(password, user.password_hash);
+    // Verify password - PostgreSQL uses 'password' field, not 'password_hash'
+    const passwordValid = await bcrypt.compare(password, user.password);
     if (!passwordValid) {
       return res.status(401).json({
         error: 'Invalid credentials'
       });
     }
 
-    // Generate JWT token
+    // Generate JWT token - using PostgreSQL field names
     const token = jwt.sign(
       { 
         userId: user.id, 
-        email: user.email, 
+        email: user.email,
+        username: user.username, 
         role: user.role,
-        agentName: user.agent_name 
+        agentName: user.first_name + ' ' + user.last_name 
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
@@ -866,8 +849,11 @@ app.post('/api/login', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
+        firstName: user.first_name,
+        lastName: user.last_name,
         role: user.role,
-        agentName: user.agent_name
+        platformRole: user.platform_role
       },
       token,
       expiresIn: JWT_EXPIRES_IN

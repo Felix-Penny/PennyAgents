@@ -1,6 +1,6 @@
 {
   "name": "pennyprotect",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "AI-Powered Retail Security System with YOLOv11",
   "type": "module",
   "license": "MIT",
