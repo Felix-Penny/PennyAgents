@@ -31,10 +31,10 @@ For now, after each deployment:
 curl -X POST "https://pennyagents-production.up.railway.app/api/register" \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "felix@pennyagents.com",
-    "password": "Sheba123?",
-    "confirmPassword": "Sheba123?", 
-    "name": "Felix Hemsley"
+    "email": "YOUR_EMAIL@example.com",
+    "password": "YOUR_SECURE_PASSWORD",
+    "confirmPassword": "YOUR_SECURE_PASSWORD", 
+    "name": "Your Name"
   }'
 ```
 
@@ -75,7 +75,7 @@ curl -s "https://pennyagents-production.up.railway.app/api/debug/database" | jq 
 # Test login
 curl -X POST "https://pennyagents-production.up.railway.app/api/login" \
   -H "Content-Type: application/json" \
-  -d '{"username": "felix@pennyagents.com", "password": "Sheba123?"}'
+  -d '{"username": "YOUR_EMAIL@example.com", "password": "YOUR_PASSWORD"}'
 
 # Create test detection data  
 curl -X POST "https://pennyagents-production.up.railway.app/api/debug/create-test-data"
