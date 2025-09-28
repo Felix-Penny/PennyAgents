@@ -9,6 +9,9 @@ import DatabaseManager from './database-manager.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
+// Version check - v1.0.1
+console.log('🚀 PennyAgent Server v1.0.1 - PostgreSQL Migration Build');
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
