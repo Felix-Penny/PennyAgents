@@ -4,7 +4,13 @@ const { Pool } = pkg;
 
 class DatabaseManager {
   constructor() {
+    console.log('🔧 DatabaseManager constructor called');
+    console.log('🔍 DATABASE_URL exists:', !!process.env.DATABASE_URL);
+    console.log('🌍 NODE_ENV:', process.env.NODE_ENV);
+    
     this.usePostgres = process.env.DATABASE_URL ? true : false;
+    console.log('📊 Will use PostgreSQL:', this.usePostgres);
+    
     this.db = null;
     this.pool = null;
     this.init();

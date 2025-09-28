@@ -17,6 +17,13 @@ const dbManager = new DatabaseManager();
 
 console.log('🗄️ Database initialized with detection tracking');
 console.log('🔄 Using database type:', dbManager.usePostgres ? 'PostgreSQL' : 'SQLite');
+console.log('🔍 DATABASE_URL present:', !!process.env.DATABASE_URL);
+console.log('🌍 Environment:', process.env.NODE_ENV);
+
+if (process.env.NODE_ENV === 'production' && !dbManager.usePostgres) {
+  console.error('⚠️ WARNING: Production environment should use PostgreSQL!');
+  console.error('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+}
 
 // Add username column to existing users table if it doesn't exist (PostgreSQL compatible)
 async function ensureUsernameColumn() {
