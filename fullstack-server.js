@@ -535,6 +535,91 @@ app.post('/api/debug/create-test-data', (req, res) => {
   }
 });
 
+// Database reset endpoint - clear SQLite and force PostgreSQL
+app.post('/api/debug/reset-database', async (req, res) => {
+  try {
+    console.log('🗑️ Database reset requested');
+    console.log('🔍 Current database type:', dbManager.usePostgres ? 'PostgreSQL' : 'SQLite');
+    console.log('🌍 NODE_ENV:', process.env.NODE_ENV);
+    console.log('📊 DATABASE_URL present:', !!process.env.DATABASE_URL);
+    
+    if (dbManager.usePostgres) {
+      // Clear PostgreSQL tables
+      console.log('🐘 Clearing PostgreSQL tables...');
+      await dbManager.query('DELETE FROM alerts');
+      await dbManager.query('DELETE FROM detections');
+      await dbManager.query('DELETE FROM users');
+      await dbManager.query('DELETE FROM cameras');
+      
+      // Reset sequences
+      await dbManager.query('ALTER SEQUENCE users_id_seq RESTART WITH 1');
+      await dbManager.query('ALTER SEQUENCE detections_id_seq RESTART WITH 1');
+      await dbManager.query('ALTER SEQUENCE alerts_id_seq RESTART WITH 1');
+      
+      console.log('✅ PostgreSQL database cleared and reset');
+    } else {
+      // Clear SQLite tables
+      console.log('📁 Clearing SQLite tables...');
+      await dbManager.query('DELETE FROM alerts');
+      await dbManager.query('DELETE FROM detections');
+      await dbManager.query('DELETE FROM users');
+      await dbManager.query('DELETE FROM cameras');
+      
+      console.log('✅ SQLite database cleared');
+    }
+    
+    // Re-initialize demo cameras
+    console.log('📹 Re-initializing demo cameras...');
+    if (dbManager.usePostgres) {
+      const cameras = [
+        ['cam_001', 'Main Entrance', 'Front Door', 'rtsp://demo:demo@camera1.local:554/stream1', 'online'],
+        ['cam_002', 'Electronics Section', 'Store Floor - Electronics', 'rtsp://demo:demo@camera2.local:554/stream1', 'online'],
+        ['cam_003', 'Checkout Area', 'Cashier Stations', 'rtsp://demo:demo@camera3.local:554/stream1', 'offline']
+      ];
+      
+      for (const camera of cameras) {
+        await dbManager.query(`
+          INSERT INTO cameras (id, name, location, stream_url, status)
+          VALUES ($1, $2, $3, $4, $5)
+        `, camera);
+      }
+    } else {
+      const cameras = [
+        ['cam_001', 'Main Entrance', 'Front Door', 'rtsp://demo:demo@camera1.local:554/stream1', 'online'],
+        ['cam_002', 'Electronics Section', 'Store Floor - Electronics', 'rtsp://demo:demo@camera2.local:554/stream1', 'online'],
+        ['cam_003', 'Checkout Area', 'Cashier Stations', 'rtsp://demo:demo@camera3.local:554/stream1', 'offline']
+      ];
+      
+      for (const camera of cameras) {
+        await dbManager.query(`
+          INSERT INTO cameras (id, name, location, stream_url, status)
+          VALUES (?, ?, ?, ?, ?)
+        `, camera);
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: 'Database reset completed',
+      database_type: dbManager.usePostgres ? 'PostgreSQL' : 'SQLite',
+      actions_performed: [
+        'Cleared all tables (users, detections, alerts, cameras)',
+        dbManager.usePostgres ? 'Reset PostgreSQL sequences' : 'Cleared SQLite data',
+        'Re-initialized 3 demo cameras'
+      ],
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Database reset error:', error);
+    res.status(500).json({
+      error: 'Failed to reset database',
+      message: error.message,
+      database_type: dbManager.usePostgres ? 'PostgreSQL' : 'SQLite'
+    });
+  }
+});
+
 // CORS preflight support for registration
 app.options('/api/register', (req, res) => {
   res.header('Access-Control-Allow-Origin', '*');

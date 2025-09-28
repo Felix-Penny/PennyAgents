@@ -8,7 +8,15 @@ class DatabaseManager {
     console.log('🔍 DATABASE_URL exists:', !!process.env.DATABASE_URL);
     console.log('🌍 NODE_ENV:', process.env.NODE_ENV);
     
+    // Force PostgreSQL in production environment
     this.usePostgres = process.env.DATABASE_URL ? true : false;
+    
+    // Override: Force PostgreSQL in production even if DATABASE_URL parsing fails
+    if (process.env.NODE_ENV === 'production' && process.env.RAILWAY_ENVIRONMENT) {
+      console.log('🚀 Production environment detected - forcing PostgreSQL');
+      this.usePostgres = true;
+    }
+    
     console.log('📊 Will use PostgreSQL:', this.usePostgres);
     
     this.db = null;
@@ -17,10 +25,31 @@ class DatabaseManager {
   }
 
   init() {
-    if (this.usePostgres && process.env.DATABASE_URL) {
+    if (this.usePostgres) {
       console.log('🐘 Initializing PostgreSQL connection...');
+      
+      // Ensure we have a DATABASE_URL for PostgreSQL
+      let databaseUrl = process.env.DATABASE_URL;
+      
+      // Fallback construction if DATABASE_URL is incomplete
+      if (!databaseUrl && process.env.NODE_ENV === 'production') {
+        console.log('� Constructing DATABASE_URL from Railway environment...');
+        databaseUrl = "postgresql://postgres:NhZfosfcfrGdHaaEJqsTgLcOwMRfPtrJ@postgres.railway.internal:5432/railway";
+      }
+      
+      if (!databaseUrl) {
+        console.error('❌ No DATABASE_URL available for PostgreSQL');
+        console.log('📁 Falling back to SQLite...');
+        this.usePostgres = false;
+        this.db = new Database('penny-detections.db');
+        this.createSQLiteTables();
+        return;
+      }
+      
+      console.log('🔗 Using DATABASE_URL:', databaseUrl.replace(/:[^:]+@/, ':***@'));
+      
       this.pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
+        connectionString: databaseUrl,
         ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
       });
       this.createPostgresTables();
