@@ -1,0 +1,30 @@
+{
+  "name": "pennyprotect-backend",
+  "version": "1.0.0",
+  "description": "PennyProtect AI Backend - Railway Production",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "build": "esbuild server/railway-server.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
+    "dev": "tsx server/full-ai-server.ts"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.19.8",
+    "tsx": "^4.6.0",
+    "@types/express": "^4.17.21",
+    "@types/ws": "^8.5.10",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "pennyprotect-backend",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "main": "simple-server.js",
+  "scripts": {
+    "start": "node simple-server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

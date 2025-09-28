@@ -1,0 +1,16 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package file
+COPY package-direct.json package.json
+
+# Install dependencies
+RUN npm install
+
+# Copy server file
+COPY railway-direct.js .
+
+EXPOSE $PORT
+
+CMD ["npm", "start"]

@@ -1,11 +1,11 @@
 [phases.setup]
 nixPkgs = ["nodejs_20", "npm-9_x"]
 
-[phases.build]
-cmds = ["npm ci", "npm run build"]
+[phases.install]
+cmds = ["npm ci --omit=dev"]
 
 [phases.start]
-cmd = "npm start"
+cmd = "node index.js"
 
 [variables]
 NODE_ENV = "production"

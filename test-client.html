@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PennyProtect AI System Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+        .test-section {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            display: inline-block;
+            padding: 0.3rem 0.8rem;
+            border-radius: 15px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.disconnected { background: #f8d7da; color: #721c24; }
+        .status.loading { background: #fff3cd; color: #856404; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin: 0.5rem 0.5rem 0.5rem 0;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 1rem;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
+        .log-entry {
+            margin-bottom: 0.3rem;
+            padding: 0.2rem;
+        }
+        .log-entry.info { color: #007bff; }
+        .log-entry.success { color: #28a745; }
+        .log-entry.error { color: #dc3545; }
+        .log-entry.websocket { color: #6f42c1; }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .metric {
+            text-align: center;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛡️ PennyProtect AI System</h1>
+        <p>Real-time Theft Detection & Analysis Platform</p>
+    </div>
+
+    <div class="test-section">
+        <h2>System Status</h2>
+        <div id="systemStatus">
+            <span class="status loading">Loading...</span>
+        </div>
+        <button onclick="checkSystemHealth()">Refresh Status</button>
+    </div>
+
+    <div class="test-section">
+        <h2>WebSocket Connection</h2>
+        <div id="wsStatus">
+            <span class="status disconnected">Disconnected</span>
+        </div>
+        <button onclick="connectWebSocket()">Connect</button>
+        <button onclick="disconnectWebSocket()">Disconnect</button>
+        <button onclick="sendTestMessage()">Send Test Message</button>
+    </div>
+
+    <div class="test-section">
+        <h2>AI Analysis Test</h2>
+        <div id="aiStatus">
+            <span class="status loading">Ready</span>
+        </div>
+        <button onclick="testAIAnalysis()">Run AI Analysis Test</button>
+        <div class="metrics" id="aiMetrics" style="display: none;">
+            <div class="metric">
+                <div class="metric-value" id="detectionCount">0</div>
+                <div>Objects Detected</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value" id="analysisTime">0ms</div>
+                <div>Analysis Time</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value" id="confidenceScore">0%</div>
+                <div>Confidence</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>System Log</h2>
+        <div class="log" id="systemLog"></div>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <script>
+        let ws = null;
+        let logEntries = [];
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            logEntries.push({ timestamp, message, type });
+            
+            const logContainer = document.getElementById('systemLog');
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // Keep only last 100 entries
+            if (logEntries.length > 100) {
+                logEntries.shift();
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        async function checkSystemHealth() {
+            log('Checking system health...', 'info');
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                
+                const statusEl = document.getElementById('systemStatus');
+                statusEl.innerHTML = `<span class="status connected">✅ ${data.message}</span>`;
+                
+                log(`System Status: ${data.status}`, 'success');
+                log(`Features: ${Object.entries(data.features).map(([k,v]) => `${k}: ${v}`).join(', ')}`, 'info');
+            } catch (error) {
+                log(`Health check failed: ${error.message}`, 'error');
+                const statusEl = document.getElementById('systemStatus');
+                statusEl.innerHTML = `<span class="status disconnected">❌ System Offline</span>`;
+            }
+        }
+
+        function connectWebSocket() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('WebSocket already connected', 'info');
+                return;
+            }
+
+            log('Connecting to WebSocket...', 'info');
+            ws = new WebSocket(`ws://${window.location.host}/ws`);
+
+            ws.onopen = function(event) {
+                log('WebSocket connected successfully', 'success');
+                document.getElementById('wsStatus').innerHTML = 
+                    `<span class="status connected">✅ Connected</span>`;
+            };
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`WebSocket message: ${data.type}`, 'websocket');
+                    
+                    if (data.type === 'analysis_result') {
+                        log(`AI Analysis broadcast received for ${data.data.camera_id}`, 'success');
+                        updateAIMetrics(data.data.result);
+                    }
+                } catch (error) {
+                    log(`WebSocket message parse error: ${error.message}`, 'error');
+                }
+            };
+
+            ws.onclose = function(event) {
+                log('WebSocket disconnected', 'info');
+                document.getElementById('wsStatus').innerHTML = 
+                    `<span class="status disconnected">❌ Disconnected</span>`;
+            };
+
+            ws.onerror = function(error) {
+                log('WebSocket error occurred', 'error');
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                log('WebSocket disconnected manually', 'info');
+            }
+        }
+
+        function sendTestMessage() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('WebSocket not connected', 'error');
+                return;
+            }
+
+            const testMessage = {
+                type: 'test',
+                message: 'Hello from test client',
+                timestamp: new Date().toISOString()
+            };
+
+            ws.send(JSON.stringify(testMessage));
+            log('Test message sent', 'info');
+        }
+
+        async function testAIAnalysis() {
+            log('Running AI analysis test...', 'info');
+            document.getElementById('aiStatus').innerHTML = 
+                `<span class="status loading">🧪 Testing...</span>`;
+            
+            const startTime = Date.now();
+            
+            try {
+                const response = await fetch('/api/ai/test-analysis');
+                const data = await response.json();
+                const endTime = Date.now();
+                
+                if (data.status === 'success') {
+                    log('AI analysis test completed successfully', 'success');
+                    log(`Analysis result: ${JSON.stringify(data.test_result).substring(0, 100)}...`, 'info');
+                    log(`Broadcasted to ${data.broadcasted_to_clients} WebSocket clients`, 'info');
+                    
+                    document.getElementById('aiStatus').innerHTML = 
+                        `<span class="status connected">✅ Analysis Complete</span>`;
+                    
+                    // Update metrics
+                    updateAIMetrics(data.test_result, endTime - startTime);
+                    document.getElementById('aiMetrics').style.display = 'block';
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (error) {
+                log(`AI analysis test failed: ${error.message}`, 'error');
+                document.getElementById('aiStatus').innerHTML = 
+                    `<span class="status disconnected">❌ Test Failed</span>`;
+            }
+        }
+
+        function updateAIMetrics(result, analysisTime = null) {
+            if (result.detections) {
+                document.getElementById('detectionCount').textContent = result.detections.length;
+            }
+            if (analysisTime) {
+                document.getElementById('analysisTime').textContent = `${analysisTime}ms`;
+            }
+            if (result.confidence) {
+                document.getElementById('confidenceScore').textContent = `${Math.round(result.confidence * 100)}%`;
+            }
+        }
+
+        function clearLog() {
+            logEntries = [];
+            document.getElementById('systemLog').innerHTML = '';
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', function() {
+            log('PennyProtect AI Test Client initialized', 'success');
+            checkSystemHealth();
+        });
+    </script>
+</body>
+</html>

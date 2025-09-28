@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       toast({
         title: "Welcome back!",
-        description: `Logged in as ${user.role.replace('_', ' ')}`,
+        description: `Logged in as ${user.role?.replace('_', ' ') || 'user'}`,
       });
     },
     onError: (error: Error) => {
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       toast({
         title: "Welcome to Penny!",
-        description: `Account created as ${user.role.replace('_', ' ')}`,
+        description: `Account created as ${user.role?.replace('_', ' ') || 'user'}`,
       });
     },
     onError: (error: Error) => {
@@ -136,7 +136,7 @@ export function useAuth() {
 
 // Helper functions for role checking
 export function hasRole(user: SelectUser | null, allowedRoles: string[]) {
-  return user && allowedRoles.includes(user.role);
+  return user && user.role && allowedRoles.includes(user.role);
 }
 
 export function isStoreStaff(user: SelectUser | null) {

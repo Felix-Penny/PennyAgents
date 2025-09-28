@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registration Debug Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        
+        .form-group {
+            margin: 15px 0;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            background: #1e293b;
+            color: #e2e8f0;
+            font-size: 16px;
+        }
+        
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        
+        button:hover {
+            background: #2563eb;
+        }
+        
+        .debug-output {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+        }
+        
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .info { color: #3b82f6; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Registration Debug Test</h1>
+    <p>This page helps debug registration issues by testing different field combinations and showing exact API responses.</p>
+    
+    <form id="registrationForm">
+        <div class="form-group">
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" value="test@pennystore.com" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" value="password123" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="confirmPassword">Confirm Password:</label>
+            <input type="password" id="confirmPassword" name="confirmPassword" value="password123" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="name">Name (testing "name" field):</label>
+            <input type="text" id="name" name="name" value="Store Manager" required>
+        </div>
+        
+        <button type="button" onclick="testRegistration()">Test with "name" field</button>
+        <button type="button" onclick="testRegistrationAgentName()">Test with "agentName" field</button>
+        <button type="button" onclick="testDebugEndpoint()">Test Debug Endpoint</button>
+        <button type="button" onclick="clearOutput()">Clear Output</button>
+    </form>
+    
+    <div id="output" class="debug-output">Ready to test registration...</div>
+
+    <script>
+        const BASE_URL = window.location.origin;
+        const outputDiv = document.getElementById('output');
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            outputDiv.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        }
+        
+        function clearOutput() {
+            outputDiv.innerHTML = 'Output cleared...\n';
+        }
+        
+        function getFormData() {
+            return {
+                email: document.getElementById('email').value,
+                password: document.getElementById('password').value,
+                confirmPassword: document.getElementById('confirmPassword').value,
+                name: document.getElementById('name').value
+            };
+        }
+        
+        async function testRegistration() {
+            const formData = getFormData();
+            
+            log('Testing registration with "name" field...', 'info');
+            log('Sending data: ' + JSON.stringify(formData, null, 2), 'info');
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ Registration successful!', 'success');
+                    log('Response: ' + JSON.stringify(result, null, 2), 'success');
+                } else {
+                    log('❌ Registration failed with status: ' + response.status, 'error');
+                    log('Error response: ' + JSON.stringify(result, null, 2), 'error');
+                }
+                
+            } catch (error) {
+                log('❌ Network error: ' + error.message, 'error');
+            }
+        }
+        
+        async function testRegistrationAgentName() {
+            const formData = getFormData();
+            // Use agentName instead of name
+            formData.agentName = formData.name;
+            delete formData.name;
+            
+            log('Testing registration with "agentName" field...', 'info');
+            log('Sending data: ' + JSON.stringify(formData, null, 2), 'info');
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ Registration successful!', 'success');
+                    log('Response: ' + JSON.stringify(result, null, 2), 'success');
+                } else {
+                    log('❌ Registration failed with status: ' + response.status, 'error');
+                    log('Error response: ' + JSON.stringify(result, null, 2), 'error');
+                }
+                
+            } catch (error) {
+                log('❌ Network error: ' + error.message, 'error');
+            }
+        }
+        
+        async function testDebugEndpoint() {
+            const formData = getFormData();
+            
+            log('Testing debug endpoint...', 'info');
+            log('Sending data: ' + JSON.stringify(formData, null, 2), 'info');
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/debug/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                log('Debug endpoint response:', 'info');
+                log(JSON.stringify(result, null, 2), 'info');
+                
+            } catch (error) {
+                log('❌ Debug endpoint error: ' + error.message, 'error');
+            }
+        }
+        
+        // Auto-generate a unique email on page load
+        window.onload = function() {
+            const timestamp = Date.now();
+            document.getElementById('email').value = `test${timestamp}@pennystore.com`;
+        };
+    </script>
+</body>
+</html>

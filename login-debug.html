@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Debug Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        
+        .form-group {
+            margin: 15px 0;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            background: #1e293b;
+            color: #e2e8f0;
+            font-size: 16px;
+        }
+        
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        
+        button:hover {
+            background: #2563eb;
+        }
+        
+        .debug-output {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+        }
+        
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .info { color: #3b82f6; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Login Debug Test</h1>
+    <p>This page helps debug login issues by testing different field combinations and showing exact API responses.</p>
+    
+    <form id="loginForm">
+        <div class="form-group">
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" value="felix@pennyagents.com" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" value="Sheba123?" required>
+        </div>
+        
+        <button type="button" onclick="testLogin()">Test Login</button>
+        <button type="button" onclick="testDebugLogin()">Test Debug Endpoint</button>
+        <button type="button" onclick="checkUserExists()">Check if User Exists</button>
+        <button type="button" onclick="listUsers()">List Database Users</button>
+        <button type="button" onclick="clearOutput()">Clear Output</button>
+    </form>
+    
+    <div id="output" class="debug-output">Ready to test login...</div>
+
+    <script>
+        const BASE_URL = window.location.origin;
+        const outputDiv = document.getElementById('output');
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            outputDiv.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        }
+        
+        function clearOutput() {
+            outputDiv.innerHTML = 'Output cleared...\n';
+        }
+        
+        function getFormData() {
+            return {
+                email: document.getElementById('email').value,
+                password: document.getElementById('password').value
+            };
+        }
+        
+        async function testLogin() {
+            const formData = getFormData();
+            
+            log('Testing login...', 'info');
+            log('Sending data: ' + JSON.stringify(formData, null, 2), 'info');
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ Login successful!', 'success');
+                    log('Response: ' + JSON.stringify(result, null, 2), 'success');
+                } else {
+                    log('❌ Login failed with status: ' + response.status, 'error');
+                    log('Error response: ' + JSON.stringify(result, null, 2), 'error');
+                }
+                
+            } catch (error) {
+                log('❌ Network error: ' + error.message, 'error');
+            }
+        }
+        
+        async function testDebugLogin() {
+            const formData = getFormData();
+            
+            log('Testing debug login endpoint...', 'info');
+            log('Sending data: ' + JSON.stringify(formData, null, 2), 'info');
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/debug/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                log('Debug login endpoint response:', 'info');
+                log(JSON.stringify(result, null, 2), 'info');
+                
+            } catch (error) {
+                log('❌ Debug login endpoint error: ' + error.message, 'error');
+            }
+        }
+        
+        async function checkUserExists() {
+            const email = document.getElementById('email').value;
+            
+            log('Checking if user exists (via registration attempt)...', 'info');
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        password: 'testpassword123',
+                        confirmPassword: 'testpassword123',
+                        name: 'Test User'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.status === 409) {
+                    log('✅ User exists! Registration returned 409 (conflict)', 'success');
+                    log('Response: ' + JSON.stringify(result, null, 2), 'info');
+                } else if (response.ok) {
+                    log('⚠️  User did not exist, but registration succeeded', 'info');
+                    log('Response: ' + JSON.stringify(result, null, 2), 'info');
+                } else {
+                    log('❌ Unexpected response: ' + response.status, 'error');
+                    log('Response: ' + JSON.stringify(result, null, 2), 'error');
+                }
+                
+            } catch (error) {
+                log('❌ Network error: ' + error.message, 'error');
+            }
+        }
+        
+        async function listUsers() {
+            log('Fetching list of database users...', 'info');
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/debug/users`, {
+                    method: 'GET'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ Users retrieved successfully:', 'success');
+                    log('Total users: ' + result.count, 'info');
+                    if (result.users && result.users.length > 0) {
+                        result.users.forEach((user, index) => {
+                            log(`User ${index + 1}: ${user.email} (${user.agent_name}) - Role: ${user.role}`, 'info');
+                        });
+                    } else {
+                        log('No users found in database', 'info');
+                    }
+                    log('Full response: ' + JSON.stringify(result, null, 2), 'info');
+                } else {
+                    log('❌ Failed to retrieve users: ' + response.status, 'error');
+                    log('Response: ' + JSON.stringify(result, null, 2), 'error');
+                }
+                
+            } catch (error) {
+                log('❌ Network error: ' + error.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

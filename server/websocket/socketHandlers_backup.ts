@@ -1,6 +1,21 @@
 import { WebSocket } from 'ws';
-import { randomUUID } from 'crypto';
-import { db } from '../db';
+import { randomUUID } from     // Set up message handlers
+    ws.on('message', (data) => this.handleMessage(ws, data));
+    ws.on('close', () => this.removeClient(ws));
+    ws.on('error', (error) => {
+      console.error(`WebSocket error for client ${ws.clientId}:`, error);
+      this.removeClient(ws);
+    });
+
+    console.log(`WebSocket client added: ${ws.clientId}, User: ${userId}, Store: ${storeId}`);
+  }
+
+  private async handleMessage(ws: WebSocketClient, data: any) {
+    try {
+      const messageString = data instanceof Buffer ? data.toString() : String(data);
+      const message = JSON.parse(messageString);
+      
+      switch (message.type) { { db } from '../db';
 import { stores, cameras, alerts, aiDetections } from '../../shared/schema';
 import { eq, and, desc } from 'drizzle-orm';
 
@@ -52,6 +67,11 @@ class WebSocketManager {
 
     this.clients.set(ws.clientId, ws);
 
+    // Auto-subscribe to user's stores if they have access
+    if (storeId) {
+      this.subscribeToStore(ws, storeId);
+    }
+
     // Set up message handlers
     ws.on('message', (data) => this.handleMessage(ws, data));
     ws.on('close', () => this.removeClient(ws));
@@ -63,10 +83,9 @@ class WebSocketManager {
     console.log(`WebSocket client added: ${ws.clientId}, User: ${userId}, Store: ${storeId}`);
   }
 
-  private async handleMessage(ws: WebSocketClient, data: any) {
+  private async handleMessage(ws: WebSocketClient, data: Buffer) {
     try {
-      const messageString = data instanceof Buffer ? data.toString() : String(data);
-      const message = JSON.parse(messageString);
+      const message = JSON.parse(data.toString());
       
       switch (message.type) {
         case 'subscribe-camera':
@@ -80,16 +99,20 @@ class WebSocketManager {
         case 'subscribe-store':
           await this.handleStoreSubscription(ws, message.storeId);
           break;
-
-        case 'ping':
-          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+        
+        case 'get-recent-alerts':
+          await this.sendRecentAlerts(ws, message.storeId);
           break;
-          
+        
+        case 'ping':
+          ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
+          break;
+        
         default:
           console.warn(`Unknown message type: ${message.type}`);
       }
     } catch (error) {
-      console.error('Error handling WebSocket message:', error);
+      console.error(`Error handling WebSocket message:`, error);
       ws.send(JSON.stringify({ 
         type: 'error', 
         message: 'Invalid message format' 
@@ -99,96 +122,79 @@ class WebSocketManager {
 
   private async handleCameraSubscription(ws: WebSocketClient, cameraId: string) {
     try {
-      // Verify camera exists and user has access
-      const camera = await db.query.cameras.findFirst({
-        where: eq(cameras.id, cameraId),
-        with: {
-          store: true
-        }
-      });
+      // Verify user has access to this camera
+      const camera = await db.select()
+        .from(cameras)
+        .where(eq(cameras.id, cameraId))
+        .limit(1);
 
-      if (!camera) {
+      if (camera.length === 0) {
         ws.send(JSON.stringify({ 
           type: 'subscription-error', 
-          message: 'Camera not found',
-          cameraId 
+          message: 'Camera not found' 
         }));
         return;
       }
 
-      // Check if user has access to this store
-      if (ws.storeId && camera.storeId !== ws.storeId) {
+      // Check if user has access to the store this camera belongs to
+      if (ws.storeId && camera[0].storeId !== ws.storeId) {
         ws.send(JSON.stringify({ 
           type: 'subscription-error', 
-          message: 'Access denied to camera',
-          cameraId 
+          message: 'Access denied' 
         }));
         return;
       }
 
-      // Add subscription
-      if (!this.cameraSubscriptions.has(cameraId)) {
-        this.cameraSubscriptions.set(cameraId, new Set());
-      }
-      
-      this.cameraSubscriptions.get(cameraId)!.add(ws.clientId);
-      ws.subscribedCameras.add(cameraId);
-
+      this.subscribeToCamera(ws, cameraId);
       ws.send(JSON.stringify({ 
         type: 'subscription-confirmed', 
         cameraId,
-        camera: {
-          id: camera.id,
-          name: camera.name,
-          status: camera.status
-        }
+        cameraName: camera[0].name
       }));
 
       console.log(`Client ${ws.clientId} subscribed to camera ${cameraId}`);
     } catch (error) {
-      console.error('Error in camera subscription:', error);
+      console.error(`Error in camera subscription:`, error);
       ws.send(JSON.stringify({ 
         type: 'subscription-error', 
-        message: 'Internal server error',
-        cameraId 
+        message: 'Internal server error' 
       }));
     }
   }
 
   private async handleStoreSubscription(ws: WebSocketClient, storeId: string) {
-    try {
-      // Verify store exists and user has access
-      if (ws.storeId && ws.storeId !== storeId) {
-        ws.send(JSON.stringify({ 
-          type: 'subscription-error', 
-          message: 'Access denied to store',
-          storeId 
-        }));
-        return;
-      }
-
-      // Add subscription
-      if (!this.storeSubscriptions.has(storeId)) {
-        this.storeSubscriptions.set(storeId, new Set());
-      }
-      
-      this.storeSubscriptions.get(storeId)!.add(ws.clientId);
-      ws.subscribedStores.add(storeId);
-
-      ws.send(JSON.stringify({ 
-        type: 'store-subscription-confirmed', 
-        storeId 
-      }));
-
-      console.log(`Client ${ws.clientId} subscribed to store ${storeId}`);
-    } catch (error) {
-      console.error('Error in store subscription:', error);
+    // Verify user has access to this store
+    if (ws.storeId && ws.storeId !== storeId) {
       ws.send(JSON.stringify({ 
         type: 'subscription-error', 
-        message: 'Internal server error',
-        storeId 
+        message: 'Access denied' 
       }));
+      return;
     }
+
+    this.subscribeToStore(ws, storeId);
+    ws.send(JSON.stringify({ 
+      type: 'store-subscription-confirmed', 
+      storeId 
+    }));
+  }
+
+  private subscribeToCamera(ws: WebSocketClient, cameraId: string) {
+    if (!this.cameraSubscriptions.has(cameraId)) {
+      this.cameraSubscriptions.set(cameraId, new Set());
+    }
+    
+    this.cameraSubscriptions.get(cameraId)!.add(ws.clientId);
+    ws.subscribedCameras.add(cameraId);
+  }
+
+  private subscribeToStore(ws: WebSocketClient, storeId: string) {
+    if (!this.storeSubscriptions.has(storeId)) {
+      this.storeSubscriptions.set(storeId, new Set());
+    }
+    
+    this.storeSubscriptions.get(storeId)!.add(ws.clientId);
+    ws.subscribedStores.add(storeId);
   }
 
   private handleCameraUnsubscription(ws: WebSocketClient, cameraId: string) {
@@ -221,59 +227,61 @@ class WebSocketManager {
     });
   }
 
-  // Public broadcast methods
-  broadcast(message: any) {
-    this.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        try {
-          client.send(JSON.stringify({
-            ...message,
-            timestamp: new Date().toISOString()
-          }));
-        } catch (error) {
-          console.error('Failed to broadcast message:', error);
-          this.removeClient(client);
-        }
-      }
-    });
+  private async sendRecentAlerts(ws: WebSocketClient, storeId?: string) {
+    try {
+      const targetStoreId = storeId || ws.storeId;
+      if (!targetStoreId) return;
+
+      const recentAlerts = await db.select()
+        .from(alerts)
+        .where(eq(alerts.storeId, targetStoreId))
+        .orderBy(desc(alerts.createdAt))
+        .limit(10);
+
+      ws.send(JSON.stringify({
+        type: 'recent-alerts',
+        alerts: recentAlerts
+      }));
+    } catch (error) {
+      console.error(`Error fetching recent alerts:`, error);
+    }
   }
 
-  broadcastAnalysisResult(result: AnalysisResult) {
-    const subscribers = this.cameraSubscriptions.get(result.cameraId) || new Set();
-    
-    const message = {
-      type: 'analysis_result',
-      ...result
-    };
+  // Public methods for broadcasting events
+  broadcastAnalysisResult(analysisResult: AnalysisResult) {
+    const subscribers = this.cameraSubscriptions.get(analysisResult.cameraId);
+    if (!subscribers) return;
 
-    this.broadcastToClients(subscribers, message);
-    console.log(`Broadcasted analysis result to ${subscribers.size} clients for camera ${result.cameraId}`);
+    const message = JSON.stringify({
+      type: 'analysis-result',
+      data: analysisResult
+    });
+
+    subscribers.forEach(clientId => {
+      const client = this.clients.get(clientId);
+      if (client && client.readyState === WebSocket.OPEN) {
+        client.send(message);
+      }
+    });
+
+    console.log(`Broadcasted analysis result to ${subscribers.size} clients for camera ${analysisResult.cameraId}`);
   }
 
   broadcastAlert(alert: AlertData) {
-    // Broadcast to store subscribers
-    const subscribers = this.storeSubscriptions.get(alert.storeId) || new Set();
-    
-    const message = {
-      type: 'alert',
-      id: alert.id,
-      storeId: alert.storeId,
-      alertType: alert.type,
-      severity: alert.severity,
-      title: alert.title,
-      description: alert.description,
-      timestamp: alert.timestamp,
-      cameraId: alert.cameraId,
-      metadata: alert.metadata
-    };
+    const subscribers = this.storeSubscriptions.get(alert.storeId);
+    if (!subscribers) return;
 
-    this.broadcastToClients(subscribers, message);
+    const message = JSON.stringify({
+      type: 'new-alert',
+      data: alert
+    });
 
-    // Also broadcast to camera subscribers if cameraId is specified
-    if (alert.cameraId) {
-      const cameraSubscribers = this.cameraSubscriptions.get(alert.cameraId) || new Set();
-      this.broadcastToClients(cameraSubscribers, message);
-    }
+    subscribers.forEach(clientId => {
+      const client = this.clients.get(clientId);
+      if (client && client.readyState === WebSocket.OPEN) {
+        client.send(message);
+      }
+    });
 
     console.log(`Broadcasted alert to ${subscribers.size} clients for store ${alert.storeId}`);
   }
@@ -328,47 +336,24 @@ class WebSocketManager {
       }
     });
 
-    // Remove from clients map
     this.clients.delete(ws.clientId);
     console.log(`WebSocket client removed: ${ws.clientId}`);
   }
 
-  // Utility methods
-  getConnectedClients(): number {
+  // Get connected clients count for monitoring
+  getConnectedClientsCount(): number {
     return this.clients.size;
   }
 
-  getCameraSubscribers(cameraId: string): number {
-    return this.cameraSubscriptions.get(cameraId)?.size || 0;
-  }
-
-  getStoreSubscribers(storeId: string): number {
-    return this.storeSubscriptions.get(storeId)?.size || 0;
-  }
-
+  // Get subscription stats
   getSubscriptionStats() {
     return {
       totalClients: this.clients.size,
-      cameraSubscriptions: Array.from(this.cameraSubscriptions.entries()).map(([cameraId, subscribers]) => ({
-        cameraId,
-        subscribers: subscribers.size
-      })),
-      storeSubscriptions: Array.from(this.storeSubscriptions.entries()).map(([storeId, subscribers]) => ({
-        storeId,
-        subscribers: subscribers.size
-      }))
+      cameraSubscriptions: this.cameraSubscriptions.size,
+      storeSubscriptions: this.storeSubscriptions.size
     };
   }
 }
 
+export { WebSocketManager };
 export const wsManager = new WebSocketManager();
-
-// Legacy exports for compatibility
-export const handleCameraStatusSubscription = (ws: WebSocketClient, cameraId: string) => 
-  wsManager['handleCameraSubscription'](ws, cameraId);
-
-export const handleCameraStatusUnsubscription = (ws: WebSocketClient, cameraId: string) => 
-  wsManager['handleCameraUnsubscription'](ws, cameraId);
-
-export const broadcastCameraStatusUpdate = (cameraId: string, status: any) => 
-  wsManager.broadcastCameraStatus(cameraId, status);

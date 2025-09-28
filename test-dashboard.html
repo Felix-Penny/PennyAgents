@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Penny AI - Test Dashboard</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        
+        .dashboard {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #334155;
+        }
+        
+        .card h3 {
+            margin: 0 0 15px 0;
+            color: #f1f5f9;
+            font-size: 18px;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-healthy { background: #10b981; }
+        .status-warning { background: #f59e0b; }
+        .status-error { background: #ef4444; }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            padding: 8px;
+            background: #0f172a;
+            border-radius: 6px;
+        }
+        
+        .alert-log {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #0f172a;
+            border-radius: 6px;
+            padding: 10px;
+        }
+        
+        .alert-item {
+            padding: 8px;
+            margin: 5px 0;
+            background: #1e293b;
+            border-left: 3px solid #ef4444;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .alert-confidence {
+            color: #10b981;
+            font-weight: bold;
+        }
+        
+        .alert-time {
+            color: #64748b;
+            font-size: 12px;
+        }
+        
+        .test-button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 10px 5px 10px 0;
+            font-size: 14px;
+        }
+        
+        .test-button:hover {
+            background: #2563eb;
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .connected { background: #10b981; color: white; }
+        .disconnected { background: #ef4444; color: white; }
+    </style>
+</head>
+<body>
+    <div id="connectionStatus" class="connection-status disconnected">Connecting...</div>
+    
+    <h1>🛡️ Penny AI Test Dashboard</h1>
+    <p>Real-time testing dashboard for Penny theft detection system</p>
+    
+    <div class="dashboard">
+        <!-- System Status -->
+        <div class="card">
+            <h3>🔧 System Status</h3>
+            <div class="metric">
+                <span>Server Status</span>
+                <span><span class="status-indicator status-healthy"></span>Operational</span>
+            </div>
+            <div class="metric">
+                <span>AI Service</span>
+                <span id="aiStatus"><span class="status-indicator status-healthy"></span>Loading...</span>
+            </div>
+            <div class="metric">
+                <span>WebSocket</span>
+                <span id="wsStatus"><span class="status-indicator status-warning"></span>Connecting...</span>
+            </div>
+        </div>
+        
+        <!-- AI Analytics -->
+        <div class="card">
+            <h3>🤖 AI Analytics</h3>
+            <div id="aiMetrics">
+                <div class="metric">
+                    <span>Processing Time</span>
+                    <span id="processingTime">Loading...</span>
+                </div>
+                <div class="metric">
+                    <span>Accuracy Rate</span>
+                    <span id="accuracyRate">Loading...</span>
+                </div>
+                <div class="metric">
+                    <span>Frames Processed</span>
+                    <span id="framesProcessed">Loading...</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Alert Summary -->
+        <div class="card">
+            <h3>🚨 Alert Summary</h3>
+            <div id="alertSummary">
+                <div class="metric">
+                    <span>Alerts Today</span>
+                    <span id="alertsToday">Loading...</span>
+                </div>
+                <div class="metric">
+                    <span>High Priority</span>
+                    <span id="highPriority">Loading...</span>
+                </div>
+                <div class="metric">
+                    <span>Success Rate</span>
+                    <span id="successRate">Loading...</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Test Controls -->
+        <div class="card">
+            <h3>🧪 Test Controls</h3>
+            <button class="test-button" onclick="testAlert()">Trigger Test Alert</button>
+            <button class="test-button" onclick="testSMS()">Test SMS Alert</button>
+            <button class="test-button" onclick="testAI()">Test AI Analysis</button>
+            <button class="test-button" onclick="refreshDashboard()">Refresh Data</button>
+            
+            <div class="metric">
+                <span>Connected Clients</span>
+                <span id="clientCount">0</span>
+            </div>
+        </div>
+        
+        <!-- Live Alert Feed -->
+        <div class="card" style="grid-column: 1 / -1;">
+            <h3>📡 Live Alert Feed</h3>
+            <div id="alertLog" class="alert-log">
+                <p style="color: #64748b; text-align: center;">Waiting for alerts...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const PRODUCTION_URL = 'https://pennyagents-production.up.railway.app';
+        const LOCAL_URL = 'http://localhost:8080';
+        const BASE_URL = window.location.hostname === 'localhost' ? LOCAL_URL : PRODUCTION_URL;
+        
+        // WebSocket connection
+        const socket = io(BASE_URL);
+        const connectionStatus = document.getElementById('connectionStatus');
+        const alertLog = document.getElementById('alertLog');
+        
+        socket.on('connect', () => {
+            console.log('Connected to WebSocket');
+            connectionStatus.textContent = '🟢 Connected';
+            connectionStatus.className = 'connection-status connected';
+            document.getElementById('wsStatus').innerHTML = '<span class="status-indicator status-healthy"></span>Connected';
+            updateClientCount();
+        });
+        
+        socket.on('disconnect', () => {
+            console.log('Disconnected from WebSocket');
+            connectionStatus.textContent = '🔴 Disconnected';
+            connectionStatus.className = 'connection-status disconnected';
+            document.getElementById('wsStatus').innerHTML = '<span class="status-indicator status-error"></span>Disconnected';
+        });
+        
+        socket.on('status', (data) => {
+            console.log('System status:', data);
+            document.getElementById('clientCount').textContent = data.clients_connected || 0;
+            addAlert(`System: ${data.message}`, 'info');
+        });
+        
+        socket.on('alert', (data) => {
+            console.log('Real-time alert:', data);
+            const confidence = Math.round(data.confidence * 100);
+            addAlert(`🚨 ${data.type} detected at ${data.location} (${confidence}% confidence)`, 'alert', data);
+        });
+        
+        // Functions
+        function addAlert(message, type = 'info', data = null) {
+            const alertItem = document.createElement('div');
+            alertItem.className = 'alert-item';
+            
+            const time = new Date().toLocaleTimeString();
+            let content = `<div>${message}</div><div class="alert-time">${time}</div>`;
+            
+            if (data && data.confidence) {
+                content += `<div>Agent: ${data.agent_id} | Confidence: <span class="alert-confidence">${Math.round(data.confidence * 100)}%</span></div>`;
+            }
+            
+            alertItem.innerHTML = content;
+            
+            if (alertLog.children.length === 0 || alertLog.children[0].textContent.includes('Waiting')) {
+                alertLog.innerHTML = '';
+            }
+            
+            alertLog.insertBefore(alertItem, alertLog.firstChild);
+            
+            // Keep only last 10 alerts
+            while (alertLog.children.length > 10) {
+                alertLog.removeChild(alertLog.lastChild);
+            }
+        }
+        
+        function updateClientCount() {
+            fetch(`${BASE_URL}/api/stats`)
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('clientCount').textContent = data.websocket.connected_clients;
+                })
+                .catch(e => console.error('Error fetching stats:', e));
+        }
+        
+        async function testAlert() {
+            try {
+                const response = await fetch(`${BASE_URL}/api/test/alert`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const result = await response.json();
+                console.log('Test alert result:', result);
+                addAlert('Test alert triggered successfully', 'info');
+            } catch (error) {
+                console.error('Error triggering test alert:', error);
+                addAlert('Error triggering test alert: ' + error.message, 'error');
+            }
+        }
+        
+        async function testSMS() {
+            try {
+                const response = await fetch(`${BASE_URL}/api/sms/test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: 'Test SMS from dashboard', to: '+1234567890' })
+                });
+                const result = await response.json();
+                console.log('SMS test result:', result);
+                addAlert('SMS test completed successfully', 'info');
+            } catch (error) {
+                console.error('Error testing SMS:', error);
+                addAlert('Error testing SMS: ' + error.message, 'error');
+            }
+        }
+        
+        async function testAI() {
+            try {
+                const response = await fetch(`${BASE_URL}/api/ai/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        imageData: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBD',
+                        frameId: 'test_' + Date.now()
+                    })
+                });
+                const result = await response.json();
+                console.log('AI test result:', result);
+                addAlert('AI analysis test completed successfully', 'info');
+            } catch (error) {
+                console.error('Error testing AI:', error);
+                addAlert('Error testing AI: ' + error.message, 'error');
+            }
+        }
+        
+        async function refreshDashboard() {
+            try {
+                // Fetch dashboard data
+                const dashboardResponse = await fetch(`${BASE_URL}/api/dashboard`);
+                const dashboard = await dashboardResponse.json();
+                
+                // Update AI status and metrics
+                document.getElementById('aiStatus').innerHTML = 
+                    `<span class="status-indicator status-${dashboard.ai_service.status === 'healthy' ? 'healthy' : 'error'}"></span>${dashboard.ai_service.status}`;
+                document.getElementById('processingTime').textContent = dashboard.performance.avg_processing_time;
+                document.getElementById('accuracyRate').textContent = dashboard.performance.accuracy_rate;
+                document.getElementById('framesProcessed').textContent = dashboard.performance.frames_processed.toLocaleString();
+                
+                // Update alert summary
+                document.getElementById('alertsToday').textContent = dashboard.alerts.total_today;
+                document.getElementById('highPriority').textContent = dashboard.alerts.high_priority;
+                
+                // Fetch stats
+                const statsResponse = await fetch(`${BASE_URL}/api/stats`);
+                const stats = await statsResponse.json();
+                document.getElementById('successRate').textContent = stats.alerts.success_rate;
+                document.getElementById('clientCount').textContent = stats.websocket.connected_clients;
+                
+                addAlert('Dashboard data refreshed', 'info');
+                
+            } catch (error) {
+                console.error('Error refreshing dashboard:', error);
+                addAlert('Error refreshing dashboard: ' + error.message, 'error');
+            }
+        }
+        
+        // Initialize dashboard
+        refreshDashboard();
+        setInterval(refreshDashboard, 30000); // Refresh every 30 seconds
+    </script>
+</body>
+</html>

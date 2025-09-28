@@ -1,0 +1,27 @@
+{
+  "name": "pennyagents-fullstack",
+  "version": "1.0.0",
+  "description": "PennyAgent Full-Stack Application",
+  "main": "fullstack-server.js",
+  "scripts": {
+    "start": "node fullstack-server.js",
+    "build": "npm run build:client",
+    "build:client": "vite build",
+    "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+    "dev:client": "vite",
+    "dev:server": "node fullstack-server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "concurrently": "^8.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

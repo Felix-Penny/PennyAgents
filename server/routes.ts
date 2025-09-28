@@ -5078,7 +5078,9 @@ export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
   
   // Setup WebSocket server for real-time camera status updates
-  setupWebSocketServer(httpServer);
+  // TODO: Fix WebSocket port binding issue
+  // setupWebSocketServer(httpServer);
+  console.log('WebSocket server temporarily disabled for testing');
   
   return httpServer;
 }
